@@ -1,0 +1,51 @@
+use libc.printf;
+use libc.strcmp;
+
+fn print_help() void {
+    _ = printf("vp8uya scaffold CLI\n");
+    _ = printf("Usage:\n");
+    _ = printf("  vp8uya [--help|-h]\n");
+    _ = printf("  vp8uya version\n");
+    _ = printf("  vp8uya info <input.ivf>\n");
+    _ = printf("  vp8uya decode <input.ivf> --yuv <out.yuv>\n");
+}
+
+fn print_version() void {
+    _ = printf("vp8uya 0.0.0-scaffold\n");
+}
+
+fn print_not_implemented(command: &byte) void {
+    _ = printf("%s is not implemented yet; VP8 parsing and decoding are not available in this scaffold.\n", command);
+}
+
+export extern fn main(argc: i32, argv: & &byte) i32 {
+    if argc <= 1 {
+        print_help();
+        return 0;
+    }
+
+    const cmd: &byte = argv[1];
+    if strcmp(cmd as *const byte, "--help\0" as *const byte) == 0 {
+        print_help();
+        return 0;
+    }
+    if strcmp(cmd as *const byte, "-h\0" as *const byte) == 0 {
+        print_help();
+        return 0;
+    }
+    if strcmp(cmd as *const byte, "version\0" as *const byte) == 0 {
+        print_version();
+        return 0;
+    }
+    if strcmp(cmd as *const byte, "info\0" as *const byte) == 0 {
+        print_not_implemented(cmd);
+        return 2;
+    }
+    if strcmp(cmd as *const byte, "decode\0" as *const byte) == 0 {
+        print_not_implemented(cmd);
+        return 2;
+    }
+
+    _ = printf("unknown command: %s\n", cmd);
+    return 1;
+}
