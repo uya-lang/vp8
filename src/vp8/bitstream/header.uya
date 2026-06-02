@@ -37,6 +37,15 @@ export struct Vp8LoopFilterHeader {
     mode_delta: [i8: 4]
 }
 
+export struct Vp8QuantHeader {
+    base_qindex: u8,
+    y1_dc_delta: i8,
+    y2_dc_delta: i8,
+    y2_ac_delta: i8,
+    uv_dc_delta: i8,
+    uv_ac_delta: i8
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,

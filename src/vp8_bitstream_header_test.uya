@@ -4,6 +4,7 @@ use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
 use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
@@ -96,6 +97,24 @@ test "define VP8 loop filter header fields" {
     try assert_eq_i32(loop_filter.mode_delta[1] as i32, -2);
     try assert_eq_i32(loop_filter.mode_delta[2] as i32, 2);
     try assert_eq_i32(loop_filter.mode_delta[3] as i32, 4);
+}
+
+test "define VP8 quant header fields" {
+    const quant: Vp8QuantHeader = Vp8QuantHeader{
+        base_qindex: 20,
+        y1_dc_delta: -2,
+        y2_dc_delta: 4,
+        y2_ac_delta: 6,
+        uv_dc_delta: -1,
+        uv_ac_delta: 3
+    };
+
+    try assert_eq_i32(quant.base_qindex as i32, 20);
+    try assert_eq_i32(quant.y1_dc_delta as i32, -2);
+    try assert_eq_i32(quant.y2_dc_delta as i32, 4);
+    try assert_eq_i32(quant.y2_ac_delta as i32, 6);
+    try assert_eq_i32(quant.uv_dc_delta as i32, -1);
+    try assert_eq_i32(quant.uv_ac_delta as i32, 3);
 }
 
 test "parse VP8 frame tag" {
