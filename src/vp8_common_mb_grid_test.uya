@@ -1,0 +1,68 @@
+use std.testing.assert_eq_i32;
+
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.MacroblockPosition;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mb_grid.macroblock_grid_index;
+use vp8.common.mb_grid.macroblock_grid_position;
+
+test "MacroblockGrid rounds visible dimensions up to 16x16 macroblocks" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
+
+    try assert_eq_i32(grid.width as i32, 17);
+    try assert_eq_i32(grid.height as i32, 17);
+    try assert_eq_i32(grid.mb_cols as i32, 2);
+    try assert_eq_i32(grid.mb_rows as i32, 2);
+    try assert_eq_i32(grid.mb_count as i32, 4);
+
+    try assert_eq_i32((try macroblock_grid_index(&grid, 1, 0)) as i32, 1);
+    try assert_eq_i32((try macroblock_grid_index(&grid, 0, 1)) as i32, 2);
+}
+
+test "MacroblockGrid positions expose clipped luma and chroma extents" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
+    var top_left: MacroblockPosition = try macroblock_grid_position(&grid, 0, 0);
+    var bottom_right: MacroblockPosition = try macroblock_grid_position(&grid, 1, 1);
+
+    try assert_eq_i32(top_left.pixel_x as i32, 0);
+    try assert_eq_i32(top_left.pixel_y as i32, 0);
+    try assert_eq_i32(top_left.width as i32, 16);
+    try assert_eq_i32(top_left.height as i32, 16);
+    try assert_eq_i32(top_left.chroma_width as i32, 8);
+    try assert_eq_i32(top_left.chroma_height as i32, 8);
+
+    try assert_eq_i32(bottom_right.pixel_x as i32, 16);
+    try assert_eq_i32(bottom_right.pixel_y as i32, 16);
+    try assert_eq_i32(bottom_right.width as i32, 1);
+    try assert_eq_i32(bottom_right.height as i32, 1);
+    try assert_eq_i32(bottom_right.chroma_x as i32, 8);
+    try assert_eq_i32(bottom_right.chroma_y as i32, 8);
+    try assert_eq_i32(bottom_right.chroma_width as i32, 1);
+    try assert_eq_i32(bottom_right.chroma_height as i32, 1);
+}
+
+test "MacroblockGrid rejects invalid geometry and out of range coordinates" {
+    var failed_geometry: i32 = 0;
+    var failed_index: i32 = 0;
+    var fallback: MacroblockGrid = MacroblockGrid{
+        width: 1,
+        height: 1,
+        mb_cols: 1,
+        mb_rows: 1,
+        mb_count: 1
+    };
+
+    _ = macroblock_grid_for_frame(0, 1) catch {
+        failed_geometry = 1;
+        fallback;
+    };
+
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(16, 16);
+    _ = macroblock_grid_index(&grid, 1, 0) catch {
+        failed_index = 1;
+        0 as usize;
+    };
+
+    try assert_eq_i32(failed_geometry, 1);
+    try assert_eq_i32(failed_index, 1);
+}

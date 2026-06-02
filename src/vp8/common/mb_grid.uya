@@ -1,0 +1,87 @@
+error ErrMacroblockGridInvalidGeometry;
+error ErrMacroblockGridOutOfBounds;
+error ErrMacroblockGridOverflow;
+
+export struct MacroblockGrid {
+    width: usize,
+    height: usize,
+    mb_cols: usize,
+    mb_rows: usize,
+    mb_count: usize
+}
+
+export struct MacroblockPosition {
+    mb_x: usize,
+    mb_y: usize,
+    pixel_x: usize,
+    pixel_y: usize,
+    width: usize,
+    height: usize,
+    chroma_x: usize,
+    chroma_y: usize,
+    chroma_width: usize,
+    chroma_height: usize
+}
+
+fn ceil_div(value: usize, divisor: usize) usize {
+    return (value + divisor - 1) / divisor;
+}
+
+fn min_usize(a: usize, b: usize) usize {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+export fn macroblock_grid_for_frame(width: usize, height: usize) !MacroblockGrid {
+    if width == 0 || height == 0 {
+        return error.ErrMacroblockGridInvalidGeometry;
+    }
+
+    const mb_cols: usize = ceil_div(width, 16);
+    const mb_rows: usize = ceil_div(height, 16);
+    const mb_count: usize = mb_cols * mb_rows;
+    if mb_rows != 0 && (mb_count / mb_rows) != mb_cols {
+        return error.ErrMacroblockGridOverflow;
+    }
+
+    return MacroblockGrid{
+        width: width,
+        height: height,
+        mb_cols: mb_cols,
+        mb_rows: mb_rows,
+        mb_count: mb_count
+    };
+}
+
+export fn macroblock_grid_index(grid: &MacroblockGrid, mb_x: usize, mb_y: usize) !usize {
+    if mb_x >= grid.mb_cols || mb_y >= grid.mb_rows {
+        return error.ErrMacroblockGridOutOfBounds;
+    }
+    return (mb_y * grid.mb_cols) + mb_x;
+}
+
+export fn macroblock_grid_position(grid: &MacroblockGrid, mb_x: usize, mb_y: usize) !MacroblockPosition {
+    _ = try macroblock_grid_index(grid, mb_x, mb_y);
+
+    const pixel_x: usize = mb_x * (16 as usize);
+    const pixel_y: usize = mb_y * (16 as usize);
+    const chroma_x: usize = mb_x * (8 as usize);
+    const chroma_y: usize = mb_y * (8 as usize);
+    const chroma_width_total: usize = ceil_div(grid.width, 2);
+    const chroma_height_total: usize = ceil_div(grid.height, 2);
+
+    return MacroblockPosition{
+        mb_x: mb_x,
+        mb_y: mb_y,
+        pixel_x: pixel_x,
+        pixel_y: pixel_y,
+        width: min_usize(16, grid.width - pixel_x),
+        height: min_usize(16, grid.height - pixel_y),
+        chroma_x: chroma_x,
+        chroma_y: chroma_y,
+        chroma_width: min_usize(8, chroma_width_total - chroma_x),
+        chroma_height: min_usize(8, chroma_height_total - chroma_y)
+    };
+}

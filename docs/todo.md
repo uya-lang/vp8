@@ -99,7 +99,7 @@
 - [x] 实现 reference border dirty flag。
 - [x] 实现 Y/U/V visible view。
 - [x] 定义 `DecodedFrame` borrowed view 生命周期和 release/lease 语义。
-- [ ] 实现 macroblock grid helper。
+- [x] 实现 macroblock grid helper。
 - [ ] 实现 SoA macroblock info arrays。
 - [ ] 实现 above/left mode context。
 - [ ] 实现 above/left coefficient context。
