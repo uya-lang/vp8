@@ -95,7 +95,7 @@
 - [x] 实现 border allocation 和 origin offset。
 - [x] 实现 `FrameBuffer`。
 - [x] 实现 `FramePool`：current/last/golden/altref。
-- [ ] 实现 logical reference 到 physical frame slot 的 alias/ref-count 映射。
+- [x] 实现 logical reference 到 physical frame slot 的 alias/ref-count 映射。
 - [ ] 实现 reference border dirty flag。
 - [ ] 实现 Y/U/V visible view。
 - [ ] 定义 `DecodedFrame` borrowed view 生命周期和 release/lease 语义。

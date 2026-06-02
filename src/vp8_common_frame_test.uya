@@ -10,7 +10,9 @@ use vp8.common.frame.free_frame_pool;
 use vp8.common.frame.free_frame_buffer;
 use vp8.common.frame.frame_buffer_chroma_border;
 use vp8.common.frame.frame_buffer_chroma_dim;
+use vp8.common.frame.frame_pool_begin_frame;
 use vp8.common.frame.frame_pool_get_slot;
+use vp8.common.frame.frame_pool_refresh_references;
 
 fn assert_aligned(value: usize, alignment: usize) !void {
     try expect((value % alignment) == 0);
@@ -76,4 +78,33 @@ test "FramePool allocates current last golden and altref slots" {
     try assert_eq_i32(last.u.plane.width as i32, 9);
     try assert_eq_i32(golden.v.plane.height as i32, 9);
     try assert_eq_i32(altref.y.plane.border as i32, 32);
+}
+
+test "FramePool refresh aliases logical refs to physical current without copying" {
+    var pool: FramePool = try allocate_frame_pool(17, 17, 32, 32);
+    defer free_frame_pool(&pool);
+
+    try assert_eq_i32(pool.slot_ref_count0 as i32, 0);
+    try assert_eq_i32(pool.slot_ref_count1 as i32, 1);
+    try assert_eq_i32(pool.slot_ref_count2 as i32, 1);
+    try assert_eq_i32(pool.slot_ref_count3 as i32, 1);
+
+    try frame_pool_refresh_references(&pool, true, true, false);
+
+    try assert_eq_i32(pool.last_slot as i32, 0);
+    try assert_eq_i32(pool.golden_slot as i32, 0);
+    try assert_eq_i32(pool.altref_slot as i32, 3);
+    try assert_eq_i32(pool.slot_ref_count0 as i32, 2);
+    try assert_eq_i32(pool.slot_ref_count1 as i32, 0);
+    try assert_eq_i32(pool.slot_ref_count2 as i32, 0);
+    try assert_eq_i32(pool.slot_ref_count3 as i32, 1);
+    try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
+
+    try frame_pool_begin_frame(&pool);
+
+    try assert_eq_i32(pool.current_slot as i32, 1);
+    try assert_eq_i32(pool.slot_ref_count1 as i32, 0);
+    try assert_eq_i32(pool.last_slot as i32, 0);
+    try assert_eq_i32(pool.golden_slot as i32, 0);
+    try assert_eq_i32(pool.altref_slot as i32, 3);
 }

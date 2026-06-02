@@ -5,6 +5,7 @@ use vp8.common.plane.Plane;
 
 error ErrFrameBufferInvalidGeometry;
 error ErrFramePoolInvalidSlot;
+error ErrFramePoolNoFreeSlot;
 
 export struct FrameBuffer {
     width: usize,
@@ -21,6 +22,11 @@ export struct FramePool {
     last_slot: usize,
     golden_slot: usize,
     altref_slot: usize,
+    slot_ref_count0: usize,
+    slot_ref_count1: usize,
+    slot_ref_count2: usize,
+    slot_ref_count3: usize,
+    bytes_copied_for_ref_refresh: usize,
     slot0: FrameBuffer,
     slot1: FrameBuffer,
     slot2: FrameBuffer,
@@ -62,6 +68,11 @@ export fn empty_frame_pool() FramePool {
         last_slot: 1,
         golden_slot: 2,
         altref_slot: 3,
+        slot_ref_count0: 0,
+        slot_ref_count1: 1,
+        slot_ref_count2: 1,
+        slot_ref_count3: 1,
+        bytes_copied_for_ref_refresh: 0,
         slot0: empty_frame_buffer(),
         slot1: empty_frame_buffer(),
         slot2: empty_frame_buffer(),
@@ -170,4 +181,104 @@ export fn frame_pool_get_slot(pool: &FramePool, slot: usize) !&FrameBuffer {
         return &pool.slot3;
     }
     return error.ErrFramePoolInvalidSlot;
+}
+
+fn frame_pool_get_ref_count(pool: &FramePool, slot: usize) !usize {
+    if slot == 0 {
+        return pool.slot_ref_count0;
+    }
+    if slot == 1 {
+        return pool.slot_ref_count1;
+    }
+    if slot == 2 {
+        return pool.slot_ref_count2;
+    }
+    if slot == 3 {
+        return pool.slot_ref_count3;
+    }
+    return error.ErrFramePoolInvalidSlot;
+}
+
+fn frame_pool_set_ref_count(pool: &FramePool, slot: usize, value: usize) !void {
+    if slot == 0 {
+        pool.slot_ref_count0 = value;
+        return;
+    }
+    if slot == 1 {
+        pool.slot_ref_count1 = value;
+        return;
+    }
+    if slot == 2 {
+        pool.slot_ref_count2 = value;
+        return;
+    }
+    if slot == 3 {
+        pool.slot_ref_count3 = value;
+        return;
+    }
+    return error.ErrFramePoolInvalidSlot;
+}
+
+fn frame_pool_inc_ref_count(pool: &FramePool, slot: usize) !void {
+    const count: usize = try frame_pool_get_ref_count(pool, slot);
+    try frame_pool_set_ref_count(pool, slot, count + 1);
+}
+
+fn frame_pool_dec_ref_count(pool: &FramePool, slot: usize) !void {
+    const count: usize = try frame_pool_get_ref_count(pool, slot);
+    if count == 0 {
+        return;
+    }
+    try frame_pool_set_ref_count(pool, slot, count - 1);
+}
+
+fn frame_pool_slot_is_free_for_current(pool: &FramePool, slot: usize) !bool {
+    if slot == pool.last_slot || slot == pool.golden_slot || slot == pool.altref_slot {
+        return false;
+    }
+    return (try frame_pool_get_ref_count(pool, slot)) == 0;
+}
+
+export fn frame_pool_begin_frame(pool: &FramePool) !void {
+    if try frame_pool_slot_is_free_for_current(pool, pool.current_slot) {
+        return;
+    }
+
+    if try frame_pool_slot_is_free_for_current(pool, 0) {
+        pool.current_slot = 0;
+        return;
+    }
+    if try frame_pool_slot_is_free_for_current(pool, 1) {
+        pool.current_slot = 1;
+        return;
+    }
+    if try frame_pool_slot_is_free_for_current(pool, 2) {
+        pool.current_slot = 2;
+        return;
+    }
+    if try frame_pool_slot_is_free_for_current(pool, 3) {
+        pool.current_slot = 3;
+        return;
+    }
+    return error.ErrFramePoolNoFreeSlot;
+}
+
+export fn frame_pool_refresh_references(pool: &FramePool, refresh_last: bool, refresh_golden: bool, refresh_altref: bool) !void {
+    const current: usize = pool.current_slot;
+
+    if refresh_last {
+        try frame_pool_dec_ref_count(pool, pool.last_slot);
+        pool.last_slot = current;
+        try frame_pool_inc_ref_count(pool, current);
+    }
+    if refresh_golden {
+        try frame_pool_dec_ref_count(pool, pool.golden_slot);
+        pool.golden_slot = current;
+        try frame_pool_inc_ref_count(pool, current);
+    }
+    if refresh_altref {
+        try frame_pool_dec_ref_count(pool, pool.altref_slot);
+        pool.altref_slot = current;
+        try frame_pool_inc_ref_count(pool, current);
+    }
 }
