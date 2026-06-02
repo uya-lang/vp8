@@ -108,6 +108,16 @@ export fn row_scratch_reset(arena: &RowScratchArena) !void {
     arena.offset = 0;
 }
 
+export fn frame_scratch_reset(arena: &RowScratchArena) !void {
+    if arena.data == null {
+        return error.ErrScratchInvalidGeometry;
+    }
+    arena.offset = 0;
+    arena.high_water = 0;
+    arena.coeff_bytes_read = 0;
+    arena.coeff_bytes_written = 0;
+}
+
 export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignment: usize) !&byte {
     if arena.data == null || size == 0 || !is_power_of_two(alignment) {
         return error.ErrScratchInvalidGeometry;

@@ -6,6 +6,7 @@ use vp8.common.scratch.allocate_row_scratch_arena;
 use vp8.common.scratch.coeff_scratch_note_bytes_read;
 use vp8.common.scratch.coeff_scratch_note_bytes_written;
 use vp8.common.scratch.free_row_scratch_arena;
+use vp8.common.scratch.frame_scratch_reset;
 use vp8.common.scratch.row_scratch_alloc_bytes;
 use vp8.common.scratch.row_scratch_reset;
 
@@ -68,4 +69,25 @@ test "RowScratchArena tracks coefficient scratch read and write bytes" {
     try row_scratch_reset(&arena);
     try assert_eq_i32(arena.coeff_bytes_read as i32, 10);
     try assert_eq_i32(arena.coeff_bytes_written as i32, 10);
+}
+
+test "RowScratchArena frame reset clears row state and coefficient stats" {
+    var arena: RowScratchArena = try allocate_row_scratch_arena(64, 16);
+    defer free_row_scratch_arena(&arena);
+
+    _ = try row_scratch_alloc_bytes(&arena, 20, 8);
+    try coeff_scratch_note_bytes_read(&arena, 12);
+    try coeff_scratch_note_bytes_written(&arena, 16);
+
+    try assert_eq_i32(arena.offset as i32, 20);
+    try assert_eq_i32(arena.high_water as i32, 20);
+    try assert_eq_i32(arena.coeff_bytes_read as i32, 12);
+    try assert_eq_i32(arena.coeff_bytes_written as i32, 16);
+
+    try frame_scratch_reset(&arena);
+
+    try assert_eq_i32(arena.offset as i32, 0);
+    try assert_eq_i32(arena.high_water as i32, 0);
+    try assert_eq_i32(arena.coeff_bytes_read as i32, 0);
+    try assert_eq_i32(arena.coeff_bytes_written as i32, 0);
 }
