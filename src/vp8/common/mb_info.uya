@@ -27,6 +27,7 @@ export struct MacroblockInfoArrays {
     ref_frame: &byte,
     mv_x: &i16,
     mv_y: &i16,
+    b_mode: &byte,
     coeff_summary: &byte
 }
 
@@ -80,6 +81,7 @@ export fn empty_macroblock_info_arrays() MacroblockInfoArrays {
         ref_frame: null as &byte,
         mv_x: null as &i16,
         mv_y: null as &i16,
+        b_mode: null as &byte,
         coeff_summary: null as &byte
     };
 }
@@ -119,6 +121,9 @@ export fn free_macroblock_info_arrays(info: &MacroblockInfoArrays) void {
     if info.coeff_summary != null {
         free(info.coeff_summary as &void);
     }
+    if info.b_mode != null {
+        free(info.b_mode as &void);
+    }
     if info.mv_y != null {
         free(info.mv_y as &void);
     }
@@ -151,6 +156,7 @@ export fn free_macroblock_info_arrays(info: &MacroblockInfoArrays) void {
     info.ref_frame = null as &byte;
     info.mv_x = null as &i16;
     info.mv_y = null as &i16;
+    info.b_mode = null as &byte;
     info.coeff_summary = null as &byte;
 }
 
@@ -195,6 +201,10 @@ export fn allocate_macroblock_info_arrays(grid: &MacroblockGrid) !MacroblockInfo
         free_macroblock_info_arrays(&info);
         return error.ErrMacroblockInfoOutOfMemory;
     };
+    info.b_mode = alloc_zeroed_bytes(grid.mb_count * (16 as usize)) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
     info.coeff_summary = alloc_zeroed_bytes(grid.mb_count) catch {
         free_macroblock_info_arrays(&info);
         return error.ErrMacroblockInfoOutOfMemory;
@@ -230,6 +240,22 @@ export fn macroblock_info_set(info: &MacroblockInfoArrays, mb_x: usize, mb_y: us
     info.mv_x[index] = value.mv_x;
     info.mv_y[index] = value.mv_y;
     info.coeff_summary[index] = value.coeff_summary;
+}
+
+export fn macroblock_info_set_b_mode(info: &MacroblockInfoArrays, mb_x: usize, mb_y: usize, block_index: usize, mode: byte) !void {
+    const index: usize = try macroblock_info_index(info, mb_x, mb_y);
+    if block_index >= (16 as usize) {
+        return error.ErrMacroblockInfoOutOfBounds;
+    }
+    info.b_mode[(index * (16 as usize)) + block_index] = mode;
+}
+
+export fn macroblock_info_get_b_mode(info: &MacroblockInfoArrays, mb_x: usize, mb_y: usize, block_index: usize) !byte {
+    const index: usize = try macroblock_info_index(info, mb_x, mb_y);
+    if block_index >= (16 as usize) {
+        return error.ErrMacroblockInfoOutOfBounds;
+    }
+    return info.b_mode[(index * (16 as usize)) + block_index];
 }
 
 export fn macroblock_info_get(info: &MacroblockInfoArrays, mb_x: usize, mb_y: usize) !MacroblockInfoValue {

@@ -74,7 +74,7 @@ export fn allocate_decoder_context(width: usize, height: usize, border: usize, a
         free_frame_pool(&context.frame_pool);
         return error.ErrDecoderContextInvalidGeometry;
     };
-    context.init_heap_allocation_count = context.init_heap_allocation_count + 8;
+    context.init_heap_allocation_count = context.init_heap_allocation_count + 9;
 
     context.scratch = allocate_row_scratch_arena(row_scratch_capacity, alignment) catch {
         free_macroblock_info_arrays(&context.mb_info);

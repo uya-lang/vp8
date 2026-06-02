@@ -19,21 +19,84 @@ use vp8.bitstream.header.parse_vp8_token_partition_readers;
 use vp8.bitstream.header.vp8_default_probs;
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.decoder_context_begin_frame;
+use vp8.common.coeff_context.AboveLeftCoeffContext;
+use vp8.common.coeff_context.CoeffContextPair;
+use vp8.common.coeff_context.allocate_above_left_coeff_context;
+use vp8.common.coeff_context.coeff_context_get_u;
+use vp8.common.coeff_context.coeff_context_get_v;
+use vp8.common.coeff_context.coeff_context_get_y;
+use vp8.common.coeff_context.coeff_context_get_y2;
+use vp8.common.coeff_context.coeff_context_start_row;
+use vp8.common.coeff_context.coeff_context_store_u_after_decode;
+use vp8.common.coeff_context.coeff_context_store_v_after_decode;
+use vp8.common.coeff_context.coeff_context_store_y_after_decode;
+use vp8.common.coeff_context.coeff_context_store_y2_after_decode;
+use vp8.common.coeff_context.free_above_left_coeff_context;
 use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.frame_buffer_extend_border;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
 use vp8.common.frame.frame_pool_get_slot;
+use vp8.common.mb_info.make_macroblock_coeff_summary;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
+use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.dequant_block_4x4;
+use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
+use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
+use vp8.kernels.scalar.predict_uv8x8_dc;
+use vp8.kernels.scalar.predict_uv8x8_horizontal;
+use vp8.kernels.scalar.predict_uv8x8_true_motion;
+use vp8.kernels.scalar.predict_uv8x8_vertical;
+use vp8.kernels.scalar.predict_y16x16_dc;
+use vp8.kernels.scalar.predict_y16x16_horizontal;
+use vp8.kernels.scalar.predict_y16x16_true_motion;
+use vp8.kernels.scalar.predict_y16x16_vertical;
+use vp8.kernels.scalar.predict_y4x4_dc;
+use vp8.kernels.scalar.predict_y4x4_down_left;
+use vp8.kernels.scalar.predict_y4x4_down_right;
+use vp8.kernels.scalar.predict_y4x4_horizontal_down;
+use vp8.kernels.scalar.predict_y4x4_horizontal_edge;
+use vp8.kernels.scalar.predict_y4x4_horizontal_up;
+use vp8.kernels.scalar.predict_y4x4_true_motion;
+use vp8.kernels.scalar.predict_y4x4_vertical_edge;
+use vp8.kernels.scalar.predict_y4x4_vertical_left;
+use vp8.kernels.scalar.predict_y4x4_vertical_right;
 use vp8.mode.parse.parse_key_frame_mode_map;
+use vp8.mode.parse.VP8_B_MODE_DC;
+use vp8.mode.parse.VP8_B_MODE_HE;
+use vp8.mode.parse.VP8_B_MODE_HD;
+use vp8.mode.parse.VP8_B_MODE_HU;
+use vp8.mode.parse.VP8_B_MODE_LD;
+use vp8.mode.parse.VP8_B_MODE_RD;
+use vp8.mode.parse.VP8_B_MODE_TM;
+use vp8.mode.parse.VP8_B_MODE_VE;
+use vp8.mode.parse.VP8_B_MODE_VL;
+use vp8.mode.parse.VP8_B_MODE_VR;
+use vp8.mode.parse.VP8_UV_MODE_DC;
+use vp8.mode.parse.VP8_UV_MODE_H;
+use vp8.mode.parse.VP8_UV_MODE_TM;
+use vp8.mode.parse.VP8_UV_MODE_V;
+use vp8.mode.parse.VP8_Y_MODE_B;
+use vp8.mode.parse.VP8_Y_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_H;
+use vp8.mode.parse.VP8_Y_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_V;
 use vp8.token.parse.CoefficientBlockSummary;
+use vp8.token.parse.CoefficientToken;
+use vp8.token.parse.coefficient_band;
+use vp8.token.parse.coefficient_eob_context;
+use vp8.token.parse.coefficient_scan_index;
 use vp8.token.parse.parse_coefficient_block_summary;
+use vp8.token.parse.parse_coefficient_token;
+use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
+use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
+use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
 
 error ErrDecoderInvalidFrame;
 error ErrDecoderUnsupportedInterFrame;
 error ErrDecoderFrameSizeMismatch;
+error ErrDecoderCoeffProbOutOfBounds;
 
 export struct Decoder {
     context: &DecoderContext,
@@ -161,6 +224,378 @@ fn make_inter_header(tag: &Vp8FrameTag, context: &DecoderContext) Vp8FrameHeader
     };
 }
 
+fn load_left_edge(src: &byte, stride: usize, height: usize, out: &byte) void {
+    var row: usize = 0;
+    while row < height {
+        out[row] = src[row * stride];
+        row = row + 1;
+    }
+}
+
+fn coeff_prob_offset(block_type: usize, position: usize, context: byte) !usize {
+    if block_type >= 4 || position >= 16 || context >= (3 as byte) {
+        return error.ErrDecoderCoeffProbOutOfBounds;
+    }
+    const band: byte = try coefficient_band(position);
+    return ((((block_type * (8 as usize)) + (band as usize)) * (3 as usize)) + (context as usize)) * (11 as usize);
+}
+
+fn token_context_after(token: byte) byte {
+    if token == VP8_COEFF_TOKEN_ZERO {
+        return 0 as byte;
+    }
+    if token == VP8_COEFF_TOKEN_ONE {
+        return 1 as byte;
+    }
+    return 2 as byte;
+}
+
+fn clear_i16_4x4(values: &i16) void {
+    var index: usize = 0;
+    while index < 16 {
+        values[index] = 0 as i16;
+        index = index + 1;
+    }
+}
+
+fn parse_block_coefficients_with_context(reader: &BoolReader, coeff_probs: &byte, block_type: usize, start_position: usize, above_has_coeff: byte, left_has_coeff: byte, coefficients: &i16) !CoefficientBlockSummary {
+    clear_i16_4x4(coefficients);
+
+    var summary: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 16 as byte
+    };
+
+    var position: usize = start_position;
+    var context: byte = coefficient_eob_context(above_has_coeff, left_has_coeff);
+    while position < 16 {
+        const prob_offset: usize = try coeff_prob_offset(block_type, position, context);
+        const token: CoefficientToken = try parse_coefficient_token(reader, &coeff_probs[prob_offset] as &byte);
+        if token.token == VP8_COEFF_TOKEN_EOB {
+            summary.eob_position = position as byte;
+            summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16) && position == 1;
+            return summary;
+        }
+
+        if token.token != VP8_COEFF_TOKEN_ZERO {
+            const scan_index: byte = try coefficient_scan_index(position);
+            coefficients[scan_index as usize] = token.coefficient;
+            summary.has_coeff = true;
+            summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
+        }
+        context = token_context_after(token.token);
+        position = position + 1;
+    }
+
+    summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16);
+    return summary;
+}
+
+fn add_summary_counts(total_has_coeff: &bool, total_dc_only: &bool, total_count: &byte, summary: &CoefficientBlockSummary) void {
+    if summary.has_coeff {
+        total_has_coeff[0] = true;
+        if total_count[0] < (31 as byte) {
+            var next_count: byte = (total_count[0] + summary.coefficient_count) as byte;
+            if next_count > (31 as byte) || next_count < total_count[0] {
+                next_count = 31 as byte;
+            }
+            total_count[0] = next_count;
+        }
+    }
+    if summary.has_coeff && !summary.dc_only {
+        total_dc_only[0] = false;
+    }
+}
+
+fn reconstruct_dequantized_block(coefficients: &i16, dc_factor: i16, ac_factor: i16, dst: &byte, dst_stride: usize, dc_only: bool) void {
+    var dequantized: [i16: 16] = [];
+    var residual: [i16: 16] = [];
+
+    dequant_block_4x4(coefficients, dc_factor, ac_factor, &dequantized[0] as &i16);
+    if dc_only {
+        inverse_transform_dc_only_4x4(dequantized[0], &residual[0] as &i16);
+    } else {
+        inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
+    }
+    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+}
+
+fn reconstruct_y_block_with_optional_y2_dc(coefficients: &i16, y2_dc: i16, ac_factor: i16, dst: &byte, dst_stride: usize, has_ac: bool) void {
+    var dequantized: [i16: 16] = [];
+    var residual: [i16: 16] = [];
+
+    dequantized[0] = y2_dc;
+    var index: usize = 1;
+    while index < 16 {
+        dequantized[index] = ((coefficients[index] as i32) * (ac_factor as i32)) as i16;
+        index = index + 1;
+    }
+    if !has_ac {
+        inverse_transform_dc_only_4x4(dequantized[0], &residual[0] as &i16);
+    } else {
+        inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
+    }
+    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+}
+
+fn load_above_edge(src: &byte, out: &byte, width: usize) void {
+    var col: usize = 0;
+    while col < width {
+        out[col] = src[col];
+        col = col + 1;
+    }
+}
+
+fn predict_key_frame_y4x4(decoder: &Decoder, frame: &FrameBuffer, mb_x: usize, mb_y: usize, block_x: usize, block_y: usize) !void {
+    var above: [byte: 8] = [];
+    var left: [byte: 4] = [];
+
+    const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+    const block_index: usize = (block_y * (4 as usize)) + block_x;
+    const mode: byte = decoder.context.mb_info.b_mode[(mb_index * (16 as usize)) + block_index];
+
+    const x: usize = (mb_x * (16 as usize)) + (block_x * (4 as usize));
+    const y: usize = (mb_y * (16 as usize)) + (block_y * (4 as usize));
+    const offset: usize = (y * frame.y.plane.stride) + x;
+    const has_left: bool = x != 0;
+    const has_above: bool = y != 0;
+    var above_offset: usize = offset;
+    if has_above {
+        above_offset = offset - frame.y.plane.stride;
+        load_above_edge(&frame.y.plane.origin[above_offset] as &byte, &above[0] as &byte, 8);
+    }
+    if has_left {
+        load_left_edge(&frame.y.plane.origin[offset - 1] as &byte, frame.y.plane.stride, 4, &left[0] as &byte);
+    }
+    var above_left: byte = 128 as byte;
+    if has_left && has_above {
+        above_left = frame.y.plane.origin[above_offset - 1];
+    }
+
+    if mode == VP8_B_MODE_TM && has_above && has_left {
+        predict_y4x4_true_motion(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte, &left[0] as &byte, above_left);
+    } else if mode == VP8_B_MODE_VE && has_above {
+        predict_y4x4_vertical_edge(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte, above_left);
+    } else if mode == VP8_B_MODE_HE && has_left {
+        predict_y4x4_horizontal_edge(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &left[0] as &byte, above_left);
+    } else if mode == VP8_B_MODE_LD && has_above {
+        predict_y4x4_down_left(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte);
+    } else if mode == VP8_B_MODE_RD && has_above && has_left {
+        predict_y4x4_down_right(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte, &left[0] as &byte, above_left);
+    } else if mode == VP8_B_MODE_VR && has_above && has_left {
+        predict_y4x4_vertical_right(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte, &left[0] as &byte, above_left);
+    } else if mode == VP8_B_MODE_VL && has_above {
+        predict_y4x4_vertical_left(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte);
+    } else if mode == VP8_B_MODE_HD && has_above && has_left {
+        predict_y4x4_horizontal_down(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte, &left[0] as &byte, above_left);
+    } else if mode == VP8_B_MODE_HU && has_left {
+        predict_y4x4_horizontal_up(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &left[0] as &byte);
+    } else {
+        predict_y4x4_dc(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, &above[0] as &byte, has_above, &left[0] as &byte, has_left);
+    }
+}
+
+fn predict_key_frame_y16(decoder: &Decoder, frame: &FrameBuffer, mb_x: usize, mb_y: usize) void {
+    var y_left: [byte: 16] = [];
+
+    const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+    const has_left: bool = mb_x != 0;
+    const has_above: bool = mb_y != 0;
+
+    const y_x: usize = mb_x * 16;
+    const y_y: usize = mb_y * 16;
+    const y_offset: usize = (y_y * frame.y.plane.stride) + y_x;
+    var y_above_offset: usize = y_offset;
+    if has_above {
+        y_above_offset = y_offset - frame.y.plane.stride;
+    }
+    var y_above_left: byte = 128 as byte;
+    if has_above && has_left {
+        y_above_left = frame.y.plane.origin[y_above_offset - 1];
+    }
+    if has_left {
+        load_left_edge(&frame.y.plane.origin[y_offset - 1] as &byte, frame.y.plane.stride, 16, &y_left[0] as &byte);
+    }
+
+    const y_mode: byte = decoder.context.mb_info.y_mode[mb_index];
+    if y_mode == VP8_Y_MODE_V && has_above {
+        predict_y16x16_vertical(&frame.y.plane.origin[y_offset] as &byte, frame.y.plane.stride, &frame.y.plane.origin[y_above_offset] as &byte);
+    } else if y_mode == VP8_Y_MODE_H && has_left {
+        predict_y16x16_horizontal(&frame.y.plane.origin[y_offset] as &byte, frame.y.plane.stride, &y_left[0] as &byte);
+    } else if y_mode == VP8_Y_MODE_TM && has_above && has_left {
+        predict_y16x16_true_motion(&frame.y.plane.origin[y_offset] as &byte, frame.y.plane.stride, &frame.y.plane.origin[y_above_offset] as &byte, &y_left[0] as &byte, y_above_left);
+    } else {
+        predict_y16x16_dc(&frame.y.plane.origin[y_offset] as &byte, frame.y.plane.stride, &frame.y.plane.origin[y_above_offset] as &byte, has_above, &y_left[0] as &byte, has_left);
+    }
+}
+
+fn predict_key_frame_uv(decoder: &Decoder, frame: &FrameBuffer, mb_x: usize, mb_y: usize) void {
+    var uv_left: [byte: 8] = [];
+
+    const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+    const has_left: bool = mb_x != 0;
+    const has_above: bool = mb_y != 0;
+
+    const uv_x: usize = mb_x * 8;
+    const uv_y: usize = mb_y * 8;
+    const u_offset: usize = (uv_y * frame.u.plane.stride) + uv_x;
+    const v_offset: usize = (uv_y * frame.v.plane.stride) + uv_x;
+    var u_above_offset: usize = u_offset;
+    var v_above_offset: usize = v_offset;
+    if has_above {
+        u_above_offset = u_offset - frame.u.plane.stride;
+        v_above_offset = v_offset - frame.v.plane.stride;
+    }
+    var u_above_left: byte = 128 as byte;
+    var v_above_left: byte = 128 as byte;
+    if has_above && has_left {
+        u_above_left = frame.u.plane.origin[u_above_offset - 1];
+        v_above_left = frame.v.plane.origin[v_above_offset - 1];
+    }
+
+    const uv_mode: byte = decoder.context.mb_info.uv_mode[mb_index];
+    if has_left {
+        load_left_edge(&frame.u.plane.origin[u_offset - 1] as &byte, frame.u.plane.stride, 8, &uv_left[0] as &byte);
+    }
+    if uv_mode == VP8_UV_MODE_V && has_above {
+        predict_uv8x8_vertical(&frame.u.plane.origin[u_offset] as &byte, frame.u.plane.stride, &frame.u.plane.origin[u_above_offset] as &byte);
+    } else if uv_mode == VP8_UV_MODE_H && has_left {
+        predict_uv8x8_horizontal(&frame.u.plane.origin[u_offset] as &byte, frame.u.plane.stride, &uv_left[0] as &byte);
+    } else if uv_mode == VP8_UV_MODE_TM && has_above && has_left {
+        predict_uv8x8_true_motion(&frame.u.plane.origin[u_offset] as &byte, frame.u.plane.stride, &frame.u.plane.origin[u_above_offset] as &byte, &uv_left[0] as &byte, u_above_left);
+    } else {
+        predict_uv8x8_dc(&frame.u.plane.origin[u_offset] as &byte, frame.u.plane.stride, &frame.u.plane.origin[u_above_offset] as &byte, has_above, &uv_left[0] as &byte, has_left);
+    }
+
+    if has_left {
+        load_left_edge(&frame.v.plane.origin[v_offset - 1] as &byte, frame.v.plane.stride, 8, &uv_left[0] as &byte);
+    }
+    if uv_mode == VP8_UV_MODE_V && has_above {
+        predict_uv8x8_vertical(&frame.v.plane.origin[v_offset] as &byte, frame.v.plane.stride, &frame.v.plane.origin[v_above_offset] as &byte);
+    } else if uv_mode == VP8_UV_MODE_H && has_left {
+        predict_uv8x8_horizontal(&frame.v.plane.origin[v_offset] as &byte, frame.v.plane.stride, &uv_left[0] as &byte);
+    } else if uv_mode == VP8_UV_MODE_TM && has_above && has_left {
+        predict_uv8x8_true_motion(&frame.v.plane.origin[v_offset] as &byte, frame.v.plane.stride, &frame.v.plane.origin[v_above_offset] as &byte, &uv_left[0] as &byte, v_above_left);
+    } else {
+        predict_uv8x8_dc(&frame.v.plane.origin[v_offset] as &byte, frame.v.plane.stride, &frame.v.plane.origin[v_above_offset] as &byte, has_above, &uv_left[0] as &byte, has_left);
+    }
+}
+
+fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8) !void {
+    var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&decoder.context.grid);
+    defer free_above_left_coeff_context(&coeff_ctx);
+
+    const factors: DequantFactors = build_dequant_factors(quant);
+    var coefficients: [i16: 16] = [];
+    var y2_coefficients: [i16: 16] = [];
+    var y2_dequantized: [i16: 16] = [];
+    var y2_dc: [i16: 16] = [];
+
+    var mb_y: usize = 0;
+    while mb_y < decoder.context.grid.mb_rows {
+        try coeff_context_start_row(&coeff_ctx);
+        const partition_index: usize = (mb_y % (token_partition_count as usize));
+        const token_reader: &BoolReader = &token_readers[partition_index] as &BoolReader;
+
+        var mb_x: usize = 0;
+        while mb_x < decoder.context.grid.mb_cols {
+            const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+            const y_mode: byte = decoder.context.mb_info.y_mode[mb_index];
+            var total_has_coeff: bool = false;
+            var total_dc_only: bool = true;
+            var total_count: byte = 0 as byte;
+
+            clear_i16_4x4(&y2_dc[0] as &i16);
+            if y_mode != VP8_Y_MODE_B {
+                predict_key_frame_y16(decoder, frame, mb_x, mb_y);
+
+                const y2_context: CoeffContextPair = try coeff_context_get_y2(&coeff_ctx, mb_x);
+                const y2_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 1, 0, y2_context.above, y2_context.left, &y2_coefficients[0] as &i16);
+                add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y2_summary);
+                try coeff_context_store_y2_after_decode(&coeff_ctx, mb_x, y2_summary.has_coeff as byte);
+
+                dequant_block_4x4(&y2_coefficients[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_dequantized[0] as &i16);
+                inverse_walsh_hadamard_y2_4x4(&y2_dequantized[0] as &i16, &y2_dc[0] as &i16);
+            }
+
+            var y_block_y: usize = 0;
+            while y_block_y < 4 {
+                var y_block_x: usize = 0;
+                while y_block_x < 4 {
+                    if y_mode == VP8_Y_MODE_B {
+                        try predict_key_frame_y4x4(decoder, frame, mb_x, mb_y, y_block_x, y_block_y);
+                    }
+                    const y_context: CoeffContextPair = try coeff_context_get_y(&coeff_ctx, mb_x, y_block_x, y_block_y);
+                    var start_position: usize = 0;
+                    var block_type: usize = 3;
+                    if y_mode != VP8_Y_MODE_B {
+                        start_position = 1;
+                        block_type = 0;
+                    }
+                    const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, block_type, start_position, y_context.above, y_context.left, &coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
+                    try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, (y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16)) as byte);
+
+                    const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
+                    if y_mode == VP8_Y_MODE_B {
+                        if y_summary.has_coeff {
+                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                        }
+                    } else if y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16) {
+                        reconstruct_y_block_with_optional_y2_dc(&coefficients[0] as &i16, y2_dc[(y_block_y * (4 as usize)) + y_block_x], factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.has_coeff);
+                    }
+
+                    y_block_x = y_block_x + 1;
+                }
+                y_block_y = y_block_y + 1;
+            }
+
+            predict_key_frame_uv(decoder, frame, mb_x, mb_y);
+            var uv_block_y: usize = 0;
+            while uv_block_y < 2 {
+                var uv_block_x: usize = 0;
+                while uv_block_x < 2 {
+                    const u_context: CoeffContextPair = try coeff_context_get_u(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
+                    const u_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, u_context.above, u_context.left, &coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &u_summary);
+                    try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
+                    if u_summary.has_coeff {
+                        const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                    }
+
+                    uv_block_x = uv_block_x + 1;
+                }
+                uv_block_y = uv_block_y + 1;
+            }
+
+            uv_block_y = 0;
+            while uv_block_y < 2 {
+                var uv_block_x_v: usize = 0;
+                while uv_block_x_v < 2 {
+                    const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y);
+                    const v_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, v_context.above, v_context.left, &coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &v_summary);
+                    try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y, v_summary.has_coeff as byte);
+                    if v_summary.has_coeff {
+                        const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x_v * (4 as usize));
+                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                    }
+
+                    uv_block_x_v = uv_block_x_v + 1;
+                }
+                uv_block_y = uv_block_y + 1;
+            }
+
+            decoder.context.mb_info.coeff_summary[mb_index] = try make_macroblock_coeff_summary(total_has_coeff, total_has_coeff && total_dc_only, total_count);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
 export fn make_decoder(context: &DecoderContext) Decoder {
     var decoder: Decoder = Decoder{
         context: context,
@@ -213,6 +648,9 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     try parse_vp8_token_partition_readers(data, len, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
 
     const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
+    if key_frame {
+        try decode_key_frame_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count);
+    }
     frame_buffer_mark_border_dirty(current);
     frame_buffer_extend_border(current);
 
