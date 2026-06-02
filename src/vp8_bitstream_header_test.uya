@@ -9,6 +9,7 @@ use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
+use vp8.bitstream.header.parse_vp8_key_frame_header;
 use vp8.bitstream.header.parse_vp8_loop_filter;
 use vp8.bitstream.header.parse_vp8_coeff_probability_updates;
 use vp8.bitstream.header.parse_vp8_mv_probability_updates;
@@ -465,6 +466,25 @@ test "parse VP8 frame tag" {
     try assert_eq_i32(tag.version as i32, 0);
     try assert_eq_i32(tag.show_frame as i32, true as i32);
     try assert_eq_i32(tag.first_partition_size as i32, 292);
+}
+
+test "parse tiny key frame header golden with all public fields" {
+    var data: [byte: 10] = [
+        0xf0, 0x00, 0x00,
+        0x9d, 0x01, 0x2a,
+        0x11, 0x80,
+        0x13, 0x40
+    ];
+
+    const header: Vp8FrameHeader = try parse_vp8_key_frame_header(&data[0] as &byte, 10);
+    try assert_eq_i32(header.frame_type as i32, 0);
+    try assert_eq_i32(header.version as i32, 0);
+    try assert_eq_i32(header.show_frame as i32, true as i32);
+    try assert_eq_i32(header.first_partition_size as i32, 7);
+    try assert_eq_i32(header.width as i32, 17);
+    try assert_eq_i32(header.height as i32, 19);
+    try assert_eq_i32(header.horizontal_scale as i32, 2);
+    try assert_eq_i32(header.vertical_scale as i32, 1);
 }
 
 test "reject short VP8 frame tag" {

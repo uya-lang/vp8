@@ -404,3 +404,19 @@ export fn parse_key_frame_size(data: &byte, len: usize) !Vp8KeyFrameSize {
         vertical_scale: ((height_word >> 14) & (0x03 as u16)) as u8
     };
 }
+
+export fn parse_vp8_key_frame_header(data: &byte, len: usize) !Vp8FrameHeader {
+    const tag: Vp8FrameTag = try parse_vp8_frame_tag_checked(data, len);
+    const size: Vp8KeyFrameSize = try parse_key_frame_size(data, len);
+
+    return Vp8FrameHeader{
+        frame_type: tag.frame_type,
+        version: tag.version,
+        show_frame: tag.show_frame,
+        first_partition_size: tag.first_partition_size,
+        width: size.width,
+        height: size.height,
+        horizontal_scale: size.horizontal_scale,
+        vertical_scale: size.vertical_scale
+    };
+}
