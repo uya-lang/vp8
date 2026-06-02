@@ -1,0 +1,43 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.make_bool_reader;
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_flush;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.mode.parse.parse_key_frame_y_mode;
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.vp8_default_probs;
+
+fn write_bits(writer: &BoolWriter, bits: &u8, count: usize, probs: &byte) !void {
+    var index: usize = 0;
+    while index < count {
+        try bool_writer_write(writer, bits[index], probs[index]);
+        index = index + 1;
+    }
+}
+
+fn parse_y_mode_from_bits(bits: &u8, count: usize) !byte {
+    var encoded: [byte: 16] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 16);
+    const probs: Vp8Probs = vp8_default_probs();
+    try write_bits(&writer, bits, count, &probs.y_mode_probs[0] as &byte);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 16);
+    return try parse_key_frame_y_mode(&reader, &probs);
+}
+
+test "parse key frame macroblock y mode tree" {
+    var dc_bits: [u8: 1] = [ 0 ];
+    var v_bits: [u8: 2] = [ 1, 0 ];
+    var h_bits: [u8: 3] = [ 1, 1, 0 ];
+    var tm_bits: [u8: 4] = [ 1, 1, 1, 0 ];
+    var b_bits: [u8: 4] = [ 1, 1, 1, 1 ];
+
+    try assert_eq_i32((try parse_y_mode_from_bits(&dc_bits[0] as &u8, 1)) as i32, 0);
+    try assert_eq_i32((try parse_y_mode_from_bits(&v_bits[0] as &u8, 2)) as i32, 1);
+    try assert_eq_i32((try parse_y_mode_from_bits(&h_bits[0] as &u8, 3)) as i32, 2);
+    try assert_eq_i32((try parse_y_mode_from_bits(&tm_bits[0] as &u8, 4)) as i32, 3);
+    try assert_eq_i32((try parse_y_mode_from_bits(&b_bits[0] as &u8, 4)) as i32, 4);
+}
