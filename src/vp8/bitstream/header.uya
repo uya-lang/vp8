@@ -177,6 +177,46 @@ export fn parse_vp8_segmentation(reader: &BoolReader) !Vp8Segmentation {
     return segmentation;
 }
 
+export fn parse_vp8_loop_filter(reader: &BoolReader) !Vp8LoopFilterHeader {
+    var loop_filter: Vp8LoopFilterHeader = Vp8LoopFilterHeader{
+        filter_type: 0,
+        level: 0,
+        sharpness: 0,
+        delta_enabled: false,
+        delta_update: false,
+        ref_delta: [ 2, -1, -1, 1 ],
+        mode_delta: [ 4, -1, 2, 4 ]
+    };
+
+    loop_filter.filter_type = try read_bit_with_probability(reader, 128 as byte);
+    loop_filter.level = (try read_literal(reader, 6 as u8)) as u8;
+    loop_filter.sharpness = (try read_literal(reader, 3 as u8)) as u8;
+    loop_filter.delta_enabled = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+
+    if loop_filter.delta_enabled {
+        loop_filter.delta_update = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+        if loop_filter.delta_update {
+            var ref_index: usize = 0;
+            while ref_index < 4 {
+                if (try read_bit_with_probability(reader, 128 as byte)) != 0 {
+                    loop_filter.ref_delta[ref_index] = (try read_signed_value(reader, 6 as u8)) as i8;
+                }
+                ref_index = ref_index + 1;
+            }
+
+            var mode_index: usize = 0;
+            while mode_index < 4 {
+                if (try read_bit_with_probability(reader, 128 as byte)) != 0 {
+                    loop_filter.mode_delta[mode_index] = (try read_signed_value(reader, 6 as u8)) as i8;
+                }
+                mode_index = mode_index + 1;
+            }
+        }
+    }
+
+    return loop_filter;
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,

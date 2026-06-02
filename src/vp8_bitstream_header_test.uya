@@ -9,6 +9,7 @@ use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
+use vp8.bitstream.header.parse_vp8_loop_filter;
 use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_frame_tag;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
@@ -210,6 +211,47 @@ test "parse VP8 segmentation enabled update data and map probabilities" {
     try assert_eq_i32(segmentation.segment_prob[0] as i32, 200);
     try assert_eq_i32(segmentation.segment_prob[1] as i32, 255);
     try assert_eq_i32(segmentation.segment_prob[2] as i32, 255);
+}
+
+test "parse VP8 loop filter type level sharpness and delta updates" {
+    var out: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 32);
+
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 19, 6 as u8);
+    try write_literal_for_header(&writer, 5, 3 as u8);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 3, 6 as u8);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 2, 6 as u8);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, 32);
+    const loop_filter: Vp8LoopFilterHeader = try parse_vp8_loop_filter(&reader);
+
+    try assert_eq_i32(loop_filter.filter_type as i32, 1);
+    try assert_eq_i32(loop_filter.level as i32, 19);
+    try assert_eq_i32(loop_filter.sharpness as i32, 5);
+    try assert_eq_i32(loop_filter.delta_enabled as i32, true as i32);
+    try assert_eq_i32(loop_filter.delta_update as i32, true as i32);
+    try assert_eq_i32(loop_filter.ref_delta[0] as i32, -1);
+    try assert_eq_i32(loop_filter.ref_delta[1] as i32, -1);
+    try assert_eq_i32(loop_filter.ref_delta[2] as i32, -1);
+    try assert_eq_i32(loop_filter.ref_delta[3] as i32, 1);
+    try assert_eq_i32(loop_filter.mode_delta[0] as i32, 4);
+    try assert_eq_i32(loop_filter.mode_delta[1] as i32, -1);
+    try assert_eq_i32(loop_filter.mode_delta[2] as i32, -51);
+    try assert_eq_i32(loop_filter.mode_delta[3] as i32, -31);
 }
 
 test "parse VP8 frame tag" {
