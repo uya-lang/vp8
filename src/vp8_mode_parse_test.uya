@@ -12,6 +12,8 @@ use vp8.mode.parse.parse_key_frame_luma_4x4_modes;
 use vp8.mode.parse.parse_inter_intra_flag;
 use vp8.mode.parse.parse_inter_reference_frame;
 use vp8.mode.parse.parse_inter_motion_vector;
+use vp8.mode.parse.clamp_inter_motion_vector;
+use vp8.mode.parse.inter_motion_vector_inside_frame;
 use vp8.mode.parse.vp8_kf_bmode_prob;
 use vp8.mode.parse.Vp8MotionVector;
 use vp8.mode.parse.VP8_INTER_MV_MODE_NEAREST;
@@ -327,4 +329,25 @@ test "parse nearest near zero and new motion vectors" {
     try assert_eq_i32(new_mv.mode as i32, VP8_INTER_MV_MODE_NEW as i32);
     try assert_eq_i32(new_mv.y as i32, -4);
     try assert_eq_i32(new_mv.x as i32, 10);
+}
+
+test "clamp motion vector to visible reference frame bounds" {
+    const mv: Vp8MotionVector = Vp8MotionVector{ y: -200, x: 200, mode: VP8_INTER_MV_MODE_NEW };
+    const clamped: Vp8MotionVector = try clamp_inter_motion_vector(&mv, 1, 1, 32, 32, 16, 16);
+
+    try assert_eq_i32(clamped.mode as i32, VP8_INTER_MV_MODE_NEW as i32);
+    try assert_eq_i32(clamped.y as i32, -128);
+    try assert_eq_i32(clamped.x as i32, 0);
+    try expect(try inter_motion_vector_inside_frame(&clamped, 1, 1, 32, 32, 16, 16));
+
+    const out_of_bounds: Vp8MotionVector = Vp8MotionVector{ y: -129, x: 1, mode: VP8_INTER_MV_MODE_NEW };
+    try expect(!(try inter_motion_vector_inside_frame(&out_of_bounds, 1, 1, 32, 32, 16, 16)));
+}
+
+test "motion vector bounds reject invalid frame and block geometry" {
+    const mv: Vp8MotionVector = Vp8MotionVector{ y: 0, x: 0, mode: VP8_INTER_MV_MODE_ZERO };
+    _ = clamp_inter_motion_vector(&mv, 0, 0, 15, 16, 16, 16) catch {
+        return;
+    };
+    try expect(false);
 }

@@ -124,7 +124,7 @@
 - [x] 解析 inter/intra flag。
 - [x] 解析 inter reference frame。
 - [x] 解析 nearest/near/zero/new MV。
-- [ ] 实现 MV clamp 和边界检查。
+- [x] 实现 MV clamp 和边界检查。
 - [ ] 解析 skip coefficient flag。
 - [ ] 解析 coefficient tokens。
 - [ ] 实现 coefficient bands、scan order、EOB context。

@@ -32,6 +32,7 @@ export const VP8_INTER_MV_MODE_NEW: byte = 3 as byte;
 
 error ErrVp8BModeProbOutOfBounds;
 error ErrVp8MvProbOutOfBounds;
+error ErrVp8MvInvalidGeometry;
 
 export struct Vp8MotionVector {
     y: i16,
@@ -302,4 +303,69 @@ export fn parse_inter_motion_vector(reader: &BoolReader, probs: &Vp8Probs, neare
         x: (new_base.x + delta_x) as i16,
         mode: mode
     };
+}
+
+fn validate_mv_geometry(mb_x: usize, mb_y: usize, frame_width: usize, frame_height: usize, block_width: usize, block_height: usize) !void {
+    if frame_width == 0 || frame_height == 0 || block_width == 0 || block_height == 0 {
+        return error.ErrVp8MvInvalidGeometry;
+    }
+    if block_width > frame_width || block_height > frame_height {
+        return error.ErrVp8MvInvalidGeometry;
+    }
+
+    const origin_x: usize = mb_x * (16 as usize);
+    const origin_y: usize = mb_y * (16 as usize);
+    if origin_x > frame_width || origin_y > frame_height {
+        return error.ErrVp8MvInvalidGeometry;
+    }
+    if origin_x + block_width > frame_width || origin_y + block_height > frame_height {
+        return error.ErrVp8MvInvalidGeometry;
+    }
+}
+
+fn clamp_i32_to_i16(value: i32, min_value: i32, max_value: i32) i16 {
+    var clamped: i32 = value;
+    if clamped < min_value {
+        clamped = min_value;
+    }
+    if clamped > max_value {
+        clamped = max_value;
+    }
+    return clamped as i16;
+}
+
+fn motion_vector_bounds(mb_coord: usize, frame_size: usize, block_size: usize, min_out: &i32, max_out: &i32) void {
+    const origin_subpel: i32 = (mb_coord as i32) * 16 * 8;
+    min_out[0] = 0 - origin_subpel;
+    max_out[0] = (((frame_size - block_size) as i32) * 8) - origin_subpel;
+}
+
+export fn clamp_inter_motion_vector(mv: &Vp8MotionVector, mb_x: usize, mb_y: usize, frame_width: usize, frame_height: usize, block_width: usize, block_height: usize) !Vp8MotionVector {
+    try validate_mv_geometry(mb_x, mb_y, frame_width, frame_height, block_width, block_height);
+
+    var min_x: i32 = 0;
+    var max_x: i32 = 0;
+    var min_y: i32 = 0;
+    var max_y: i32 = 0;
+    motion_vector_bounds(mb_x, frame_width, block_width, &min_x as &i32, &max_x as &i32);
+    motion_vector_bounds(mb_y, frame_height, block_height, &min_y as &i32, &max_y as &i32);
+
+    return Vp8MotionVector{
+        y: clamp_i32_to_i16(mv.y as i32, min_y, max_y),
+        x: clamp_i32_to_i16(mv.x as i32, min_x, max_x),
+        mode: mv.mode
+    };
+}
+
+export fn inter_motion_vector_inside_frame(mv: &Vp8MotionVector, mb_x: usize, mb_y: usize, frame_width: usize, frame_height: usize, block_width: usize, block_height: usize) !bool {
+    try validate_mv_geometry(mb_x, mb_y, frame_width, frame_height, block_width, block_height);
+
+    var min_x: i32 = 0;
+    var max_x: i32 = 0;
+    var min_y: i32 = 0;
+    var max_y: i32 = 0;
+    motion_vector_bounds(mb_x, frame_width, block_width, &min_x as &i32, &max_x as &i32);
+    motion_vector_bounds(mb_y, frame_height, block_height, &min_y as &i32, &max_y as &i32);
+
+    return (mv.x as i32) >= min_x && (mv.x as i32) <= max_x && (mv.y as i32) >= min_y && (mv.y as i32) <= max_y;
 }
