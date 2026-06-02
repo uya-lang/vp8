@@ -1,0 +1,32 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use bitstream.readers.read_le_u16_at;
+use bitstream.readers.read_le_u24_at;
+use bitstream.readers.read_le_u32_at;
+use bitstream.readers.read_le_u64_at;
+
+test "little endian fixed width reads" {
+    var data: [byte: 9] = [ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x10 ];
+    const ptr: &byte = &data[0] as &byte;
+
+    try assert_eq_i32((try read_le_u16_at(ptr, 9, 0)) as i32, 0x2301);
+    try assert_eq_i32((try read_le_u24_at(ptr, 9, 1)) as i32, 0x674523);
+    try expect((try read_le_u32_at(ptr, 9, 2)) == 0xab896745 as u32);
+    try expect((try read_le_u64_at(ptr, 9, 1)) == 0x10efcdab89674523 as u64);
+}
+
+test "little endian reads reject short input" {
+    var data: [byte: 4] = [ 0x01, 0x02, 0x03, 0x04 ];
+    const ptr: &byte = &data[0] as &byte;
+
+    const u16_fallback: u16 = read_le_u16_at(ptr, 4, 3) catch { 0xffff as u16; };
+    const u24_fallback: u32 = read_le_u24_at(ptr, 4, 2) catch { 0xffffff as u32; };
+    const u32_fallback: u32 = read_le_u32_at(ptr, 4, 1) catch { 0xffffffff as u32; };
+    const u64_fallback: u64 = read_le_u64_at(ptr, 4, 0) catch { 0xffffffffffffffff as u64; };
+
+    try assert_eq_i32(u16_fallback as i32, 0xffff);
+    try assert_eq_i32(u24_fallback as i32, 0xffffff);
+    try assert_eq_i32(u32_fallback as i32, -1);
+    try expect(u64_fallback == 0xffffffffffffffff as u64);
+}

@@ -5,6 +5,7 @@ BIN := $(BUILD_DIR)/vp8uya
 TOOLCHAIN_HELLO := $(BUILD_DIR)/toolchain_hello
 SRC := src/main.uya
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
+UYA_TESTS := src/vp8/bitstream_readers_test.uya
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
@@ -29,6 +30,7 @@ check-toolchain: require-uya $(TOOLCHAIN_HELLO)
 	$(TOOLCHAIN_HELLO) >/dev/null
 
 test: build check-toolchain
+	for test_src in $(UYA_TESTS); do $(UYA) test $$test_src; done
 	test -x $(BIN)
 	$(BIN) --help >/dev/null
 	$(BIN) version >/dev/null

@@ -1,0 +1,45 @@
+error ErrReaderOutOfBounds;
+
+fn ensure_available(len: usize, offset: usize, need: usize) !void {
+    if offset > len {
+        return error.ErrReaderOutOfBounds;
+    }
+
+    const remaining: usize = len - offset;
+    if remaining < need {
+        return error.ErrReaderOutOfBounds;
+    }
+}
+
+export fn read_le_u16_at(data: &byte, len: usize, offset: usize) !u16 {
+    try ensure_available(len, offset, 2);
+    return (data[offset] as u16) |
+        ((data[offset + 1] as u16) << 8);
+}
+
+export fn read_le_u24_at(data: &byte, len: usize, offset: usize) !u32 {
+    try ensure_available(len, offset, 3);
+    return (data[offset] as u32) |
+        ((data[offset + 1] as u32) << 8) |
+        ((data[offset + 2] as u32) << 16);
+}
+
+export fn read_le_u32_at(data: &byte, len: usize, offset: usize) !u32 {
+    try ensure_available(len, offset, 4);
+    return (data[offset] as u32) |
+        ((data[offset + 1] as u32) << 8) |
+        ((data[offset + 2] as u32) << 16) |
+        ((data[offset + 3] as u32) << 24);
+}
+
+export fn read_le_u64_at(data: &byte, len: usize, offset: usize) !u64 {
+    try ensure_available(len, offset, 8);
+    return (data[offset] as u64) |
+        ((data[offset + 1] as u64) << 8) |
+        ((data[offset + 2] as u64) << 16) |
+        ((data[offset + 3] as u64) << 24) |
+        ((data[offset + 4] as u64) << 32) |
+        ((data[offset + 5] as u64) << 40) |
+        ((data[offset + 6] as u64) << 48) |
+        ((data[offset + 7] as u64) << 56);
+}

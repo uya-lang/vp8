@@ -30,7 +30,7 @@
 
 ## Phase 1: Bitstream 与 IVF 基础
 
-- [ ] 实现 little-endian reader。
+- [x] 实现 little-endian reader。
 - [ ] 实现 bounded slice reader，所有 read 都检查长度。
 - [ ] 实现 IVF header parser。
 - [ ] 实现 IVF frame iterator。
