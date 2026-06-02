@@ -1,0 +1,55 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.allocate_frame_buffer;
+use vp8.common.frame.empty_frame_buffer;
+use vp8.common.frame.free_frame_buffer;
+use vp8.common.frame.frame_buffer_chroma_border;
+use vp8.common.frame.frame_buffer_chroma_dim;
+
+fn assert_aligned(value: usize, alignment: usize) !void {
+    try expect((value % alignment) == 0);
+}
+
+test "FrameBuffer allocates aligned Y U V 420 planes" {
+    try assert_eq_i32(frame_buffer_chroma_dim(1) as i32, 1);
+    try assert_eq_i32(frame_buffer_chroma_dim(17) as i32, 9);
+    try assert_eq_i32(frame_buffer_chroma_border(32) as i32, 16);
+
+    var frame: FrameBuffer = try allocate_frame_buffer(17, 17, 32, 32);
+    defer free_frame_buffer(&frame);
+
+    try assert_eq_i32(frame.width as i32, 17);
+    try assert_eq_i32(frame.height as i32, 17);
+    try assert_eq_i32(frame.y.plane.width as i32, 17);
+    try assert_eq_i32(frame.y.plane.height as i32, 17);
+    try assert_eq_i32(frame.y.plane.border as i32, 32);
+    try assert_eq_i32(frame.y.plane.stride as i32, 96);
+    try assert_eq_i32(frame.u.plane.width as i32, 9);
+    try assert_eq_i32(frame.u.plane.height as i32, 9);
+    try assert_eq_i32(frame.u.plane.border as i32, 16);
+    try assert_eq_i32(frame.u.plane.stride as i32, 64);
+    try assert_eq_i32(frame.v.plane.width as i32, 9);
+    try assert_eq_i32(frame.v.plane.height as i32, 9);
+    try assert_eq_i32(frame.v.plane.border as i32, 16);
+    try assert_eq_i32(frame.v.plane.stride as i32, 64);
+    try assert_aligned(@usize_from_ptr(frame.y.plane.data as &void), 32);
+    try assert_aligned(@usize_from_ptr(frame.u.plane.data as &void), 32);
+    try assert_aligned(@usize_from_ptr(frame.v.plane.data as &void), 32);
+}
+
+test "FrameBuffer rejects invalid dimensions and clears ownership on free" {
+    var failed: i32 = 0;
+    _ = allocate_frame_buffer(0, 17, 32, 32) catch {
+        failed = 1;
+        empty_frame_buffer();
+    };
+    try assert_eq_i32(failed, 1);
+
+    var frame: FrameBuffer = try allocate_frame_buffer(1, 1, 32, 32);
+    free_frame_buffer(&frame);
+    try expect(frame.y.raw == null);
+    try expect(frame.u.raw == null);
+    try expect(frame.v.raw == null);
+}

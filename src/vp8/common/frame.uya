@@ -1,0 +1,88 @@
+use vp8.common.frame_alloc.AlignedFramePlane;
+use vp8.common.frame_alloc.allocate_aligned_frame_plane_with_border;
+use vp8.common.frame_alloc.free_aligned_frame_plane;
+use vp8.common.plane.Plane;
+
+error ErrFrameBufferInvalidGeometry;
+
+export struct FrameBuffer {
+    width: usize,
+    height: usize,
+    y: AlignedFramePlane,
+    u: AlignedFramePlane,
+    v: AlignedFramePlane
+}
+
+fn empty_aligned_frame_plane() AlignedFramePlane {
+    return AlignedFramePlane{
+        raw: null as &byte,
+        raw_len: 0,
+        alignment: 0,
+        plane: Plane{
+            data: null as &byte,
+            origin: null as &byte,
+            width: 0,
+            height: 0,
+            stride: 0,
+            border: 0,
+            storage_len: 0
+        }
+    };
+}
+
+export fn empty_frame_buffer() FrameBuffer {
+    return FrameBuffer{
+        width: 0,
+        height: 0,
+        y: empty_aligned_frame_plane(),
+        u: empty_aligned_frame_plane(),
+        v: empty_aligned_frame_plane()
+    };
+}
+
+export fn frame_buffer_chroma_dim(value: usize) usize {
+    return (value + 1) / (2 as usize);
+}
+
+export fn frame_buffer_chroma_border(border: usize) usize {
+    return (border + 1) / (2 as usize);
+}
+
+export fn allocate_frame_buffer(width: usize, height: usize, border: usize, alignment: usize) !FrameBuffer {
+    if width == 0 || height == 0 {
+        return error.ErrFrameBufferInvalidGeometry;
+    }
+
+    var frame: FrameBuffer = empty_frame_buffer();
+    frame.width = width;
+    frame.height = height;
+
+    frame.y = allocate_aligned_frame_plane_with_border(width, height, border, alignment) catch {
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+
+    const chroma_width: usize = frame_buffer_chroma_dim(width);
+    const chroma_height: usize = frame_buffer_chroma_dim(height);
+    const chroma_border: usize = frame_buffer_chroma_border(border);
+
+    frame.u = allocate_aligned_frame_plane_with_border(chroma_width, chroma_height, chroma_border, alignment) catch {
+        free_aligned_frame_plane(&frame.y);
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+
+    frame.v = allocate_aligned_frame_plane_with_border(chroma_width, chroma_height, chroma_border, alignment) catch {
+        free_aligned_frame_plane(&frame.u);
+        free_aligned_frame_plane(&frame.y);
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+
+    return frame;
+}
+
+export fn free_frame_buffer(frame: &FrameBuffer) void {
+    free_aligned_frame_plane(&frame.v);
+    free_aligned_frame_plane(&frame.u);
+    free_aligned_frame_plane(&frame.y);
+    frame.width = 0;
+    frame.height = 0;
+}
