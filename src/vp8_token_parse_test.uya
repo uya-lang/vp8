@@ -6,9 +6,11 @@ use vp8.bitstream.bool_writer.BoolWriter;
 use vp8.bitstream.bool_writer.bool_writer_flush;
 use vp8.bitstream.bool_writer.bool_writer_write;
 use vp8.token.parse.CoefficientToken;
+use vp8.token.parse.CoefficientBlockSummary;
 use vp8.token.parse.coefficient_band;
 use vp8.token.parse.coefficient_eob_context;
 use vp8.token.parse.coefficient_scan_index;
+use vp8.token.parse.parse_coefficient_block_summary;
 use vp8.token.parse.parse_coefficient_token;
 use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
 use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
@@ -83,4 +85,35 @@ test "coefficient scan order bands and eob contexts match VP8 tables" {
     try assert_eq_i32(coefficient_eob_context(0 as byte, 0 as byte) as i32, 0);
     try assert_eq_i32(coefficient_eob_context(1 as byte, 0 as byte) as i32, 1);
     try assert_eq_i32(coefficient_eob_context(1 as byte, 1 as byte) as i32, 2);
+}
+
+fn parse_block_summary_from_script(bits: &u8, count: usize, probs: &byte, coeffs: &i16) !CoefficientBlockSummary {
+    var encoded: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
+    try write_token_path(&writer, bits, count, probs);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
+    return try parse_coefficient_block_summary(&reader, probs, coeffs);
+}
+
+test "coefficient block summary fast paths eob zero and dc only" {
+    var coeffs: [i16: 16] = [];
+    var eob_probs: [byte: 1] = [ 10 ];
+    var eob_bits: [u8: 1] = [ 0 ];
+
+    const empty: CoefficientBlockSummary = try parse_block_summary_from_script(&eob_bits[0] as &u8, 1, &eob_probs[0] as &byte, &coeffs[0] as &i16);
+    try assert_eq_i32(empty.has_coeff as i32, 0);
+    try assert_eq_i32(empty.coefficient_count as i32, 0);
+    try assert_eq_i32(empty.eob_position as i32, 0);
+    try assert_eq_i32(coeffs[0] as i32, 0);
+
+    var dc_bits: [u8: 5] = [ 1, 1, 0, 0, 0 ];
+    var dc_probs: [byte: 5] = [ 10, 20, 30, 128, 10 ];
+    const dc_only: CoefficientBlockSummary = try parse_block_summary_from_script(&dc_bits[0] as &u8, 5, &dc_probs[0] as &byte, &coeffs[0] as &i16);
+    try assert_eq_i32(dc_only.has_coeff as i32, 1);
+    try assert_eq_i32(dc_only.dc_only as i32, 1);
+    try assert_eq_i32(dc_only.coefficient_count as i32, 1);
+    try assert_eq_i32(dc_only.eob_position as i32, 1);
+    try assert_eq_i32(coeffs[0] as i32, 1);
 }

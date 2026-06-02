@@ -19,6 +19,13 @@ export struct CoefficientToken {
     coefficient: i16
 }
 
+export struct CoefficientBlockSummary {
+    has_coeff: bool,
+    dc_only: bool,
+    coefficient_count: byte,
+    eob_position: byte
+}
+
 error ErrVp8CoefficientIndexOutOfBounds;
 
 var VP8_COEFF_SCAN_ORDER: [byte: 16] = [ 0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15 ];
@@ -120,4 +127,44 @@ export fn parse_coefficient_token(reader: &BoolReader, probs: &byte) !Coefficien
         return try make_token(reader, VP8_COEFF_TOKEN_CAT5, (35 + (try read_extra_bits(reader, &VP8_CAT5_PROBS[0] as &byte, 5))) as i16);
     }
     return try make_token(reader, VP8_COEFF_TOKEN_CAT6, (67 + (try read_extra_bits(reader, &VP8_CAT6_PROBS[0] as &byte, 11))) as i16);
+}
+
+fn clear_coefficients(coefficients: &i16) void {
+    var index: usize = 0;
+    while index < 16 {
+        coefficients[index] = 0 as i16;
+        index = index + 1;
+    }
+}
+
+export fn parse_coefficient_block_summary(reader: &BoolReader, probs: &byte, coefficients: &i16) !CoefficientBlockSummary {
+    clear_coefficients(coefficients);
+
+    var summary: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 16 as byte
+    };
+
+    var position: usize = 0;
+    while position < 16 {
+        const token: CoefficientToken = try parse_coefficient_token(reader, probs);
+        if token.token == VP8_COEFF_TOKEN_EOB {
+            summary.eob_position = position as byte;
+            summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16) && position == 1;
+            return summary;
+        }
+
+        if token.token != VP8_COEFF_TOKEN_ZERO {
+            const scan_index: byte = try coefficient_scan_index(position);
+            coefficients[scan_index as usize] = token.coefficient;
+            summary.has_coeff = true;
+            summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
+        }
+        position = position + 1;
+    }
+
+    summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16);
+    return summary;
 }
