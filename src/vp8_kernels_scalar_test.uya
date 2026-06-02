@@ -1,0 +1,32 @@
+use std.testing.assert_eq_i32;
+
+use vp8.kernels.scalar.clamp_i16_to_i16;
+use vp8.kernels.scalar.clamp_i32_to_i32;
+use vp8.kernels.scalar.clip_i32_to_u8;
+use vp8.kernels.scalar.clip_i16_to_u8;
+
+test "scalar clamp helpers keep values inside signed bounds" {
+    try assert_eq_i32(clamp_i32_to_i32(-300, -128, 127), -128);
+    try assert_eq_i32(clamp_i32_to_i32(-128, -128, 127), -128);
+    try assert_eq_i32(clamp_i32_to_i32(0, -128, 127), 0);
+    try assert_eq_i32(clamp_i32_to_i32(127, -128, 127), 127);
+    try assert_eq_i32(clamp_i32_to_i32(300, -128, 127), 127);
+
+    try assert_eq_i32(clamp_i16_to_i16(-400 as i16, -127 as i16, 127 as i16) as i32, -127);
+    try assert_eq_i32(clamp_i16_to_i16(64 as i16, -127 as i16, 127 as i16) as i32, 64);
+    try assert_eq_i32(clamp_i16_to_i16(400 as i16, -127 as i16, 127 as i16) as i32, 127);
+}
+
+test "scalar clip helpers saturate reconstructed pixels to 8 bit" {
+    try assert_eq_i32(clip_i32_to_u8(-4096) as i32, 0);
+    try assert_eq_i32(clip_i32_to_u8(-1) as i32, 0);
+    try assert_eq_i32(clip_i32_to_u8(0) as i32, 0);
+    try assert_eq_i32(clip_i32_to_u8(128) as i32, 128);
+    try assert_eq_i32(clip_i32_to_u8(255) as i32, 255);
+    try assert_eq_i32(clip_i32_to_u8(256) as i32, 255);
+    try assert_eq_i32(clip_i32_to_u8(4096) as i32, 255);
+
+    try assert_eq_i32(clip_i16_to_u8(-1 as i16) as i32, 0);
+    try assert_eq_i32(clip_i16_to_u8(42 as i16) as i32, 42);
+    try assert_eq_i32(clip_i16_to_u8(300 as i16) as i32, 255);
+}

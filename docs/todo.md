@@ -141,7 +141,7 @@
 
 ## Phase 6: Scalar Kernel Reference
 
-- [ ] 实现 clip/clamp helpers。
+- [x] 实现 clip/clamp helpers。
 - [ ] 实现 DC-only inverse transform。
 - [ ] 实现 4x4 inverse DCT。
 - [ ] 实现 inverse Walsh-Hadamard Y2。
