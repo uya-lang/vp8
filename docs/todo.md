@@ -68,7 +68,7 @@
 
 ## Phase 3: VP8 Header 与概率状态
 
-- [ ] 定义 `Vp8FrameHeader`。
+- [x] 定义 `Vp8FrameHeader`。
 - [ ] 定义 `Vp8Segmentation`。
 - [ ] 定义 `Vp8LoopFilterHeader`。
 - [ ] 定义 `Vp8QuantHeader`。

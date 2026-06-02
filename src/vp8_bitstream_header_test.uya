@@ -1,5 +1,6 @@
 use std.testing.assert_eq_i32;
 
+use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
 use vp8.bitstream.header.parse_key_frame_start_code;
@@ -23,6 +24,28 @@ fn dummy_size() Vp8KeyFrameSize {
         horizontal_scale: 0,
         vertical_scale: 0
     };
+}
+
+test "define VP8 frame header fields" {
+    const header: Vp8FrameHeader = Vp8FrameHeader{
+        frame_type: 0,
+        version: 0,
+        show_frame: true,
+        first_partition_size: 292,
+        width: 640,
+        height: 480,
+        horizontal_scale: 0,
+        vertical_scale: 0
+    };
+
+    try assert_eq_i32(header.frame_type as i32, 0);
+    try assert_eq_i32(header.version as i32, 0);
+    try assert_eq_i32(header.show_frame as i32, true as i32);
+    try assert_eq_i32(header.first_partition_size as i32, 292);
+    try assert_eq_i32(header.width as i32, 640);
+    try assert_eq_i32(header.height as i32, 480);
+    try assert_eq_i32(header.horizontal_scale as i32, 0);
+    try assert_eq_i32(header.vertical_scale as i32, 0);
 }
 
 test "parse VP8 frame tag" {

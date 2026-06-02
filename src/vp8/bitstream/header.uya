@@ -6,6 +6,17 @@ use vp8.bitstream.readers.read_slice_at;
 error ErrInvalidKeyFrameStartCode;
 error ErrFirstPartitionOutOfBounds;
 
+export struct Vp8FrameHeader {
+    frame_type: u8,
+    version: u8,
+    show_frame: bool,
+    first_partition_size: u32,
+    width: u16,
+    height: u16,
+    horizontal_scale: u8,
+    vertical_scale: u8
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,
