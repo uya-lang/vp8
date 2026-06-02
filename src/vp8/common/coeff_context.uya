@@ -1,0 +1,223 @@
+use libc.free;
+use libc.malloc;
+use libc.memset;
+
+use vp8.common.mb_grid.MacroblockGrid;
+
+error ErrCoeffContextInvalidGeometry;
+error ErrCoeffContextOutOfMemory;
+error ErrCoeffContextOutOfBounds;
+error ErrCoeffContextOverflow;
+
+export struct AboveLeftCoeffContext {
+    mb_cols: usize,
+    mb_rows: usize,
+    above_y: &byte,
+    above_y2: &byte,
+    above_u: &byte,
+    above_v: &byte,
+    left_y: [byte: 4],
+    left_y2: byte,
+    left_u: [byte: 2],
+    left_v: [byte: 2]
+}
+
+export struct CoeffContextPair {
+    above: byte,
+    left: byte
+}
+
+export fn empty_above_left_coeff_context() AboveLeftCoeffContext {
+    return AboveLeftCoeffContext{
+        mb_cols: 0,
+        mb_rows: 0,
+        above_y: null as &byte,
+        above_y2: null as &byte,
+        above_u: null as &byte,
+        above_v: null as &byte,
+        left_y: [ 0 as byte, 0 as byte, 0 as byte, 0 as byte ],
+        left_y2: 0 as byte,
+        left_u: [ 0 as byte, 0 as byte ],
+        left_v: [ 0 as byte, 0 as byte ]
+    };
+}
+
+fn checked_mul(a: usize, b: usize) !usize {
+    const product: usize = a * b;
+    if b != 0 && (product / b) != a {
+        return error.ErrCoeffContextOverflow;
+    }
+    return product;
+}
+
+fn alloc_zeroed_coeff_array(count: usize) !&byte {
+    if count == 0 {
+        return error.ErrCoeffContextInvalidGeometry;
+    }
+    const ptr: &byte = malloc(count) as &byte;
+    if ptr == null {
+        return error.ErrCoeffContextOutOfMemory;
+    }
+    _ = memset(ptr as *byte, 0, count);
+    return ptr;
+}
+
+export fn free_above_left_coeff_context(ctx: &AboveLeftCoeffContext) void {
+    if ctx.above_v != null {
+        free(ctx.above_v as &void);
+    }
+    if ctx.above_u != null {
+        free(ctx.above_u as &void);
+    }
+    if ctx.above_y2 != null {
+        free(ctx.above_y2 as &void);
+    }
+    if ctx.above_y != null {
+        free(ctx.above_y as &void);
+    }
+
+    ctx.mb_cols = 0;
+    ctx.mb_rows = 0;
+    ctx.above_y = null as &byte;
+    ctx.above_y2 = null as &byte;
+    ctx.above_u = null as &byte;
+    ctx.above_v = null as &byte;
+    ctx.left_y[0] = 0 as byte;
+    ctx.left_y[1] = 0 as byte;
+    ctx.left_y[2] = 0 as byte;
+    ctx.left_y[3] = 0 as byte;
+    ctx.left_y2 = 0 as byte;
+    ctx.left_u[0] = 0 as byte;
+    ctx.left_u[1] = 0 as byte;
+    ctx.left_v[0] = 0 as byte;
+    ctx.left_v[1] = 0 as byte;
+}
+
+export fn allocate_above_left_coeff_context(grid: &MacroblockGrid) !AboveLeftCoeffContext {
+    if grid.mb_cols == 0 || grid.mb_rows == 0 {
+        return error.ErrCoeffContextInvalidGeometry;
+    }
+
+    var ctx: AboveLeftCoeffContext = empty_above_left_coeff_context();
+    ctx.mb_cols = grid.mb_cols;
+    ctx.mb_rows = grid.mb_rows;
+
+    const y_count: usize = try checked_mul(grid.mb_cols, 4);
+    const uv_count: usize = try checked_mul(grid.mb_cols, 2);
+
+    ctx.above_y = alloc_zeroed_coeff_array(y_count) catch {
+        free_above_left_coeff_context(&ctx);
+        return error.ErrCoeffContextOutOfMemory;
+    };
+    ctx.above_y2 = alloc_zeroed_coeff_array(grid.mb_cols) catch {
+        free_above_left_coeff_context(&ctx);
+        return error.ErrCoeffContextOutOfMemory;
+    };
+    ctx.above_u = alloc_zeroed_coeff_array(uv_count) catch {
+        free_above_left_coeff_context(&ctx);
+        return error.ErrCoeffContextOutOfMemory;
+    };
+    ctx.above_v = alloc_zeroed_coeff_array(uv_count) catch {
+        free_above_left_coeff_context(&ctx);
+        return error.ErrCoeffContextOutOfMemory;
+    };
+
+    return ctx;
+}
+
+export fn coeff_context_start_row(ctx: &AboveLeftCoeffContext) !void {
+    if ctx.mb_cols == 0 || ctx.above_y == null || ctx.above_y2 == null || ctx.above_u == null || ctx.above_v == null {
+        return error.ErrCoeffContextInvalidGeometry;
+    }
+    ctx.left_y[0] = 0 as byte;
+    ctx.left_y[1] = 0 as byte;
+    ctx.left_y[2] = 0 as byte;
+    ctx.left_y[3] = 0 as byte;
+    ctx.left_y2 = 0 as byte;
+    ctx.left_u[0] = 0 as byte;
+    ctx.left_u[1] = 0 as byte;
+    ctx.left_v[0] = 0 as byte;
+    ctx.left_v[1] = 0 as byte;
+}
+
+fn check_mb_col(ctx: &AboveLeftCoeffContext, mb_x: usize) !void {
+    if mb_x >= ctx.mb_cols {
+        return error.ErrCoeffContextOutOfBounds;
+    }
+}
+
+fn check_block(block_x: usize, block_y: usize, limit: usize) !void {
+    if block_x >= limit || block_y >= limit {
+        return error.ErrCoeffContextOutOfBounds;
+    }
+}
+
+fn y_index(mb_x: usize, block_x: usize) usize {
+    return (mb_x * (4 as usize)) + block_x;
+}
+
+fn uv_index(mb_x: usize, block_x: usize) usize {
+    return (mb_x * (2 as usize)) + block_x;
+}
+
+export fn coeff_context_get_y(ctx: &AboveLeftCoeffContext, mb_x: usize, block_x: usize, block_y: usize) !CoeffContextPair {
+    try check_mb_col(ctx, mb_x);
+    try check_block(block_x, block_y, 4);
+    return CoeffContextPair{
+        above: ctx.above_y[y_index(mb_x, block_x)],
+        left: ctx.left_y[block_y]
+    };
+}
+
+export fn coeff_context_store_y_after_decode(ctx: &AboveLeftCoeffContext, mb_x: usize, block_x: usize, block_y: usize, has_coeff: byte) !void {
+    try check_mb_col(ctx, mb_x);
+    try check_block(block_x, block_y, 4);
+    ctx.above_y[y_index(mb_x, block_x)] = has_coeff;
+    ctx.left_y[block_y] = has_coeff;
+}
+
+export fn coeff_context_get_y2(ctx: &AboveLeftCoeffContext, mb_x: usize) !CoeffContextPair {
+    try check_mb_col(ctx, mb_x);
+    return CoeffContextPair{
+        above: ctx.above_y2[mb_x],
+        left: ctx.left_y2
+    };
+}
+
+export fn coeff_context_store_y2_after_decode(ctx: &AboveLeftCoeffContext, mb_x: usize, has_coeff: byte) !void {
+    try check_mb_col(ctx, mb_x);
+    ctx.above_y2[mb_x] = has_coeff;
+    ctx.left_y2 = has_coeff;
+}
+
+export fn coeff_context_get_u(ctx: &AboveLeftCoeffContext, mb_x: usize, block_x: usize, block_y: usize) !CoeffContextPair {
+    try check_mb_col(ctx, mb_x);
+    try check_block(block_x, block_y, 2);
+    return CoeffContextPair{
+        above: ctx.above_u[uv_index(mb_x, block_x)],
+        left: ctx.left_u[block_y]
+    };
+}
+
+export fn coeff_context_store_u_after_decode(ctx: &AboveLeftCoeffContext, mb_x: usize, block_x: usize, block_y: usize, has_coeff: byte) !void {
+    try check_mb_col(ctx, mb_x);
+    try check_block(block_x, block_y, 2);
+    ctx.above_u[uv_index(mb_x, block_x)] = has_coeff;
+    ctx.left_u[block_y] = has_coeff;
+}
+
+export fn coeff_context_get_v(ctx: &AboveLeftCoeffContext, mb_x: usize, block_x: usize, block_y: usize) !CoeffContextPair {
+    try check_mb_col(ctx, mb_x);
+    try check_block(block_x, block_y, 2);
+    return CoeffContextPair{
+        above: ctx.above_v[uv_index(mb_x, block_x)],
+        left: ctx.left_v[block_y]
+    };
+}
+
+export fn coeff_context_store_v_after_decode(ctx: &AboveLeftCoeffContext, mb_x: usize, block_x: usize, block_y: usize, has_coeff: byte) !void {
+    try check_mb_col(ctx, mb_x);
+    try check_block(block_x, block_y, 2);
+    ctx.above_v[uv_index(mb_x, block_x)] = has_coeff;
+    ctx.left_v[block_y] = has_coeff;
+}

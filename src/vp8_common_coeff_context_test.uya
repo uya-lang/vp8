@@ -1,0 +1,76 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.coeff_context.AboveLeftCoeffContext;
+use vp8.common.coeff_context.CoeffContextPair;
+use vp8.common.coeff_context.allocate_above_left_coeff_context;
+use vp8.common.coeff_context.coeff_context_get_u;
+use vp8.common.coeff_context.coeff_context_get_v;
+use vp8.common.coeff_context.coeff_context_get_y;
+use vp8.common.coeff_context.coeff_context_get_y2;
+use vp8.common.coeff_context.coeff_context_start_row;
+use vp8.common.coeff_context.coeff_context_store_u_after_decode;
+use vp8.common.coeff_context.coeff_context_store_v_after_decode;
+use vp8.common.coeff_context.coeff_context_store_y_after_decode;
+use vp8.common.coeff_context.coeff_context_store_y2_after_decode;
+use vp8.common.coeff_context.free_above_left_coeff_context;
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+
+test "AboveLeftCoeffContext tracks Y Y2 U and V entropy contexts" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
+    var ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&grid);
+    defer free_above_left_coeff_context(&ctx);
+
+    try assert_eq_i32(ctx.mb_cols as i32, 2);
+    try expect(ctx.above_y != null);
+    try expect(ctx.above_y2 != null);
+    try expect(ctx.above_u != null);
+    try expect(ctx.above_v != null);
+
+    var y00: CoeffContextPair = try coeff_context_get_y(&ctx, 0, 0, 0);
+    try assert_eq_i32(y00.above as i32, 0);
+    try assert_eq_i32(y00.left as i32, 0);
+
+    try coeff_context_store_y_after_decode(&ctx, 0, 0, 0, 1 as byte);
+    var y10: CoeffContextPair = try coeff_context_get_y(&ctx, 0, 1, 0);
+    try assert_eq_i32(y10.above as i32, 0);
+    try assert_eq_i32(y10.left as i32, 1);
+
+    try coeff_context_store_y2_after_decode(&ctx, 0, 1 as byte);
+    try coeff_context_store_u_after_decode(&ctx, 0, 1, 0, 1 as byte);
+    try coeff_context_store_v_after_decode(&ctx, 0, 0, 1, 1 as byte);
+
+    try coeff_context_start_row(&ctx);
+
+    var next_y: CoeffContextPair = try coeff_context_get_y(&ctx, 0, 0, 0);
+    var next_y2: CoeffContextPair = try coeff_context_get_y2(&ctx, 0);
+    var next_u: CoeffContextPair = try coeff_context_get_u(&ctx, 0, 1, 0);
+    var next_v: CoeffContextPair = try coeff_context_get_v(&ctx, 0, 0, 1);
+
+    try assert_eq_i32(next_y.above as i32, 1);
+    try assert_eq_i32(next_y.left as i32, 0);
+    try assert_eq_i32(next_y2.above as i32, 1);
+    try assert_eq_i32(next_y2.left as i32, 0);
+    try assert_eq_i32(next_u.above as i32, 1);
+    try assert_eq_i32(next_u.left as i32, 0);
+    try assert_eq_i32(next_v.above as i32, 1);
+    try assert_eq_i32(next_v.left as i32, 0);
+}
+
+test "AboveLeftCoeffContext rejects invalid block coordinates and frees arrays" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(16, 16);
+    var ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&grid);
+
+    var failed: i32 = 0;
+    _ = coeff_context_get_y(&ctx, 0, 4, 0) catch {
+        failed = 1;
+        CoeffContextPair{ above: 0 as byte, left: 0 as byte };
+    };
+    try assert_eq_i32(failed, 1);
+
+    free_above_left_coeff_context(&ctx);
+    try expect(ctx.above_y == null);
+    try expect(ctx.above_u == null);
+    try assert_eq_i32(ctx.mb_cols as i32, 0);
+}

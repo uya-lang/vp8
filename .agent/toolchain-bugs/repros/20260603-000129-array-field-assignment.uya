@@ -1,0 +1,13 @@
+struct Holder {
+    values: [byte: 2]
+}
+
+fn clear(holder: &Holder) void {
+    holder.values = [ 0 as byte, 0 as byte ];
+}
+
+fn main() i32 {
+    var holder: Holder = Holder{ values: [ 1 as byte, 2 as byte ] };
+    clear(&holder);
+    return holder.values[0] as i32;
+}

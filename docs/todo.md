@@ -102,7 +102,7 @@
 - [x] 实现 macroblock grid helper。
 - [x] 实现 SoA macroblock info arrays。
 - [x] 实现 above/left mode context。
-- [ ] 实现 above/left coefficient context。
+- [x] 实现 above/left coefficient context。
 - [ ] 实现 row scratch arena。
 - [ ] 实现 coefficient scratch bytes read/write 统计。
 - [ ] 实现 frame-level scratch reset。
