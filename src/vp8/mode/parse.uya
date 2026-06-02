@@ -1,6 +1,9 @@
 use vp8.bitstream.bool_reader.BoolReader;
 use vp8.bitstream.bool_reader.read_bit_with_probability;
 use vp8.bitstream.header.Vp8Probs;
+use vp8.common.mb_info.MacroblockInfoArrays;
+use vp8.common.mb_info.MacroblockInfoValue;
+use vp8.common.mb_info.macroblock_info_set;
 
 export const VP8_Y_MODE_DC: byte = 0 as byte;
 export const VP8_Y_MODE_V: byte = 1 as byte;
@@ -195,6 +198,39 @@ export fn parse_key_frame_luma_4x4_modes(reader: &BoolReader, above_modes: &byte
     while row < 4 {
         left_modes[row] = output_modes[(row * 4) + 3];
         row = row + 1;
+    }
+}
+
+export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, info: &MacroblockInfoArrays) !void {
+    var above_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
+    var left_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
+    var output_b_modes: [byte: 16] = [];
+
+    var mb_y: usize = 0;
+    while mb_y < info.mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < info.mb_cols {
+            const y_mode: byte = try parse_key_frame_y_mode(reader, probs);
+            if y_mode == VP8_Y_MODE_B {
+                try parse_key_frame_luma_4x4_modes(reader, &above_b_modes[0] as &byte, &left_b_modes[0] as &byte, &output_b_modes[0] as &byte);
+            }
+            const uv_mode: byte = try parse_key_frame_uv_mode(reader, probs);
+
+            var value: MacroblockInfoValue = MacroblockInfoValue{
+                y_mode: y_mode,
+                uv_mode: uv_mode,
+                segment_id: 0 as byte,
+                skip_coeff: false,
+                ref_frame: VP8_REF_CURRENT,
+                mv_x: 0,
+                mv_y: 0,
+                coeff_summary: 0 as byte
+            };
+            try macroblock_info_set(info, mb_x, mb_y, &value);
+
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
     }
 }
 

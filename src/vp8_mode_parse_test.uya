@@ -9,6 +9,7 @@ use vp8.mode.parse.parse_key_frame_uv_mode;
 use vp8.mode.parse.parse_key_frame_y_mode;
 use vp8.mode.parse.parse_key_frame_luma_4x4_block_mode;
 use vp8.mode.parse.parse_key_frame_luma_4x4_modes;
+use vp8.mode.parse.parse_key_frame_mode_map;
 use vp8.mode.parse.parse_inter_intra_flag;
 use vp8.mode.parse.parse_inter_reference_frame;
 use vp8.mode.parse.parse_inter_motion_vector;
@@ -23,6 +24,13 @@ use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
 use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.vp8_default_probs;
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mb_info.MacroblockInfoArrays;
+use vp8.common.mb_info.MacroblockInfoValue;
+use vp8.common.mb_info.allocate_macroblock_info_arrays;
+use vp8.common.mb_info.free_macroblock_info_arrays;
+use vp8.common.mb_info.macroblock_info_get;
 
 fn write_bits(writer: &BoolWriter, bits: &u8, count: usize, probs: &byte) !void {
     var index: usize = 0;
@@ -295,6 +303,38 @@ test "parse key frame 4x4 luma modes updates above and left contexts" {
     try assert_eq_i32(above_modes[3] as i32, 0);
     try assert_eq_i32(left_modes[0] as i32, 0);
     try assert_eq_i32(left_modes[3] as i32, 0);
+}
+
+test "small key frame mode map matches golden macroblock order" {
+    var encoded: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
+    const probs: Vp8Probs = vp8_default_probs();
+
+    var dc_y_bits: [u8: 1] = [ 0 ];
+    var v_y_bits: [u8: 2] = [ 1, 0 ];
+    var dc_uv_bits: [u8: 1] = [ 0 ];
+    var v_uv_bits: [u8: 2] = [ 1, 0 ];
+
+    try write_bits(&writer, &dc_y_bits[0] as &u8, 1, &probs.y_mode_probs[0] as &byte);
+    try write_bits(&writer, &dc_uv_bits[0] as &u8, 1, &probs.uv_mode_probs[0] as &byte);
+    try write_bits(&writer, &v_y_bits[0] as &u8, 2, &probs.y_mode_probs[0] as &byte);
+    try write_bits(&writer, &v_uv_bits[0] as &u8, 2, &probs.uv_mode_probs[0] as &byte);
+    try bool_writer_flush(&writer);
+
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(32, 16);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
+
+    try parse_key_frame_mode_map(&reader, &probs, &info);
+
+    const mb00: MacroblockInfoValue = try macroblock_info_get(&info, 0, 0);
+    const mb10: MacroblockInfoValue = try macroblock_info_get(&info, 1, 0);
+
+    try assert_eq_i32(mb00.y_mode as i32, 0);
+    try assert_eq_i32(mb00.uv_mode as i32, 0);
+    try assert_eq_i32(mb10.y_mode as i32, 1);
+    try assert_eq_i32(mb10.uv_mode as i32, 1);
 }
 
 test "parse inter frame intra inter macroblock flag" {

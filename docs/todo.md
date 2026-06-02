@@ -135,7 +135,7 @@
 
 验收标准：
 
-- [ ] 小 key frame 的 mode map 与 golden 一致。
+- [x] 小 key frame 的 mode map 与 golden 一致。
 - [ ] token partition 映射在多 row、多 partition 下正确。
 - [ ] 任意 token overread 返回 `ErrBoolReaderOverread`。
 
