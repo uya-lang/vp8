@@ -1,0 +1,77 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.frame_alloc.AlignedFramePlane;
+use vp8.common.frame_alloc.allocate_aligned_frame_plane;
+use vp8.common.frame_alloc.free_aligned_frame_plane;
+use vp8.common.frame_alloc.frame_aligned_stride;
+use vp8.common.plane.Plane;
+
+fn dummy_frame() AlignedFramePlane {
+    return AlignedFramePlane{
+        raw: null as &byte,
+        raw_len: 0,
+        alignment: 0,
+        plane: Plane{
+            data: null as &byte,
+            origin: null as &byte,
+            width: 0,
+            height: 0,
+            stride: 0,
+            border: 0,
+            storage_len: 0
+        }
+    };
+}
+
+fn assert_aligned(value: usize, alignment: usize) !void {
+    try expect((value % alignment) == 0);
+}
+
+fn check_alloc(width: usize, height: usize, expected_stride: usize) !void {
+    var frame: AlignedFramePlane = try allocate_aligned_frame_plane(width, height, 32);
+    defer free_aligned_frame_plane(&frame);
+
+    try assert_eq_i32(frame.plane.width as i32, width as i32);
+    try assert_eq_i32(frame.plane.height as i32, height as i32);
+    try assert_eq_i32(frame.plane.stride as i32, expected_stride as i32);
+    try assert_eq_i32(frame.plane.border as i32, 0);
+    try assert_eq_i32(frame.plane.storage_len as i32, (expected_stride * height) as i32);
+    try assert_aligned(@usize_from_ptr(frame.plane.data as &void), 32);
+    try assert_aligned(@usize_from_ptr(frame.plane.origin as &void), 32);
+}
+
+test "aligned frame plane allocation pads stride and data pointer" {
+    try assert_eq_i32((try frame_aligned_stride(1, 32)) as i32, 32);
+    try assert_eq_i32((try frame_aligned_stride(16, 32)) as i32, 32);
+    try assert_eq_i32((try frame_aligned_stride(17, 32)) as i32, 32);
+    try assert_eq_i32((try frame_aligned_stride(1920, 32)) as i32, 1920);
+
+    try check_alloc(1, 1, 32);
+    try check_alloc(16, 16, 32);
+    try check_alloc(17, 17, 32);
+    try check_alloc(1920, 1080, 1920);
+}
+
+test "aligned frame plane rejects invalid geometry" {
+    var failed_zero_width: i32 = 0;
+    var failed_zero_height: i32 = 0;
+    var failed_bad_alignment: i32 = 0;
+
+    _ = allocate_aligned_frame_plane(0, 1, 32) catch {
+        failed_zero_width = 1;
+        dummy_frame();
+    };
+    _ = allocate_aligned_frame_plane(1, 0, 32) catch {
+        failed_zero_height = 1;
+        dummy_frame();
+    };
+    _ = allocate_aligned_frame_plane(1, 1, 24) catch {
+        failed_bad_alignment = 1;
+        dummy_frame();
+    };
+
+    try assert_eq_i32(failed_zero_width, 1);
+    try assert_eq_i32(failed_zero_height, 1);
+    try assert_eq_i32(failed_bad_alignment, 1);
+}

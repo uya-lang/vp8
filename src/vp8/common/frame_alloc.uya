@@ -1,0 +1,98 @@
+use libc.free;
+use libc.malloc;
+use libc.memset;
+
+use vp8.common.plane.Plane;
+use vp8.common.plane.make_plane_view;
+
+error ErrFrameAllocationInvalidGeometry;
+error ErrFrameAllocationOverflow;
+error ErrFrameAllocationOutOfMemory;
+
+export struct AlignedFramePlane {
+    raw: &byte,
+    raw_len: usize,
+    alignment: usize,
+    plane: Plane
+}
+
+fn is_power_of_two(value: usize) bool {
+    if value == 0 {
+        return false;
+    }
+
+    var n: usize = value;
+    while (n % (2 as usize)) == 0 {
+        n = n / (2 as usize);
+    }
+    return n == 1;
+}
+
+fn align_up(value: usize, alignment: usize) !usize {
+    if !is_power_of_two(alignment) {
+        return error.ErrFrameAllocationInvalidGeometry;
+    }
+
+    const addend: usize = alignment - 1;
+    const padded: usize = value + addend;
+    if padded < value {
+        return error.ErrFrameAllocationOverflow;
+    }
+    return (padded / alignment) * alignment;
+}
+
+export fn frame_aligned_stride(width: usize, alignment: usize) !usize {
+    if width == 0 {
+        return error.ErrFrameAllocationInvalidGeometry;
+    }
+    return try align_up(width, alignment);
+}
+
+export fn allocate_aligned_frame_plane(width: usize, height: usize, alignment: usize) !AlignedFramePlane {
+    if width == 0 || height == 0 || !is_power_of_two(alignment) {
+        return error.ErrFrameAllocationInvalidGeometry;
+    }
+
+    const stride: usize = try frame_aligned_stride(width, alignment);
+    const storage_len: usize = stride * height;
+    if (storage_len / height) != stride {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const raw_len: usize = storage_len + alignment - 1;
+    if raw_len < storage_len {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const raw: &byte = malloc(raw_len) as &byte;
+    if raw == null {
+        return error.ErrFrameAllocationOutOfMemory;
+    }
+    _ = memset(raw as *byte, 0, raw_len);
+
+    const raw_addr: usize = @usize_from_ptr(raw as &void);
+    const aligned_addr: usize = try align_up(raw_addr, alignment);
+    const aligned_data: &byte = @ptr_from_usize(aligned_addr) as &byte;
+
+    const plane: Plane = make_plane_view(aligned_data, storage_len, width, height, stride, 0) catch {
+        free(raw as &void);
+        return error.ErrFrameAllocationInvalidGeometry;
+    };
+
+    return AlignedFramePlane{
+        raw: raw,
+        raw_len: raw_len,
+        alignment: alignment,
+        plane: plane
+    };
+}
+
+export fn free_aligned_frame_plane(frame: &AlignedFramePlane) void {
+    if frame.raw != null {
+        free(frame.raw as &void);
+    }
+
+    frame.raw = null as &byte;
+    frame.raw_len = 0;
+    frame.alignment = 0;
+}
