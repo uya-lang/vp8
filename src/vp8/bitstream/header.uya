@@ -217,6 +217,25 @@ export fn parse_vp8_loop_filter(reader: &BoolReader) !Vp8LoopFilterHeader {
     return loop_filter;
 }
 
+fn read_vp8_quant_delta(reader: &BoolReader) !i8 {
+    if (try read_bit_with_probability(reader, 128 as byte)) == 0 {
+        return 0 as i8;
+    }
+
+    return (try read_signed_value(reader, 4 as u8)) as i8;
+}
+
+export fn parse_vp8_quant(reader: &BoolReader) !Vp8QuantHeader {
+    return Vp8QuantHeader{
+        base_qindex: (try read_literal(reader, 7 as u8)) as u8,
+        y1_dc_delta: try read_vp8_quant_delta(reader),
+        y2_dc_delta: try read_vp8_quant_delta(reader),
+        y2_ac_delta: try read_vp8_quant_delta(reader),
+        uv_dc_delta: try read_vp8_quant_delta(reader),
+        uv_ac_delta: try read_vp8_quant_delta(reader)
+    };
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,

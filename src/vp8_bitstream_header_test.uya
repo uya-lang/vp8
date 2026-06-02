@@ -10,6 +10,7 @@ use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
 use vp8.bitstream.header.parse_vp8_loop_filter;
+use vp8.bitstream.header.parse_vp8_quant;
 use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_frame_tag;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
@@ -44,6 +45,16 @@ fn write_literal_for_header(writer: &BoolWriter, value: u32, bit_count: u8) !voi
     while index >= 0 {
         try bool_writer_write(writer, ((value >> (index as u8)) & (1 as u32)) as u8, 128 as byte);
         index = index - 1;
+    }
+}
+
+fn write_signed_delta_for_header(writer: &BoolWriter, value: i32) !void {
+    if value < 0 {
+        try write_literal_for_header(writer, (0 - value) as u32, 4 as u8);
+        try bool_writer_write(writer, 1 as u8, 128 as byte);
+    } else {
+        try write_literal_for_header(writer, value as u32, 4 as u8);
+        try bool_writer_write(writer, 0 as u8, 128 as byte);
     }
 }
 
@@ -252,6 +263,32 @@ test "parse VP8 loop filter type level sharpness and delta updates" {
     try assert_eq_i32(loop_filter.mode_delta[1] as i32, -1);
     try assert_eq_i32(loop_filter.mode_delta[2] as i32, -51);
     try assert_eq_i32(loop_filter.mode_delta[3] as i32, -31);
+}
+
+test "parse VP8 quant base index and optional deltas" {
+    var out: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 32);
+
+    try write_literal_for_header(&writer, 37, 7 as u8);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_delta_for_header(&writer, -3);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_delta_for_header(&writer, 4);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_delta_for_header(&writer, -2);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, 32);
+    const quant: Vp8QuantHeader = try parse_vp8_quant(&reader);
+
+    try assert_eq_i32(quant.base_qindex as i32, 37);
+    try assert_eq_i32(quant.y1_dc_delta as i32, -3);
+    try assert_eq_i32(quant.y2_dc_delta as i32, 0);
+    try assert_eq_i32(quant.y2_ac_delta as i32, 2);
+    try assert_eq_i32(quant.uv_dc_delta as i32, 0);
+    try assert_eq_i32(quant.uv_ac_delta as i32, -2);
 }
 
 test "parse VP8 frame tag" {
