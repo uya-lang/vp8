@@ -249,6 +249,14 @@ fn signed_char_clamp(value: i32) i32 {
     return clamp_i32_to_i32(value, -128, 127);
 }
 
+fn u8_to_signed_char(value: byte) i32 {
+    return (value as i32) - 128;
+}
+
+fn signed_char_to_u8(value: i32) byte {
+    return (signed_char_clamp(value) + 128) as byte;
+}
+
 fn simple_loop_filter_passes(p1: byte, p0: byte, q0: byte, q1: byte, limit: u8) bool {
     const score: i32 = (abs_i32((p0 as i32) - (q0 as i32)) * 2) + (abs_i32((p1 as i32) - (q1 as i32)) >> 1);
     return score <= (limit as i32);
@@ -284,6 +292,157 @@ export fn loop_filter_simple_horizontal_edge(base: &byte, stride: usize, edge_ro
     var col: usize = 0;
     while col < cols {
         apply_simple_loop_filter_sample(base, ((edge_row - 2) * stride) + col, ((edge_row - 1) * stride) + col, (edge_row * stride) + col, ((edge_row + 1) * stride) + col, limit);
+        col = col + 1;
+    }
+}
+
+fn normal_loop_filter_passes(p3: byte, p2: byte, p1: byte, p0: byte, q0: byte, q1: byte, q2: byte, q3: byte, limit: u8, blimit: u8) bool {
+    if abs_i32((p3 as i32) - (p2 as i32)) > (limit as i32) {
+        return false;
+    }
+    if abs_i32((p2 as i32) - (p1 as i32)) > (limit as i32) {
+        return false;
+    }
+    if abs_i32((p1 as i32) - (p0 as i32)) > (limit as i32) {
+        return false;
+    }
+    if abs_i32((q1 as i32) - (q0 as i32)) > (limit as i32) {
+        return false;
+    }
+    if abs_i32((q2 as i32) - (q1 as i32)) > (limit as i32) {
+        return false;
+    }
+    if abs_i32((q3 as i32) - (q2 as i32)) > (limit as i32) {
+        return false;
+    }
+
+    const edge_score: i32 = (abs_i32((p0 as i32) - (q0 as i32)) * 2) + (abs_i32((p1 as i32) - (q1 as i32)) >> 1);
+    return edge_score <= (blimit as i32);
+}
+
+fn normal_loop_filter_hev(p1: byte, p0: byte, q0: byte, q1: byte, thresh: u8) bool {
+    if abs_i32((p1 as i32) - (p0 as i32)) > (thresh as i32) {
+        return true;
+    }
+    return abs_i32((q1 as i32) - (q0 as i32)) > (thresh as i32);
+}
+
+fn apply_normal_loop_filter_sample(base: &byte, p3_index: usize, p2_index: usize, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, q2_index: usize, q3_index: usize, limit: u8, blimit: u8, thresh: u8) void {
+    const p3: byte = base[p3_index];
+    const p2: byte = base[p2_index];
+    const p1: byte = base[p1_index];
+    const p0: byte = base[p0_index];
+    const q0: byte = base[q0_index];
+    const q1: byte = base[q1_index];
+    const q2: byte = base[q2_index];
+    const q3: byte = base[q3_index];
+
+    if !normal_loop_filter_passes(p3, p2, p1, p0, q0, q1, q2, q3, limit, blimit) {
+        return;
+    }
+
+    const hev: bool = normal_loop_filter_hev(p1, p0, q0, q1, thresh);
+    const ps1: i32 = u8_to_signed_char(p1);
+    const ps0: i32 = u8_to_signed_char(p0);
+    const qs0: i32 = u8_to_signed_char(q0);
+    const qs1: i32 = u8_to_signed_char(q1);
+
+    var filter_value: i32 = 0;
+    if hev {
+        filter_value = signed_char_clamp(ps1 - qs1);
+    }
+    filter_value = signed_char_clamp(filter_value + (3 * (qs0 - ps0)));
+
+    const filter1: i32 = signed_char_clamp(filter_value + 4) >> 3;
+    const filter2: i32 = signed_char_clamp(filter_value + 3) >> 3;
+    base[q0_index] = signed_char_to_u8(qs0 - filter1);
+    base[p0_index] = signed_char_to_u8(ps0 + filter2);
+
+    if !hev {
+        const outer_adjust: i32 = (filter1 + 1) >> 1;
+        base[q1_index] = signed_char_to_u8(qs1 - outer_adjust);
+        base[p1_index] = signed_char_to_u8(ps1 + outer_adjust);
+    }
+}
+
+fn apply_normal_mb_loop_filter_sample(base: &byte, p3_index: usize, p2_index: usize, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, q2_index: usize, q3_index: usize, limit: u8, blimit: u8, thresh: u8) void {
+    const p3: byte = base[p3_index];
+    const p2: byte = base[p2_index];
+    const p1: byte = base[p1_index];
+    const p0: byte = base[p0_index];
+    const q0: byte = base[q0_index];
+    const q1: byte = base[q1_index];
+    const q2: byte = base[q2_index];
+    const q3: byte = base[q3_index];
+
+    if !normal_loop_filter_passes(p3, p2, p1, p0, q0, q1, q2, q3, limit, blimit) {
+        return;
+    }
+
+    const hev: bool = normal_loop_filter_hev(p1, p0, q0, q1, thresh);
+    const ps2: i32 = u8_to_signed_char(p2);
+    const ps1: i32 = u8_to_signed_char(p1);
+    var ps0: i32 = u8_to_signed_char(p0);
+    var qs0: i32 = u8_to_signed_char(q0);
+    const qs1: i32 = u8_to_signed_char(q1);
+    const qs2: i32 = u8_to_signed_char(q2);
+
+    const filter_value: i32 = signed_char_clamp(signed_char_clamp(ps1 - qs1) + (3 * (qs0 - ps0)));
+
+    if hev {
+        const filter1: i32 = signed_char_clamp(filter_value + 4) >> 3;
+        const filter2: i32 = signed_char_clamp(filter_value + 3) >> 3;
+        base[q0_index] = signed_char_to_u8(qs0 - filter1);
+        base[p0_index] = signed_char_to_u8(ps0 + filter2);
+        return;
+    }
+
+    const wide_filter: i32 = filter_value;
+    const adjust0: i32 = signed_char_clamp(63 + (wide_filter * 27)) >> 7;
+    qs0 = signed_char_clamp(qs0 - adjust0);
+    ps0 = signed_char_clamp(ps0 + adjust0);
+    base[q0_index] = signed_char_to_u8(qs0);
+    base[p0_index] = signed_char_to_u8(ps0);
+
+    const adjust1: i32 = signed_char_clamp(63 + (wide_filter * 18)) >> 7;
+    base[q1_index] = signed_char_to_u8(qs1 - adjust1);
+    base[p1_index] = signed_char_to_u8(ps1 + adjust1);
+
+    const adjust2: i32 = signed_char_clamp(63 + (wide_filter * 9)) >> 7;
+    base[q2_index] = signed_char_to_u8(qs2 - adjust2);
+    base[p2_index] = signed_char_to_u8(ps2 + adjust2);
+}
+
+export fn loop_filter_normal_vertical_edge(base: &byte, stride: usize, edge_col: usize, rows: usize, limit: u8, blimit: u8, thresh: u8) void {
+    var row: usize = 0;
+    while row < rows {
+        const row_base: usize = row * stride;
+        apply_normal_loop_filter_sample(base, row_base + edge_col - 4, row_base + edge_col - 3, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, row_base + edge_col + 2, row_base + edge_col + 3, limit, blimit, thresh);
+        row = row + 1;
+    }
+}
+
+export fn loop_filter_normal_horizontal_edge(base: &byte, stride: usize, edge_row: usize, cols: usize, limit: u8, blimit: u8, thresh: u8) void {
+    var col: usize = 0;
+    while col < cols {
+        apply_normal_loop_filter_sample(base, ((edge_row - 4) * stride) + col, ((edge_row - 3) * stride) + col, ((edge_row - 2) * stride) + col, ((edge_row - 1) * stride) + col, (edge_row * stride) + col, ((edge_row + 1) * stride) + col, ((edge_row + 2) * stride) + col, ((edge_row + 3) * stride) + col, limit, blimit, thresh);
+        col = col + 1;
+    }
+}
+
+export fn loop_filter_normal_mb_vertical_edge(base: &byte, stride: usize, edge_col: usize, rows: usize, limit: u8, blimit: u8, thresh: u8) void {
+    var row: usize = 0;
+    while row < rows {
+        const row_base: usize = row * stride;
+        apply_normal_mb_loop_filter_sample(base, row_base + edge_col - 4, row_base + edge_col - 3, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, row_base + edge_col + 2, row_base + edge_col + 3, limit, blimit, thresh);
+        row = row + 1;
+    }
+}
+
+export fn loop_filter_normal_mb_horizontal_edge(base: &byte, stride: usize, edge_row: usize, cols: usize, limit: u8, blimit: u8, thresh: u8) void {
+    var col: usize = 0;
+    while col < cols {
+        apply_normal_mb_loop_filter_sample(base, ((edge_row - 4) * stride) + col, ((edge_row - 3) * stride) + col, ((edge_row - 2) * stride) + col, ((edge_row - 1) * stride) + col, (edge_row * stride) + col, ((edge_row + 1) * stride) + col, ((edge_row + 2) * stride) + col, ((edge_row + 3) * stride) + col, limit, blimit, thresh);
         col = col + 1;
     }
 }

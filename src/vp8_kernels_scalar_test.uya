@@ -31,6 +31,10 @@ use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.predict_chroma_subpixel;
 use vp8.kernels.scalar.loop_filter_simple_vertical_edge;
 use vp8.kernels.scalar.loop_filter_simple_horizontal_edge;
+use vp8.kernels.scalar.loop_filter_normal_vertical_edge;
+use vp8.kernels.scalar.loop_filter_normal_horizontal_edge;
+use vp8.kernels.scalar.loop_filter_normal_mb_vertical_edge;
+use vp8.kernels.scalar.loop_filter_normal_mb_horizontal_edge;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -651,4 +655,142 @@ test "scalar simple loop filter leaves edges unchanged when threshold fails" {
     try assert_eq_i32(pixels[2] as i32, 10);
     try assert_eq_i32(pixels[3] as i32, 240);
     try assert_eq_i32(pixels[4] as i32, 255);
+}
+
+test "scalar normal loop filter updates subblock edges and respects hev" {
+    var vertical: [byte: 64] = [];
+    var row: usize = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        vertical[base + 0] = 90 as byte;
+        vertical[base + 1] = 100 as byte;
+        vertical[base + 2] = 110 as byte;
+        vertical[base + 3] = 120 as byte;
+        vertical[base + 4] = 125 as byte;
+        vertical[base + 5] = 130 as byte;
+        vertical[base + 6] = 140 as byte;
+        vertical[base + 7] = 150 as byte;
+        row = row + 1;
+    }
+
+    loop_filter_normal_vertical_edge(&vertical[0] as &byte, 8, 4, 4, 40 as u8, 40 as u8, 20 as u8);
+
+    row = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        try assert_eq_i32(vertical[base + 1] as i32, 100);
+        try assert_eq_i32(vertical[base + 2] as i32, 111);
+        try assert_eq_i32(vertical[base + 3] as i32, 122);
+        try assert_eq_i32(vertical[base + 4] as i32, 123);
+        try assert_eq_i32(vertical[base + 5] as i32, 129);
+        row = row + 1;
+    }
+
+    var horizontal: [byte: 64] = [];
+    var col: usize = 0;
+    while col < 4 {
+        horizontal[(0 * 8) + col] = 20 as byte;
+        horizontal[(1 * 8) + col] = 22 as byte;
+        horizontal[(2 * 8) + col] = 40 as byte;
+        horizontal[(3 * 8) + col] = 120 as byte;
+        horizontal[(4 * 8) + col] = 125 as byte;
+        horizontal[(5 * 8) + col] = 128 as byte;
+        horizontal[(6 * 8) + col] = 130 as byte;
+        horizontal[(7 * 8) + col] = 132 as byte;
+        col = col + 1;
+    }
+
+    loop_filter_normal_horizontal_edge(&horizontal[0] as &byte, 8, 4, 4, 100 as u8, 120 as u8, 10 as u8);
+
+    col = 0;
+    while col < 4 {
+        try assert_eq_i32(horizontal[(2 * 8) + col] as i32, 40);
+        try assert_eq_i32(horizontal[(3 * 8) + col] as i32, 111);
+        try assert_eq_i32(horizontal[(4 * 8) + col] as i32, 134);
+        try assert_eq_i32(horizontal[(5 * 8) + col] as i32, 128);
+        col = col + 1;
+    }
+}
+
+test "scalar normal macroblock loop filter widens only when edge is not hev" {
+    var vertical: [byte: 64] = [];
+    var row: usize = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        vertical[base + 0] = 90 as byte;
+        vertical[base + 1] = 100 as byte;
+        vertical[base + 2] = 110 as byte;
+        vertical[base + 3] = 120 as byte;
+        vertical[base + 4] = 125 as byte;
+        vertical[base + 5] = 130 as byte;
+        vertical[base + 6] = 140 as byte;
+        vertical[base + 7] = 150 as byte;
+        row = row + 1;
+    }
+
+    loop_filter_normal_mb_vertical_edge(&vertical[0] as &byte, 8, 4, 4, 40 as u8, 40 as u8, 20 as u8);
+
+    row = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        try assert_eq_i32(vertical[base + 1] as i32, 100);
+        try assert_eq_i32(vertical[base + 2] as i32, 109);
+        try assert_eq_i32(vertical[base + 3] as i32, 119);
+        try assert_eq_i32(vertical[base + 4] as i32, 126);
+        try assert_eq_i32(vertical[base + 5] as i32, 131);
+        row = row + 1;
+    }
+
+    var limited: [byte: 64] = [];
+    row = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        limited[base + 0] = 90 as byte;
+        limited[base + 1] = 100 as byte;
+        limited[base + 2] = 110 as byte;
+        limited[base + 3] = 120 as byte;
+        limited[base + 4] = 125 as byte;
+        limited[base + 5] = 130 as byte;
+        limited[base + 6] = 140 as byte;
+        limited[base + 7] = 150 as byte;
+        row = row + 1;
+    }
+
+    loop_filter_normal_mb_vertical_edge(&limited[0] as &byte, 8, 4, 4, 4 as u8, 40 as u8, 20 as u8);
+
+    row = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        try assert_eq_i32(limited[base + 2] as i32, 110);
+        try assert_eq_i32(limited[base + 3] as i32, 120);
+        try assert_eq_i32(limited[base + 4] as i32, 125);
+        try assert_eq_i32(limited[base + 5] as i32, 130);
+        row = row + 1;
+    }
+
+    var horizontal: [byte: 64] = [];
+    var col: usize = 0;
+    while col < 4 {
+        horizontal[(0 * 8) + col] = 90 as byte;
+        horizontal[(1 * 8) + col] = 100 as byte;
+        horizontal[(2 * 8) + col] = 110 as byte;
+        horizontal[(3 * 8) + col] = 120 as byte;
+        horizontal[(4 * 8) + col] = 125 as byte;
+        horizontal[(5 * 8) + col] = 130 as byte;
+        horizontal[(6 * 8) + col] = 140 as byte;
+        horizontal[(7 * 8) + col] = 150 as byte;
+        col = col + 1;
+    }
+
+    loop_filter_normal_mb_horizontal_edge(&horizontal[0] as &byte, 8, 4, 4, 40 as u8, 40 as u8, 20 as u8);
+
+    col = 0;
+    while col < 4 {
+        try assert_eq_i32(horizontal[(1 * 8) + col] as i32, 100);
+        try assert_eq_i32(horizontal[(2 * 8) + col] as i32, 109);
+        try assert_eq_i32(horizontal[(3 * 8) + col] as i32, 119);
+        try assert_eq_i32(horizontal[(4 * 8) + col] as i32, 126);
+        try assert_eq_i32(horizontal[(5 * 8) + col] as i32, 131);
+        col = col + 1;
+    }
 }

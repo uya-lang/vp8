@@ -155,7 +155,7 @@
 - [x] 实现 chroma sub-pixel filter。
 - [x] 实现 border extension。
 - [x] 实现 simple loop filter。
-- [ ] 实现 normal loop filter。
+- [x] 实现 normal loop filter。
 
 验收标准：
 
