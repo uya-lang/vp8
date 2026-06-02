@@ -1,0 +1,95 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_flush;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.header.Vp8FrameHeader;
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.allocate_decoder_context;
+use vp8.common.decode_context.free_decoder_context;
+use vp8.decoder.scalar.Decoder;
+use vp8.decoder.scalar.DecoderFrameResult;
+use vp8.decoder.scalar.make_decoder;
+use vp8.decoder.scalar.decoder_decode_frame;
+
+fn write_literal(writer: &BoolWriter, value: u32, bit_count: u8) !void {
+    var index: i8 = (bit_count as i8) - 1;
+    while index >= 0 {
+        try bool_writer_write(writer, ((value >> (index as u8)) & (1 as u32)) as u8, 128 as byte);
+        index = index - 1;
+    }
+}
+
+fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try write_literal(writer, 0, 1 as u8);
+    try write_literal(writer, 0, 6 as u8);
+    try write_literal(writer, 0, 3 as u8);
+    try write_literal(writer, 0, 7 as u8);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try write_literal(writer, 0, 2 as u8);
+
+    var index: usize = 0;
+    while index < 1056 {
+        try bool_writer_write(writer, 0 as u8, 255 as byte);
+        index = index + 1;
+    }
+    index = 0;
+    while index < 38 {
+        try bool_writer_write(writer, 0 as u8, 255 as byte);
+        index = index + 1;
+    }
+
+    const y_mode_probs: [byte: 4] = [ 112, 86, 140, 37 ];
+    const uv_mode_probs: [byte: 3] = [ 162, 101, 204 ];
+    try bool_writer_write(writer, 0 as u8, y_mode_probs[0]);
+    try bool_writer_write(writer, 0 as u8, uv_mode_probs[0]);
+    try bool_writer_flush(writer);
+}
+
+test "Decoder.decode_frame wires header mode token readers and scalar kernel state" {
+    var compressed: [byte: 256] = [];
+    var writer: BoolWriter = make_bool_writer(&compressed[0] as &byte, 256);
+    try write_minimal_key_frame_partition(&writer);
+
+    const first_partition_size: u32 = (7 + 256) as u32;
+    const tag: u32 = (0 as u32) | (0 as u32 << 1) | (1 as u32 << 4) | (first_partition_size << 5);
+    var frame: [byte: 268] = [];
+    frame[0] = (tag & (0xff as u32)) as byte;
+    frame[1] = ((tag >> 8) & (0xff as u32)) as byte;
+    frame[2] = ((tag >> 16) & (0xff as u32)) as byte;
+    frame[3] = 0x9d as byte;
+    frame[4] = 0x01 as byte;
+    frame[5] = 0x2a as byte;
+    frame[6] = 16 as byte;
+    frame[7] = 0 as byte;
+    frame[8] = 16 as byte;
+    frame[9] = 0 as byte;
+
+    var index: usize = 0;
+    while index < 256 {
+        frame[10 + index] = compressed[index];
+        index = index + 1;
+    }
+    frame[268 - 2] = 0 as byte;
+    frame[268 - 1] = 0 as byte;
+
+    var context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, &frame[0] as &byte, 268);
+    const header: Vp8FrameHeader = result.header;
+    try assert_eq_i32(header.width as i32, 16);
+    try assert_eq_i32(header.height as i32, 16);
+    try assert_eq_i32(result.token_partition_count as i32, 1);
+    try assert_eq_i32(result.macroblock_count as i32, 1);
+    try assert_eq_i32(result.parsed_token_partition_count as i32, 1);
+    try assert_eq_i32(result.scalar_kernel_border_extended as i32, 1);
+    try assert_eq_i32(context.mb_info.y_mode[0] as i32, 0);
+    try assert_eq_i32(context.mb_info.uv_mode[0] as i32, 0);
+}

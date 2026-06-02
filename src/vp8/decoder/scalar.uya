@@ -1,0 +1,223 @@
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
+use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
+use vp8.bitstream.header.VP8_MV_PROB_COUNT;
+use vp8.bitstream.header.Vp8FrameHeader;
+use vp8.bitstream.header.Vp8FrameTag;
+use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.Vp8QuantHeader;
+use vp8.bitstream.header.Vp8Segmentation;
+use vp8.bitstream.header.parse_vp8_frame_probability_updates;
+use vp8.bitstream.header.parse_vp8_frame_tag_checked;
+use vp8.bitstream.header.parse_vp8_key_frame_header;
+use vp8.bitstream.header.parse_vp8_loop_filter;
+use vp8.bitstream.header.parse_vp8_quant;
+use vp8.bitstream.header.parse_vp8_segmentation;
+use vp8.bitstream.header.parse_vp8_token_partition_count;
+use vp8.bitstream.header.parse_vp8_token_partition_readers;
+use vp8.bitstream.header.vp8_default_probs;
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.decoder_context_begin_frame;
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_buffer_extend_border;
+use vp8.common.frame.frame_buffer_mark_border_dirty;
+use vp8.common.frame.frame_pool_get_slot;
+use vp8.mode.parse.parse_key_frame_mode_map;
+
+error ErrDecoderInvalidFrame;
+error ErrDecoderUnsupportedInterFrame;
+error ErrDecoderFrameSizeMismatch;
+
+export struct Decoder {
+    context: &DecoderContext,
+    coeff_probs: [byte: 1056],
+    mv_probs: [byte: 38],
+    y_mode_probs: [byte: 4],
+    uv_mode_probs: [byte: 3]
+}
+
+export struct DecoderFrameResult {
+    header: Vp8FrameHeader,
+    segmentation: Vp8Segmentation,
+    loop_filter: Vp8LoopFilterHeader,
+    quant: Vp8QuantHeader,
+    token_partition_count: u8,
+    macroblock_count: usize,
+    parsed_token_partition_count: u8,
+    scalar_kernel_border_extended: bool
+}
+
+fn copy_default_probs(decoder: &Decoder) void {
+    const defaults: Vp8Probs = vp8_default_probs();
+
+    decoder.y_mode_probs[0] = defaults.y_mode_probs[0];
+    decoder.y_mode_probs[1] = defaults.y_mode_probs[1];
+    decoder.y_mode_probs[2] = defaults.y_mode_probs[2];
+    decoder.y_mode_probs[3] = defaults.y_mode_probs[3];
+    decoder.uv_mode_probs[0] = defaults.uv_mode_probs[0];
+    decoder.uv_mode_probs[1] = defaults.uv_mode_probs[1];
+    decoder.uv_mode_probs[2] = defaults.uv_mode_probs[2];
+
+    var index: usize = 0;
+    while index < VP8_COEFF_PROB_COUNT {
+        decoder.coeff_probs[index] = defaults.coeff_probs[index];
+        index = index + 1;
+    }
+    index = 0;
+    while index < VP8_MV_PROB_COUNT {
+        decoder.mv_probs[index] = defaults.mv_probs[index];
+        index = index + 1;
+    }
+}
+
+fn decoder_probs(decoder: &Decoder) Vp8Probs {
+    return Vp8Probs{
+        y_mode_probs: [
+            decoder.y_mode_probs[0],
+            decoder.y_mode_probs[1],
+            decoder.y_mode_probs[2],
+            decoder.y_mode_probs[3]
+        ],
+        uv_mode_probs: [
+            decoder.uv_mode_probs[0],
+            decoder.uv_mode_probs[1],
+            decoder.uv_mode_probs[2]
+        ],
+        coeff_probs: &decoder.coeff_probs[0] as &byte,
+        coeff_prob_count: VP8_COEFF_PROB_COUNT,
+        mv_probs: &decoder.mv_probs[0] as &byte,
+        mv_prob_count: VP8_MV_PROB_COUNT
+    };
+}
+
+fn store_tree_probs(decoder: &Decoder, probs: &Vp8Probs) void {
+    decoder.y_mode_probs[0] = probs.y_mode_probs[0];
+    decoder.y_mode_probs[1] = probs.y_mode_probs[1];
+    decoder.y_mode_probs[2] = probs.y_mode_probs[2];
+    decoder.y_mode_probs[3] = probs.y_mode_probs[3];
+    decoder.uv_mode_probs[0] = probs.uv_mode_probs[0];
+    decoder.uv_mode_probs[1] = probs.uv_mode_probs[1];
+    decoder.uv_mode_probs[2] = probs.uv_mode_probs[2];
+}
+
+fn empty_segmentation() Vp8Segmentation {
+    return Vp8Segmentation{
+        enabled: false,
+        update_map: false,
+        update_data: false,
+        absolute_delta: false,
+        quantizer_delta: [ 0, 0, 0, 0 ],
+        loop_filter_delta: [ 0, 0, 0, 0 ],
+        segment_prob: [ 255, 255, 255 ]
+    };
+}
+
+fn empty_loop_filter() Vp8LoopFilterHeader {
+    return Vp8LoopFilterHeader{
+        filter_type: 0,
+        level: 0,
+        sharpness: 0,
+        delta_enabled: false,
+        delta_update: false,
+        ref_delta: [ 0, 0, 0, 0 ],
+        mode_delta: [ 0, 0, 0, 0 ]
+    };
+}
+
+fn empty_quant() Vp8QuantHeader {
+    return Vp8QuantHeader{
+        base_qindex: 0,
+        y1_dc_delta: 0,
+        y2_dc_delta: 0,
+        y2_ac_delta: 0,
+        uv_dc_delta: 0,
+        uv_ac_delta: 0
+    };
+}
+
+fn validate_header_matches_context(decoder: &Decoder, header: &Vp8FrameHeader) !void {
+    if (header.width as usize) != decoder.context.width || (header.height as usize) != decoder.context.height {
+        return error.ErrDecoderFrameSizeMismatch;
+    }
+}
+
+fn make_inter_header(tag: &Vp8FrameTag, context: &DecoderContext) Vp8FrameHeader {
+    return Vp8FrameHeader{
+        frame_type: tag.frame_type,
+        version: tag.version,
+        show_frame: tag.show_frame,
+        first_partition_size: tag.first_partition_size,
+        width: context.width as u16,
+        height: context.height as u16,
+        horizontal_scale: 0,
+        vertical_scale: 0
+    };
+}
+
+export fn make_decoder(context: &DecoderContext) Decoder {
+    var decoder: Decoder = Decoder{
+        context: context,
+        coeff_probs: [],
+        mv_probs: [],
+        y_mode_probs: [ 0, 0, 0, 0 ],
+        uv_mode_probs: [ 0, 0, 0 ]
+    };
+    copy_default_probs(&decoder);
+    return decoder;
+}
+
+export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !DecoderFrameResult {
+    if len < 3 {
+        return error.ErrDecoderInvalidFrame;
+    }
+
+    const tag: Vp8FrameTag = try parse_vp8_frame_tag_checked(data, len);
+    var header: Vp8FrameHeader = make_inter_header(&tag, decoder.context);
+    var first_partition_reader_offset: usize = 3;
+    var first_partition_reader_len: usize = tag.first_partition_size as usize;
+    const key_frame: bool = tag.frame_type == (0 as u8);
+
+    if key_frame {
+        header = try parse_vp8_key_frame_header(data, len);
+        try validate_header_matches_context(decoder, &header);
+        if tag.first_partition_size < (7 as u32) {
+            return error.ErrDecoderInvalidFrame;
+        }
+        first_partition_reader_offset = 10;
+        first_partition_reader_len = (tag.first_partition_size - (7 as u32)) as usize;
+    } else {
+        return error.ErrDecoderUnsupportedInterFrame;
+    }
+
+    try decoder_context_begin_frame(decoder.context);
+
+    var probs: Vp8Probs = decoder_probs(decoder);
+    var first_partition_reader: BoolReader = try make_bool_reader_for_partition(&data[first_partition_reader_offset] as &byte, first_partition_reader_len, -1);
+    const segmentation: Vp8Segmentation = try parse_vp8_segmentation(&first_partition_reader);
+    const loop_filter: Vp8LoopFilterHeader = try parse_vp8_loop_filter(&first_partition_reader);
+    const quant: Vp8QuantHeader = try parse_vp8_quant(&first_partition_reader);
+    const token_partition_count: u8 = try parse_vp8_token_partition_count(&first_partition_reader);
+    try parse_vp8_frame_probability_updates(&first_partition_reader, &probs, key_frame);
+    store_tree_probs(decoder, &probs);
+
+    try parse_key_frame_mode_map(&first_partition_reader, &probs, &decoder.context.mb_info);
+
+    var token_readers: [BoolReader: 8] = [];
+    try parse_vp8_token_partition_readers(data, len, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
+
+    const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
+    frame_buffer_mark_border_dirty(current);
+    frame_buffer_extend_border(current);
+
+    return DecoderFrameResult{
+        header: header,
+        segmentation: segmentation,
+        loop_filter: loop_filter,
+        quant: quant,
+        token_partition_count: token_partition_count,
+        macroblock_count: decoder.context.grid.mb_count,
+        parsed_token_partition_count: token_partition_count,
+        scalar_kernel_border_extended: true
+    };
+}
