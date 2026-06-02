@@ -160,7 +160,7 @@
 验收标准：
 
 - [x] 每个 transform 有 deterministic golden。
-- [ ] 每个 predictor 有边界 golden。
+- [x] 每个 predictor 有边界 golden。
 - [ ] loop filter 单边测试覆盖 hev、limit、blimit。
 - [ ] scalar kernels 无 heap allocation。
 
