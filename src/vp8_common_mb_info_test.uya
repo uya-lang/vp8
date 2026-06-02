@@ -1,0 +1,81 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mb_info.MacroblockInfoArrays;
+use vp8.common.mb_info.MacroblockInfoValue;
+use vp8.common.mb_info.allocate_macroblock_info_arrays;
+use vp8.common.mb_info.free_macroblock_info_arrays;
+use vp8.common.mb_info.macroblock_info_get;
+use vp8.common.mb_info.macroblock_info_set;
+
+test "MacroblockInfoArrays allocate one SoA entry per macroblock" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+
+    try assert_eq_i32(info.mb_cols as i32, 2);
+    try assert_eq_i32(info.mb_rows as i32, 2);
+    try assert_eq_i32(info.mb_count as i32, 4);
+    try expect(info.y_mode != null);
+    try expect(info.uv_mode != null);
+    try expect(info.segment_id != null);
+    try expect(info.skip_coeff != null);
+    try expect(info.ref_frame != null);
+    try expect(info.mv_x != null);
+    try expect(info.mv_y != null);
+    try expect(info.coeff_summary != null);
+
+    var value: MacroblockInfoValue = MacroblockInfoValue{
+        y_mode: 1 as byte,
+        uv_mode: 2 as byte,
+        segment_id: 3 as byte,
+        skip_coeff: true,
+        ref_frame: 4 as byte,
+        mv_x: -12,
+        mv_y: 34,
+        coeff_summary: 5 as byte
+    };
+    try macroblock_info_set(&info, 1, 1, &value);
+
+    var got: MacroblockInfoValue = try macroblock_info_get(&info, 1, 1);
+    try assert_eq_i32(got.y_mode as i32, 1);
+    try assert_eq_i32(got.uv_mode as i32, 2);
+    try assert_eq_i32(got.segment_id as i32, 3);
+    try expect(got.skip_coeff);
+    try assert_eq_i32(got.ref_frame as i32, 4);
+    try assert_eq_i32(got.mv_x as i32, -12);
+    try assert_eq_i32(got.mv_y as i32, 34);
+    try assert_eq_i32(got.coeff_summary as i32, 5);
+
+    var untouched: MacroblockInfoValue = try macroblock_info_get(&info, 0, 0);
+    try assert_eq_i32(untouched.y_mode as i32, 0);
+    try assert_eq_i32(untouched.coeff_summary as i32, 0);
+}
+
+test "MacroblockInfoArrays reject invalid access and clear ownership on free" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(16, 16);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+
+    var failed: i32 = 0;
+    _ = macroblock_info_get(&info, 1, 0) catch {
+        failed = 1;
+        MacroblockInfoValue{
+            y_mode: 0 as byte,
+            uv_mode: 0 as byte,
+            segment_id: 0 as byte,
+            skip_coeff: false,
+            ref_frame: 0 as byte,
+            mv_x: 0,
+            mv_y: 0,
+            coeff_summary: 0 as byte
+        };
+    };
+    try assert_eq_i32(failed, 1);
+
+    free_macroblock_info_arrays(&info);
+    try expect(info.y_mode == null);
+    try expect(info.mv_x == null);
+    try assert_eq_i32(info.mb_count as i32, 0);
+}

@@ -1,0 +1,214 @@
+use libc.free;
+use libc.malloc;
+use libc.memset;
+
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_index;
+
+error ErrMacroblockInfoInvalidGeometry;
+error ErrMacroblockInfoOutOfMemory;
+error ErrMacroblockInfoOutOfBounds;
+error ErrMacroblockInfoOverflow;
+
+export struct MacroblockInfoArrays {
+    mb_cols: usize,
+    mb_rows: usize,
+    mb_count: usize,
+    y_mode: &byte,
+    uv_mode: &byte,
+    segment_id: &byte,
+    skip_coeff: &byte,
+    ref_frame: &byte,
+    mv_x: &i16,
+    mv_y: &i16,
+    coeff_summary: &byte
+}
+
+export struct MacroblockInfoValue {
+    y_mode: byte,
+    uv_mode: byte,
+    segment_id: byte,
+    skip_coeff: bool,
+    ref_frame: byte,
+    mv_x: i16,
+    mv_y: i16,
+    coeff_summary: byte
+}
+
+export fn empty_macroblock_info_arrays() MacroblockInfoArrays {
+    return MacroblockInfoArrays{
+        mb_cols: 0,
+        mb_rows: 0,
+        mb_count: 0,
+        y_mode: null as &byte,
+        uv_mode: null as &byte,
+        segment_id: null as &byte,
+        skip_coeff: null as &byte,
+        ref_frame: null as &byte,
+        mv_x: null as &i16,
+        mv_y: null as &i16,
+        coeff_summary: null as &byte
+    };
+}
+
+fn checked_bytes(count: usize, elem_size: usize) !usize {
+    if count == 0 || elem_size == 0 {
+        return error.ErrMacroblockInfoInvalidGeometry;
+    }
+    const bytes: usize = count * elem_size;
+    if (bytes / elem_size) != count {
+        return error.ErrMacroblockInfoOverflow;
+    }
+    return bytes;
+}
+
+fn alloc_zeroed_bytes(count: usize) !&byte {
+    const bytes: usize = try checked_bytes(count, @size_of(byte));
+    const ptr: &byte = malloc(bytes) as &byte;
+    if ptr == null {
+        return error.ErrMacroblockInfoOutOfMemory;
+    }
+    _ = memset(ptr as *byte, 0, bytes);
+    return ptr;
+}
+
+fn alloc_zeroed_i16(count: usize) !&i16 {
+    const bytes: usize = try checked_bytes(count, 2);
+    const ptr: &i16 = malloc(bytes) as &i16;
+    if ptr == null {
+        return error.ErrMacroblockInfoOutOfMemory;
+    }
+    _ = memset(ptr as *byte, 0, bytes);
+    return ptr;
+}
+
+export fn free_macroblock_info_arrays(info: &MacroblockInfoArrays) void {
+    if info.coeff_summary != null {
+        free(info.coeff_summary as &void);
+    }
+    if info.mv_y != null {
+        free(info.mv_y as &void);
+    }
+    if info.mv_x != null {
+        free(info.mv_x as &void);
+    }
+    if info.ref_frame != null {
+        free(info.ref_frame as &void);
+    }
+    if info.skip_coeff != null {
+        free(info.skip_coeff as &void);
+    }
+    if info.segment_id != null {
+        free(info.segment_id as &void);
+    }
+    if info.uv_mode != null {
+        free(info.uv_mode as &void);
+    }
+    if info.y_mode != null {
+        free(info.y_mode as &void);
+    }
+
+    info.mb_cols = 0;
+    info.mb_rows = 0;
+    info.mb_count = 0;
+    info.y_mode = null as &byte;
+    info.uv_mode = null as &byte;
+    info.segment_id = null as &byte;
+    info.skip_coeff = null as &byte;
+    info.ref_frame = null as &byte;
+    info.mv_x = null as &i16;
+    info.mv_y = null as &i16;
+    info.coeff_summary = null as &byte;
+}
+
+export fn allocate_macroblock_info_arrays(grid: &MacroblockGrid) !MacroblockInfoArrays {
+    if grid.mb_cols == 0 || grid.mb_rows == 0 || grid.mb_count == 0 {
+        return error.ErrMacroblockInfoInvalidGeometry;
+    }
+    if grid.mb_rows != 0 && (grid.mb_count / grid.mb_rows) != grid.mb_cols {
+        return error.ErrMacroblockInfoOverflow;
+    }
+
+    var info: MacroblockInfoArrays = empty_macroblock_info_arrays();
+    info.mb_cols = grid.mb_cols;
+    info.mb_rows = grid.mb_rows;
+    info.mb_count = grid.mb_count;
+
+    info.y_mode = alloc_zeroed_bytes(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.uv_mode = alloc_zeroed_bytes(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.segment_id = alloc_zeroed_bytes(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.skip_coeff = alloc_zeroed_bytes(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.ref_frame = alloc_zeroed_bytes(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.mv_x = alloc_zeroed_i16(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.mv_y = alloc_zeroed_i16(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+    info.coeff_summary = alloc_zeroed_bytes(grid.mb_count) catch {
+        free_macroblock_info_arrays(&info);
+        return error.ErrMacroblockInfoOutOfMemory;
+    };
+
+    return info;
+}
+
+fn macroblock_info_index(info: &MacroblockInfoArrays, mb_x: usize, mb_y: usize) !usize {
+    var grid: MacroblockGrid = MacroblockGrid{
+        width: info.mb_cols * (16 as usize),
+        height: info.mb_rows * (16 as usize),
+        mb_cols: info.mb_cols,
+        mb_rows: info.mb_rows,
+        mb_count: info.mb_count
+    };
+    return macroblock_grid_index(&grid, mb_x, mb_y) catch {
+        return error.ErrMacroblockInfoOutOfBounds;
+    };
+}
+
+export fn macroblock_info_set(info: &MacroblockInfoArrays, mb_x: usize, mb_y: usize, value: &MacroblockInfoValue) !void {
+    const index: usize = try macroblock_info_index(info, mb_x, mb_y);
+    info.y_mode[index] = value.y_mode;
+    info.uv_mode[index] = value.uv_mode;
+    info.segment_id[index] = value.segment_id;
+    if value.skip_coeff {
+        info.skip_coeff[index] = 1 as byte;
+    } else {
+        info.skip_coeff[index] = 0 as byte;
+    }
+    info.ref_frame[index] = value.ref_frame;
+    info.mv_x[index] = value.mv_x;
+    info.mv_y[index] = value.mv_y;
+    info.coeff_summary[index] = value.coeff_summary;
+}
+
+export fn macroblock_info_get(info: &MacroblockInfoArrays, mb_x: usize, mb_y: usize) !MacroblockInfoValue {
+    const index: usize = try macroblock_info_index(info, mb_x, mb_y);
+    return MacroblockInfoValue{
+        y_mode: info.y_mode[index],
+        uv_mode: info.uv_mode[index],
+        segment_id: info.segment_id[index],
+        skip_coeff: info.skip_coeff[index] != (0 as byte),
+        ref_frame: info.ref_frame[index],
+        mv_x: info.mv_x[index],
+        mv_y: info.mv_y[index],
+        coeff_summary: info.coeff_summary[index]
+    };
+}
