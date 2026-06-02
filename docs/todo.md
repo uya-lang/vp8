@@ -50,7 +50,7 @@
 ## Phase 2: Boolean Reader/Writer
 
 - [x] 实现 VP8 boolean arithmetic reader。
-- [ ] 实现 read bit with probability。
+- [x] 实现 read bit with probability。
 - [ ] 实现 literal read helper。
 - [ ] 实现 signed value helper。
 - [ ] 实现 partition boundary 检查。

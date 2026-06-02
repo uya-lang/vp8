@@ -85,3 +85,7 @@ export fn bool_reader_read(reader: &BoolReader, probability: byte) !u8 {
 
     return bit;
 }
+
+export fn read_bit_with_probability(reader: &BoolReader, probability: byte) !u8 {
+    return try bool_reader_read(reader, probability);
+}
