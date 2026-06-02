@@ -21,6 +21,8 @@ use vp8.common.frame.frame_pool_begin_frame;
 use vp8.common.frame.frame_pool_borrow_current_decoded_frame;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
+use vp8.common.plane.plane_get;
+use vp8.common.plane.plane_set;
 
 fn assert_aligned(value: usize, alignment: usize) !void {
     try expect((value % alignment) == 0);
@@ -259,4 +261,21 @@ test "DecodedFrame borrows current visible view and releases slot lease" {
 
     try decoded_frame_release(&decoded);
     try assert_eq_i32(pool.slot_lease_count0 as i32, 0);
+}
+
+test "DecodedFrame default output is a borrowed view without frame copy" {
+    var pool: FramePool = try allocate_frame_pool(16, 16, 32, 32);
+    defer free_frame_pool(&pool);
+
+    const current: &FrameBuffer = try frame_pool_get_slot(&pool, pool.current_slot);
+    try plane_set(&current.y.plane, 3, 4, 77 as byte);
+
+    var decoded: DecodedFrame = try frame_pool_borrow_current_decoded_frame(&pool);
+    defer decoded_frame_release(&decoded) catch {};
+
+    try expect(decoded.view.y.origin == current.y.plane.origin);
+    try expect(decoded.view.u.origin == current.u.plane.origin);
+    try expect(decoded.view.v.origin == current.v.plane.origin);
+    try assert_eq_i32((try plane_get(&decoded.view.y, 3, 4)) as i32, 77);
+    try assert_eq_i32(pool.slot_lease_count0 as i32, 1);
 }

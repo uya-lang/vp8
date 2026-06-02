@@ -114,7 +114,7 @@
 - [x] Guard bytes 检查无越界写。
 - [ ] context 初始化后 decode hot loop heap allocation count 为 0。
 - [x] 正常 reference refresh 不发生整帧 copy，`bytes_copied_for_ref_refresh == 0`。
-- [ ] 默认 `DecodedFrame` 不隐式复制整帧，生命周期规则有测试覆盖。
+- [x] 默认 `DecodedFrame` 不隐式复制整帧，生命周期规则有测试覆盖。
 
 ## Phase 5: Mode 与 Token Parse
 
