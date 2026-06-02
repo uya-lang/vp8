@@ -86,7 +86,7 @@
 
 - [x] tiny key frame header golden 全字段一致。
 - [x] inter frame 继承/更新概率状态正确。
-- [ ] 坏 probability update 能返回精确错误。
+- [x] 坏 probability update 能返回精确错误。
 
 ## Phase 4: Decoder Context 与内存布局
 

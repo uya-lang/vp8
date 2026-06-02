@@ -24,7 +24,10 @@ use vp8.bitstream.header.parse_vp8_frame_tag_checked;
 use vp8.bitstream.header.reset_vp8_key_frame_probs;
 use vp8.bitstream.header.vp8_default_probs;
 use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.bool_reader_error_byte_offset;
+use vp8.bitstream.bool_reader.bool_reader_error_partition_id;
 use vp8.bitstream.bool_reader.make_bool_reader;
+use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
 use vp8.bitstream.bool_writer.BoolWriter;
 use vp8.bitstream.bool_writer.bool_writer_flush;
 use vp8.bitstream.bool_writer.bool_writer_write;
@@ -392,6 +395,41 @@ test "inter frame probability updates inherit existing state and apply deltas" {
     try assert_eq_i32(probs.coeff_probs[33] as i32, 88);
     try assert_eq_i32(probs.coeff_probs[34] as i32, 66);
     try assert_eq_i32(probs.mv_probs[2] as i32, 225);
+}
+
+test "bad probability update reports exact reader partition and byte offset" {
+    var data: [byte: 2] = [ 0x00, 0x00 ];
+    var reader: BoolReader = try make_bool_reader_for_partition(&data[0] as &byte, 2, 7);
+    const defaults: Vp8Probs = vp8_default_probs();
+    var coeff_probs: [byte: 1056] = [];
+    var mv_probs: [byte: 38] = [];
+    var copy_index: usize = 0;
+    while copy_index < 1056 {
+        coeff_probs[copy_index] = defaults.coeff_probs[copy_index];
+        copy_index = copy_index + 1;
+    }
+    copy_index = 0;
+    while copy_index < 38 {
+        mv_probs[copy_index] = defaults.mv_probs[copy_index];
+        copy_index = copy_index + 1;
+    }
+    var probs: Vp8Probs = Vp8Probs{
+        y_mode_probs: [ 112, 86, 140, 37 ],
+        uv_mode_probs: [ 162, 101, 204 ],
+        coeff_probs: &coeff_probs[0] as &byte,
+        coeff_prob_count: 1056,
+        mv_probs: &mv_probs[0] as &byte,
+        mv_prob_count: 38
+    };
+    var failed: i32 = 0;
+
+    _ = parse_vp8_frame_probability_updates(&reader, &probs, false) catch {
+        failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
+    try assert_eq_i32(bool_reader_error_partition_id(&reader), 7);
+    try assert_eq_i32(bool_reader_error_byte_offset(&reader) as i32, 2);
 }
 
 test "parse VP8 segmentation enabled update data and map probabilities" {
