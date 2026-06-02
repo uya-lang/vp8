@@ -13,7 +13,7 @@
 - [x] 创建 `docs/design.md`。
 - [x] 创建 `docs/todo.md`。
 - [x] 创建 `README.md`，说明目标、构建方式、当前能力边界。
-- [ ] 创建 `AGENT.md`，记录纯 UYA、bit-exact、SIMD、测试约束。
+- [x] 创建 `AGENT.md`，记录纯 UYA、bit-exact、SIMD、测试约束。
 - [ ] 创建 `Makefile`。
 - [ ] 创建 `src/main.uya` CLI scaffold。
 - [ ] 创建 `src/vp8` 模块目录。
