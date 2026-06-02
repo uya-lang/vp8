@@ -7,11 +7,14 @@ use vp8.bitstream.bool_writer.bool_writer_write;
 use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.vp8_default_probs;
+use vp8.bitstream.header.vp8_coeff_update_probability;
+use vp8.bitstream.header.vp8_mv_update_probability;
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.allocate_decoder_context;
 use vp8.common.decode_context.free_decoder_context;
 use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.frame_pool_get_slot;
+use vp8.common.frame.frame_pool_refresh_references;
 use vp8.decoder.scalar.Decoder;
 use vp8.decoder.scalar.DecoderFrameResult;
 use vp8.decoder.scalar.decoder_decode_dequant_reconstruct_4x4;
@@ -43,12 +46,12 @@ fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
 
     var index: usize = 0;
     while index < 1056 {
-        try bool_writer_write(writer, 0 as u8, 255 as byte);
+        try bool_writer_write(writer, 0 as u8, vp8_coeff_update_probability(index));
         index = index + 1;
     }
     index = 0;
     while index < 38 {
-        try bool_writer_write(writer, 0 as u8, 255 as byte);
+        try bool_writer_write(writer, 0 as u8, vp8_mv_update_probability(index));
         index = index + 1;
     }
 
@@ -101,6 +104,22 @@ fn write_key_frame_tokens_with_u_dc(writer: &BoolWriter, probs: &Vp8Probs) !void
     try bool_writer_flush(writer);
 }
 
+fn write_all_eob_tokens(writer: &BoolWriter, probs: &Vp8Probs) !void {
+    var block: usize = 0;
+    while block < 16 {
+        try write_eob_token(writer, probs.coeff_probs, 0, 0, 0 as byte);
+        block = block + 1;
+    }
+
+    block = 0;
+    while block < 8 {
+        try write_eob_token(writer, probs.coeff_probs, 2, 0, 0 as byte);
+        block = block + 1;
+    }
+
+    try bool_writer_flush(writer);
+}
+
 fn make_16x16_key_frame(first_partition: &byte, token_partition: &byte, token_partition_len: usize, frame: &byte) void {
     const first_partition_size: u32 = (7 + 256) as u32;
     const tag: u32 = (0 as u32) | (0 as u32 << 1) | (1 as u32 << 4) | (first_partition_size << 5);
@@ -125,6 +144,54 @@ fn make_16x16_key_frame(first_partition: &byte, token_partition: &byte, token_pa
         frame[266 + index] = token_partition[index];
         index = index + 1;
     }
+}
+
+fn make_16x16_inter_frame(first_partition: &byte, first_partition_len: usize, token_partition: &byte, token_partition_len: usize, frame: &byte) void {
+    const tag: u32 = (1 as u32) | (0 as u32 << 1) | (1 as u32 << 4) | ((first_partition_len as u32) << 5);
+    frame[0] = (tag & (0xff as u32)) as byte;
+    frame[1] = ((tag >> 8) & (0xff as u32)) as byte;
+    frame[2] = ((tag >> 16) & (0xff as u32)) as byte;
+
+    var index: usize = 0;
+    while index < first_partition_len {
+        frame[3 + index] = first_partition[index];
+        index = index + 1;
+    }
+    index = 0;
+    while index < token_partition_len {
+        frame[3 + first_partition_len + index] = token_partition[index];
+        index = index + 1;
+    }
+}
+
+fn write_minimal_inter_first_partition(writer: &BoolWriter) !void {
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try write_literal(writer, 0, 1 as u8);
+    try write_literal(writer, 0, 6 as u8);
+    try write_literal(writer, 0, 3 as u8);
+    try write_literal(writer, 0, 7 as u8);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try write_literal(writer, 0, 2 as u8);
+
+    var index: usize = 0;
+    while index < 1056 {
+        try bool_writer_write(writer, 0 as u8, vp8_coeff_update_probability(index));
+        index = index + 1;
+    }
+    index = 0;
+    while index < 38 {
+        try bool_writer_write(writer, 0 as u8, vp8_mv_update_probability(index));
+        index = index + 1;
+    }
+
+    try bool_writer_write(writer, 1 as u8, 145 as byte);
+    try bool_writer_write(writer, 0 as u8, 156 as byte);
+    try bool_writer_write(writer, 0 as u8, 2 as byte);
+    try bool_writer_flush(writer);
 }
 
 test "Decoder.decode_frame wires header mode token readers and scalar kernel state" {
@@ -202,6 +269,45 @@ test "key frame decode applies token residuals into current frame" {
     try assert_eq_i32(current.u.plane.origin[3] as i32, 129);
     try assert_eq_i32(current.u.plane.origin[4] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
+}
+
+test "inter frame decode copies last reference for zero motion macroblock" {
+    var context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    const current_before_refresh: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.current_slot);
+    current_before_refresh.y.plane.origin[0] = 41 as byte;
+    current_before_refresh.y.plane.origin[15] = 42 as byte;
+    current_before_refresh.y.plane.origin[15 * current_before_refresh.y.plane.stride] = 43 as byte;
+    current_before_refresh.u.plane.origin[0] = 91 as byte;
+    current_before_refresh.v.plane.origin[0] = 111 as byte;
+    try frame_pool_refresh_references(&context.frame_pool, true, false, false);
+
+    const probs: Vp8Probs = vp8_default_probs();
+    var first_partition: [byte: 256] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
+    try write_minimal_inter_first_partition(&first_writer);
+
+    var token_partition: [byte: 64] = [];
+    var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 64);
+    try write_all_eob_tokens(&token_writer, &probs);
+
+    var frame: [byte: 323] = [];
+    make_16x16_inter_frame(&first_partition[0] as &byte, 256, &token_partition[0] as &byte, bool_writer_byte_count(&token_writer) + 8, &frame[0] as &byte);
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, &frame[0] as &byte, 3 + 256 + bool_writer_byte_count(&token_writer) + 8);
+    try assert_eq_i32(result.header.frame_type as i32, 1);
+    try assert_eq_i32(context.mb_info.ref_frame[0] as i32, 1);
+    try assert_eq_i32(context.mb_info.mv_x[0] as i32, 0);
+    try assert_eq_i32(context.mb_info.mv_y[0] as i32, 0);
+
+    const current: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.current_slot);
+    try assert_eq_i32(current.y.plane.origin[0] as i32, 41);
+    try assert_eq_i32(current.y.plane.origin[15] as i32, 42);
+    try assert_eq_i32(current.y.plane.origin[15 * current.y.plane.stride] as i32, 43);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 91);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 111);
 }
 
 test "single-thread token dequant transform reconstruct path updates one 4x4 block" {

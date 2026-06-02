@@ -36,6 +36,7 @@ use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.frame_buffer_extend_border;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
 use vp8.common.frame.frame_pool_get_slot;
+use vp8.common.frame.frame_pool_refresh_references;
 use vp8.common.mb_info.make_macroblock_coeff_summary;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.build_dequant_factors;
@@ -44,6 +45,7 @@ use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
+use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_uv8x8_dc;
 use vp8.kernels.scalar.predict_uv8x8_horizontal;
 use vp8.kernels.scalar.predict_uv8x8_true_motion;
@@ -62,7 +64,20 @@ use vp8.kernels.scalar.predict_y4x4_true_motion;
 use vp8.kernels.scalar.predict_y4x4_vertical_edge;
 use vp8.kernels.scalar.predict_y4x4_vertical_left;
 use vp8.kernels.scalar.predict_y4x4_vertical_right;
+use vp8.mode.parse.clamp_inter_motion_vector;
+use vp8.mode.parse.parse_inter_intra_flag;
+use vp8.mode.parse.parse_inter_motion_vector;
+use vp8.mode.parse.parse_inter_reference_frame;
 use vp8.mode.parse.parse_key_frame_mode_map;
+use vp8.mode.parse.parse_key_frame_uv_mode;
+use vp8.mode.parse.parse_key_frame_y_mode;
+use vp8.mode.parse.parse_skip_coefficient_flag;
+use vp8.mode.parse.Vp8MotionVector;
+use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
+use vp8.mode.parse.VP8_REF_ALTREF;
+use vp8.mode.parse.VP8_REF_CURRENT;
+use vp8.mode.parse.VP8_REF_GOLDEN;
+use vp8.mode.parse.VP8_REF_LAST;
 use vp8.mode.parse.VP8_B_MODE_DC;
 use vp8.mode.parse.VP8_B_MODE_HE;
 use vp8.mode.parse.VP8_B_MODE_HD;
@@ -97,6 +112,7 @@ error ErrDecoderInvalidFrame;
 error ErrDecoderUnsupportedInterFrame;
 error ErrDecoderFrameSizeMismatch;
 error ErrDecoderCoeffProbOutOfBounds;
+error ErrDecoderUnsupportedSubpixelInterFrame;
 
 export struct Decoder {
     context: &DecoderContext,
@@ -596,6 +612,162 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
     }
 }
 
+fn reference_frame_for_macroblock(decoder: &Decoder, ref_frame: byte) !&FrameBuffer {
+    if ref_frame == VP8_REF_LAST {
+        return try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.last_slot);
+    }
+    if ref_frame == VP8_REF_GOLDEN {
+        return try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.golden_slot);
+    }
+    if ref_frame == VP8_REF_ALTREF {
+        return try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.altref_slot);
+    }
+    return error.ErrDecoderInvalidFrame;
+}
+
+fn parse_inter_mode_map(decoder: &Decoder, reader: &BoolReader, probs: &Vp8Probs) !void {
+    const zero_mv: Vp8MotionVector = Vp8MotionVector{ y: 0, x: 0, mode: VP8_INTER_MV_MODE_ZERO };
+
+    var mb_y: usize = 0;
+    while mb_y < decoder.context.grid.mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < decoder.context.grid.mb_cols {
+            const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+            const skip_coeff: bool = try parse_skip_coefficient_flag(reader, false, 0 as byte);
+            const is_inter: bool = try parse_inter_intra_flag(reader, 145 as byte);
+
+            if is_inter {
+                const ref_frame: byte = try parse_inter_reference_frame(reader, 156 as byte, 163 as byte);
+                const parsed_mv: Vp8MotionVector = try parse_inter_motion_vector(reader, probs, &zero_mv, &zero_mv, &zero_mv);
+                const mv: Vp8MotionVector = try clamp_inter_motion_vector(&parsed_mv, mb_x, mb_y, decoder.context.width, decoder.context.height, 16, 16);
+                decoder.context.mb_info.y_mode[mb_index] = VP8_Y_MODE_DC;
+                decoder.context.mb_info.uv_mode[mb_index] = VP8_UV_MODE_DC;
+                decoder.context.mb_info.skip_coeff[mb_index] = skip_coeff as byte;
+                decoder.context.mb_info.ref_frame[mb_index] = ref_frame;
+                decoder.context.mb_info.mv_x[mb_index] = mv.x;
+                decoder.context.mb_info.mv_y[mb_index] = mv.y;
+            } else {
+                const y_mode: byte = try parse_key_frame_y_mode(reader, probs);
+                const uv_mode: byte = try parse_key_frame_uv_mode(reader, probs);
+                decoder.context.mb_info.y_mode[mb_index] = y_mode;
+                decoder.context.mb_info.uv_mode[mb_index] = uv_mode;
+                decoder.context.mb_info.skip_coeff[mb_index] = skip_coeff as byte;
+                decoder.context.mb_info.ref_frame[mb_index] = VP8_REF_CURRENT;
+                decoder.context.mb_info.mv_x[mb_index] = 0;
+                decoder.context.mb_info.mv_y[mb_index] = 0;
+            }
+
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
+fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, mb_y: usize, ref_frame: byte, mv_x: i16, mv_y: i16) !void {
+    if (mv_x % (8 as i16)) != (0 as i16) || (mv_y % (8 as i16)) != (0 as i16) {
+        return error.ErrDecoderUnsupportedSubpixelInterFrame;
+    }
+
+    const reference: &FrameBuffer = try reference_frame_for_macroblock(decoder, ref_frame);
+    frame_buffer_extend_border(reference);
+
+    const y_x: usize = mb_x * (16 as usize);
+    const y_y: usize = mb_y * (16 as usize);
+    const src_y_x: usize = ((y_x as i32) + ((mv_x as i32) / 8)) as usize;
+    const src_y_y: usize = ((y_y as i32) + ((mv_y as i32) / 8)) as usize;
+    const dst_y_offset: usize = (y_y * dst.y.plane.stride) + y_x;
+    const src_y_offset: usize = (src_y_y * reference.y.plane.stride) + src_y_x;
+    predict_inter_copy(&dst.y.plane.origin[dst_y_offset] as &byte, dst.y.plane.stride, &reference.y.plane.origin[src_y_offset] as &byte, reference.y.plane.stride, 16, 16);
+
+    const uv_x: usize = mb_x * (8 as usize);
+    const uv_y: usize = mb_y * (8 as usize);
+    const src_uv_x: usize = ((uv_x as i32) + ((mv_x as i32) / 16)) as usize;
+    const src_uv_y: usize = ((uv_y as i32) + ((mv_y as i32) / 16)) as usize;
+    const dst_u_offset: usize = (uv_y * dst.u.plane.stride) + uv_x;
+    const dst_v_offset: usize = (uv_y * dst.v.plane.stride) + uv_x;
+    const src_u_offset: usize = (src_uv_y * reference.u.plane.stride) + src_uv_x;
+    const src_v_offset: usize = (src_uv_y * reference.v.plane.stride) + src_uv_x;
+    predict_inter_copy(&dst.u.plane.origin[dst_u_offset] as &byte, dst.u.plane.stride, &reference.u.plane.origin[src_u_offset] as &byte, reference.u.plane.stride, 8, 8);
+    predict_inter_copy(&dst.v.plane.origin[dst_v_offset] as &byte, dst.v.plane.stride, &reference.v.plane.origin[src_v_offset] as &byte, reference.v.plane.stride, 8, 8);
+}
+
+fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8) !void {
+    var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&decoder.context.grid);
+    defer free_above_left_coeff_context(&coeff_ctx);
+
+    const factors: DequantFactors = build_dequant_factors(quant);
+    var coefficients: [i16: 16] = [];
+
+    var mb_y: usize = 0;
+    while mb_y < decoder.context.grid.mb_rows {
+        try coeff_context_start_row(&coeff_ctx);
+        const partition_index: usize = (mb_y % (token_partition_count as usize));
+        const token_reader: &BoolReader = &token_readers[partition_index] as &BoolReader;
+
+        var mb_x: usize = 0;
+        while mb_x < decoder.context.grid.mb_cols {
+            const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+            var total_has_coeff: bool = false;
+            var total_dc_only: bool = true;
+            var total_count: byte = 0 as byte;
+
+            if decoder.context.mb_info.ref_frame[mb_index] == VP8_REF_CURRENT {
+                predict_key_frame_y16(decoder, frame, mb_x, mb_y);
+                predict_key_frame_uv(decoder, frame, mb_x, mb_y);
+            } else {
+                try predict_inter_macroblock(decoder, frame, mb_x, mb_y, decoder.context.mb_info.ref_frame[mb_index], decoder.context.mb_info.mv_x[mb_index], decoder.context.mb_info.mv_y[mb_index]);
+            }
+
+            var y_block_y: usize = 0;
+            while y_block_y < 4 {
+                var y_block_x: usize = 0;
+                while y_block_x < 4 {
+                    const y_context: CoeffContextPair = try coeff_context_get_y(&coeff_ctx, mb_x, y_block_x, y_block_y);
+                    const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 0, 0, y_context.above, y_context.left, &coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
+                    try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, y_summary.has_coeff as byte);
+                    if y_summary.has_coeff {
+                        const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
+                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                    }
+                    y_block_x = y_block_x + 1;
+                }
+                y_block_y = y_block_y + 1;
+            }
+
+            var uv_block_y: usize = 0;
+            while uv_block_y < 2 {
+                var uv_block_x: usize = 0;
+                while uv_block_x < 2 {
+                    const u_context: CoeffContextPair = try coeff_context_get_u(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
+                    const u_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, u_context.above, u_context.left, &coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &u_summary);
+                    try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
+                    if u_summary.has_coeff {
+                        const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                    }
+
+                    const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
+                    const v_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, v_context.above, v_context.left, &coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &v_summary);
+                    try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, v_summary.has_coeff as byte);
+                    if v_summary.has_coeff {
+                        const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                    }
+                    uv_block_x = uv_block_x + 1;
+                }
+                uv_block_y = uv_block_y + 1;
+            }
+
+            decoder.context.mb_info.coeff_summary[mb_index] = try make_macroblock_coeff_summary(total_has_coeff, total_has_coeff && total_dc_only, total_count);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
 export fn make_decoder(context: &DecoderContext) Decoder {
     var decoder: Decoder = Decoder{
         context: context,
@@ -627,8 +799,6 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         }
         first_partition_reader_offset = 10;
         first_partition_reader_len = (tag.first_partition_size - (7 as u32)) as usize;
-    } else {
-        return error.ErrDecoderUnsupportedInterFrame;
     }
 
     try decoder_context_begin_frame(decoder.context);
@@ -642,7 +812,11 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     try parse_vp8_frame_probability_updates(&first_partition_reader, &probs, key_frame);
     store_tree_probs(decoder, &probs);
 
-    try parse_key_frame_mode_map(&first_partition_reader, &probs, &decoder.context.mb_info);
+    if key_frame {
+        try parse_key_frame_mode_map(&first_partition_reader, &probs, &decoder.context.mb_info);
+    } else {
+        try parse_inter_mode_map(decoder, &first_partition_reader, &probs);
+    }
 
     var token_readers: [BoolReader: 8] = [];
     try parse_vp8_token_partition_readers(data, len, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
@@ -650,9 +824,14 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
     if key_frame {
         try decode_key_frame_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count);
+    } else {
+        try decode_inter_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count);
     }
     frame_buffer_mark_border_dirty(current);
     frame_buffer_extend_border(current);
+    if key_frame {
+        try frame_pool_refresh_references(&decoder.context.frame_pool, true, true, true);
+    }
 
     return DecoderFrameResult{
         header: header,

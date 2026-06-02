@@ -169,7 +169,7 @@
 - [x] 将 header/mode/token/kernel 串成 `Decoder.decode_frame`。
 - [x] 实现单线程 token decode -> dequant/transform -> reconstruct 融合路径。
 - [x] 实现 key frame decode。
-- [ ] 实现 inter frame decode。
+- [x] 实现 inter frame decode。
 - [x] 实现 current frame reconstruction。
 - [ ] 实现 row-delayed loop filter。
 - [x] 实现 reference refresh。
