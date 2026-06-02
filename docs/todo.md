@@ -62,7 +62,7 @@
 
 验收标准：
 
-- [ ] reader 不会越过 partition。
+- [x] reader 不会越过 partition。
 - [ ] writer 写出的 synthetic stream 可被 reader 还原。
 - [ ] 错误中包含 partition id 和 byte offset。
 
