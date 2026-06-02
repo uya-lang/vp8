@@ -1,0 +1,112 @@
+use vp8.common.frame.FramePool;
+use vp8.common.frame.allocate_frame_pool;
+use vp8.common.frame.empty_frame_pool;
+use vp8.common.frame.free_frame_pool;
+use vp8.common.frame.frame_pool_begin_frame;
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mb_info.MacroblockInfoArrays;
+use vp8.common.mb_info.allocate_macroblock_info_arrays;
+use vp8.common.mb_info.empty_macroblock_info_arrays;
+use vp8.common.mb_info.free_macroblock_info_arrays;
+use vp8.common.scratch.RowScratchArena;
+use vp8.common.scratch.allocate_row_scratch_arena;
+use vp8.common.scratch.empty_row_scratch_arena;
+use vp8.common.scratch.frame_scratch_reset;
+use vp8.common.scratch.free_row_scratch_arena;
+use vp8.common.scratch.row_scratch_alloc_bytes;
+use vp8.common.scratch.row_scratch_reset;
+
+error ErrDecoderContextInvalidGeometry;
+
+export struct DecoderContext {
+    width: usize,
+    height: usize,
+    grid: MacroblockGrid,
+    frame_pool: FramePool,
+    mb_info: MacroblockInfoArrays,
+    scratch: RowScratchArena,
+    init_heap_allocation_count: usize,
+    hot_loop_heap_allocation_count: usize
+}
+
+fn empty_macroblock_grid() MacroblockGrid {
+    return MacroblockGrid{
+        width: 0,
+        height: 0,
+        mb_cols: 0,
+        mb_rows: 0,
+        mb_count: 0
+    };
+}
+
+export fn empty_decoder_context() DecoderContext {
+    return DecoderContext{
+        width: 0,
+        height: 0,
+        grid: empty_macroblock_grid(),
+        frame_pool: empty_frame_pool(),
+        mb_info: empty_macroblock_info_arrays(),
+        scratch: empty_row_scratch_arena(),
+        init_heap_allocation_count: 0,
+        hot_loop_heap_allocation_count: 0
+    };
+}
+
+export fn allocate_decoder_context(width: usize, height: usize, border: usize, alignment: usize, row_scratch_capacity: usize) !DecoderContext {
+    if width == 0 || height == 0 || row_scratch_capacity == 0 {
+        return error.ErrDecoderContextInvalidGeometry;
+    }
+
+    var context: DecoderContext = empty_decoder_context();
+    context.width = width;
+    context.height = height;
+    context.grid = macroblock_grid_for_frame(width, height) catch {
+        return error.ErrDecoderContextInvalidGeometry;
+    };
+
+    context.frame_pool = allocate_frame_pool(width, height, border, alignment) catch {
+        return error.ErrDecoderContextInvalidGeometry;
+    };
+    context.init_heap_allocation_count = context.init_heap_allocation_count + 12;
+
+    context.mb_info = allocate_macroblock_info_arrays(&context.grid) catch {
+        free_frame_pool(&context.frame_pool);
+        return error.ErrDecoderContextInvalidGeometry;
+    };
+    context.init_heap_allocation_count = context.init_heap_allocation_count + 8;
+
+    context.scratch = allocate_row_scratch_arena(row_scratch_capacity, alignment) catch {
+        free_macroblock_info_arrays(&context.mb_info);
+        free_frame_pool(&context.frame_pool);
+        return error.ErrDecoderContextInvalidGeometry;
+    };
+    context.init_heap_allocation_count = context.init_heap_allocation_count + 1;
+
+    return context;
+}
+
+export fn free_decoder_context(context: &DecoderContext) void {
+    free_row_scratch_arena(&context.scratch);
+    free_macroblock_info_arrays(&context.mb_info);
+    free_frame_pool(&context.frame_pool);
+    context.width = 0;
+    context.height = 0;
+    context.grid = empty_macroblock_grid();
+    context.init_heap_allocation_count = 0;
+    context.hot_loop_heap_allocation_count = 0;
+}
+
+export fn decoder_context_begin_frame(context: &DecoderContext) !void {
+    try frame_pool_begin_frame(&context.frame_pool);
+    try frame_scratch_reset(&context.scratch);
+    context.hot_loop_heap_allocation_count = 0;
+}
+
+export fn decoder_context_begin_row(context: &DecoderContext) !void {
+    try row_scratch_reset(&context.scratch);
+}
+
+export fn decoder_context_hot_loop_alloc_bytes(context: &DecoderContext, size: usize, alignment: usize) !&byte {
+    return try row_scratch_alloc_bytes(&context.scratch, size, alignment);
+}

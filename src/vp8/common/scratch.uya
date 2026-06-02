@@ -33,7 +33,7 @@ export fn empty_row_scratch_arena() RowScratchArena {
     };
 }
 
-fn is_power_of_two(value: usize) bool {
+fn scratch_is_power_of_two(value: usize) bool {
     if value == 0 {
         return false;
     }
@@ -44,8 +44,8 @@ fn is_power_of_two(value: usize) bool {
     return n == 1;
 }
 
-fn align_up(value: usize, alignment: usize) !usize {
-    if !is_power_of_two(alignment) {
+fn scratch_align_up(value: usize, alignment: usize) !usize {
+    if !scratch_is_power_of_two(alignment) {
         return error.ErrScratchInvalidGeometry;
     }
     const addend: usize = alignment - 1;
@@ -57,7 +57,7 @@ fn align_up(value: usize, alignment: usize) !usize {
 }
 
 export fn allocate_row_scratch_arena(capacity: usize, alignment: usize) !RowScratchArena {
-    if capacity == 0 || !is_power_of_two(alignment) {
+    if capacity == 0 || !scratch_is_power_of_two(alignment) {
         return error.ErrScratchInvalidGeometry;
     }
 
@@ -72,7 +72,7 @@ export fn allocate_row_scratch_arena(capacity: usize, alignment: usize) !RowScra
     }
     _ = memset(raw as *byte, 0, raw_len);
 
-    const aligned_addr: usize = try align_up(@usize_from_ptr(raw as &void), alignment);
+    const aligned_addr: usize = try scratch_align_up(@usize_from_ptr(raw as &void), alignment);
     return RowScratchArena{
         raw: raw,
         raw_len: raw_len,
@@ -119,7 +119,7 @@ export fn frame_scratch_reset(arena: &RowScratchArena) !void {
 }
 
 export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignment: usize) !&byte {
-    if arena.data == null || size == 0 || !is_power_of_two(alignment) {
+    if arena.data == null || size == 0 || !scratch_is_power_of_two(alignment) {
         return error.ErrScratchInvalidGeometry;
     }
 
@@ -129,7 +129,7 @@ export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignmen
         return error.ErrScratchOverflow;
     }
 
-    const aligned_addr: usize = try align_up(current_addr, alignment);
+    const aligned_addr: usize = try scratch_align_up(current_addr, alignment);
     const aligned_offset: usize = aligned_addr - base_addr;
     const end_offset: usize = aligned_offset + size;
     if end_offset < aligned_offset {

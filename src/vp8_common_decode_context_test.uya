@@ -1,0 +1,40 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.allocate_decoder_context;
+use vp8.common.decode_context.decoder_context_begin_frame;
+use vp8.common.decode_context.decoder_context_begin_row;
+use vp8.common.decode_context.decoder_context_hot_loop_alloc_bytes;
+use vp8.common.decode_context.free_decoder_context;
+
+fn assert_aligned(ptr: &byte, alignment: usize) !void {
+    try expect((@usize_from_ptr(ptr as &void) % alignment) == 0);
+}
+
+test "DecoderContext preallocates decode resources before the hot loop" {
+    var context: DecoderContext = try allocate_decoder_context(17, 17, 32, 32, 512);
+    defer free_decoder_context(&context);
+
+    try assert_eq_i32(context.grid.mb_cols as i32, 2);
+    try assert_eq_i32(context.grid.mb_rows as i32, 2);
+    try assert_eq_i32(context.mb_info.mb_count as i32, 4);
+    try expect(context.init_heap_allocation_count > 0);
+    try assert_eq_i32(context.hot_loop_heap_allocation_count as i32, 0);
+
+    try decoder_context_begin_frame(&context);
+    try decoder_context_begin_row(&context);
+
+    const first: &byte = try decoder_context_hot_loop_alloc_bytes(&context, 48, 16);
+    const second: &byte = try decoder_context_hot_loop_alloc_bytes(&context, 32, 32);
+
+    try assert_aligned(first, 16);
+    try assert_aligned(second, 32);
+    try assert_eq_i32(context.scratch.high_water as i32, 96);
+    try assert_eq_i32(context.hot_loop_heap_allocation_count as i32, 0);
+
+    try decoder_context_begin_row(&context);
+    _ = try decoder_context_hot_loop_alloc_bytes(&context, 16, 16);
+    try assert_eq_i32(context.hot_loop_heap_allocation_count as i32, 0);
+    try assert_eq_i32(context.scratch.high_water as i32, 96);
+}
