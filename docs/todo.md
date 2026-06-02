@@ -146,7 +146,7 @@
 - [x] 实现 4x4 inverse DCT。
 - [x] 实现 inverse Walsh-Hadamard Y2。
 - [x] 实现 dequant。
-- [ ] 实现 residual add and clamp。
+- [x] 实现 residual add and clamp。
 - [ ] 实现 Y 16x16 intra predictors。
 - [ ] 实现 Y 4x4 intra predictors。
 - [ ] 实现 UV 8x8 intra predictors。

@@ -7,6 +7,7 @@ use vp8.kernels.scalar.clip_i16_to_u8;
 use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.dequant_block_4x4;
+use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -135,4 +136,33 @@ test "scalar dequant block applies DC and AC factors without allocation" {
 
     dequant_block_4x4(&input[0] as &i16, 5 as i16, 7 as i16, &out[0] as &i16);
     try assert_eq_4x4(&out[0] as &i16, &expected[0] as &i16);
+}
+
+test "scalar residual add clamps reconstructed 4x4 pixels across stride" {
+    var dst: [byte: 24] = [
+        10, 20, 30, 40, 99, 99,
+        250, 200, 5, 0, 99, 99,
+        128, 64, 32, 16, 99, 99,
+        1, 2, 253, 254, 99, 99
+    ];
+    var residual: [i16: 16] = [
+        -20, -1, 10, 300,
+        10, 60, -10, -1,
+        -128, 64, 300, -20,
+        -2, 2, 2, 10
+    ];
+    var expected: [byte: 24] = [
+        0, 19, 40, 255, 99, 99,
+        255, 255, 0, 0, 99, 99,
+        0, 128, 255, 0, 99, 99,
+        0, 4, 255, 255, 99, 99
+    ];
+
+    add_residual_4x4_clamped(&dst[0] as &byte, 6, &residual[0] as &i16);
+
+    var index: usize = 0;
+    while index < 24 {
+        try assert_eq_i32(dst[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
 }

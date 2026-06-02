@@ -81,6 +81,22 @@ export fn dequant_block_4x4(input: &i16, dc_factor: i16, ac_factor: i16, output:
     }
 }
 
+export fn add_residual_4x4_clamped(dst: &byte, dst_stride: usize, residual: &i16) void {
+    var row: usize = 0;
+    while row < 4 {
+        const dst_base: usize = row * dst_stride;
+        const residual_base: usize = row * 4;
+
+        var col: usize = 0;
+        while col < 4 {
+            const pixel: i32 = (dst[dst_base + col] as i32) + (residual[residual_base + col] as i32);
+            dst[dst_base + col] = clip_i32_to_u8(pixel);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
 export fn clamp_i32_to_i32(value: i32, min_value: i32, max_value: i32) i32 {
     var clamped: i32 = value;
     if clamped < min_value {
