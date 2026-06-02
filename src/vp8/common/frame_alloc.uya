@@ -13,8 +13,14 @@ export struct AlignedFramePlane {
     raw: &byte,
     raw_len: usize,
     alignment: usize,
+    guard_prefix_len: usize,
+    guard_suffix_len: usize,
+    guard_byte: byte,
     plane: Plane
 }
+
+const FRAME_PLANE_GUARD_SIZE: usize = 32;
+const FRAME_PLANE_GUARD_BYTE: byte = 165 as byte;
 
 fn is_power_of_two(value: usize) bool {
     if value == 0 {
@@ -86,8 +92,18 @@ export fn allocate_aligned_frame_plane_with_border(width: usize, height: usize, 
         return error.ErrFrameAllocationOverflow;
     }
 
-    const raw_len: usize = storage_len + alignment - 1;
-    if raw_len < storage_len {
+    const guard_twice: usize = FRAME_PLANE_GUARD_SIZE * (2 as usize);
+    if (guard_twice / FRAME_PLANE_GUARD_SIZE) != (2 as usize) {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const storage_with_guards: usize = storage_len + guard_twice;
+    if storage_with_guards < storage_len {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const raw_len: usize = storage_with_guards + alignment - 1;
+    if raw_len < storage_with_guards {
         return error.ErrFrameAllocationOverflow;
     }
 
@@ -95,11 +111,24 @@ export fn allocate_aligned_frame_plane_with_border(width: usize, height: usize, 
     if raw == null {
         return error.ErrFrameAllocationOutOfMemory;
     }
-    _ = memset(raw as *byte, 0, raw_len);
+    _ = memset(raw as *byte, FRAME_PLANE_GUARD_BYTE as i32, raw_len);
 
     const raw_addr: usize = @usize_from_ptr(raw as &void);
-    const aligned_addr: usize = try align_up(raw_addr, alignment);
+    const guarded_start: usize = raw_addr + FRAME_PLANE_GUARD_SIZE;
+    if guarded_start < raw_addr {
+        free(raw as &void);
+        return error.ErrFrameAllocationOverflow;
+    }
+    const aligned_addr: usize = try align_up(guarded_start, alignment);
     const aligned_data: &byte = @ptr_from_usize(aligned_addr) as &byte;
+    const guard_prefix_len: usize = aligned_addr - raw_addr;
+    const data_end_offset: usize = guard_prefix_len + storage_len;
+    if data_end_offset < guard_prefix_len || data_end_offset > raw_len {
+        free(raw as &void);
+        return error.ErrFrameAllocationOverflow;
+    }
+    const guard_suffix_len: usize = raw_len - data_end_offset;
+    _ = memset(aligned_data as *byte, 0, storage_len);
 
     const plane: Plane = make_plane_view(aligned_data, storage_len, width, height, stride, border) catch {
         free(raw as &void);
@@ -110,6 +139,9 @@ export fn allocate_aligned_frame_plane_with_border(width: usize, height: usize, 
         raw: raw,
         raw_len: raw_len,
         alignment: alignment,
+        guard_prefix_len: guard_prefix_len,
+        guard_suffix_len: guard_suffix_len,
+        guard_byte: FRAME_PLANE_GUARD_BYTE,
         plane: plane
     };
 }
@@ -126,4 +158,41 @@ export fn free_aligned_frame_plane(frame: &AlignedFramePlane) void {
     frame.raw = null as &byte;
     frame.raw_len = 0;
     frame.alignment = 0;
+    frame.guard_prefix_len = 0;
+    frame.guard_suffix_len = 0;
+    frame.guard_byte = 0 as byte;
+}
+
+export fn frame_aligned_plane_guards_intact(frame: &AlignedFramePlane) bool {
+    if frame.raw == null || frame.plane.data == null {
+        return false;
+    }
+
+    const data_len: usize = frame.plane.storage_len;
+    const data_end_offset: usize = frame.guard_prefix_len + data_len;
+    if data_end_offset < frame.guard_prefix_len {
+        return false;
+    }
+    const guard_end_offset: usize = data_end_offset + frame.guard_suffix_len;
+    if guard_end_offset < data_end_offset || guard_end_offset > frame.raw_len {
+        return false;
+    }
+
+    var i: usize = 0;
+    while i < frame.guard_prefix_len {
+        if frame.raw[i] != frame.guard_byte {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while i < frame.guard_suffix_len {
+        if frame.raw[data_end_offset + i] != frame.guard_byte {
+            return false;
+        }
+        i = i + 1;
+    }
+
+    return true;
 }

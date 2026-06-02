@@ -7,6 +7,7 @@ use vp8.common.frame_alloc.allocate_aligned_frame_plane_with_border;
 use vp8.common.frame_alloc.free_aligned_frame_plane;
 use vp8.common.frame_alloc.frame_aligned_stride;
 use vp8.common.frame_alloc.frame_aligned_stride_with_border;
+use vp8.common.frame_alloc.frame_aligned_plane_guards_intact;
 use vp8.common.plane.Plane;
 use vp8.common.plane.plane_get;
 use vp8.common.plane.plane_origin_index;
@@ -17,6 +18,9 @@ fn dummy_frame() AlignedFramePlane {
         raw: null as &byte,
         raw_len: 0,
         alignment: 0,
+        guard_prefix_len: 0,
+        guard_suffix_len: 0,
+        guard_byte: 0 as byte,
         plane: Plane{
             data: null as &byte,
             origin: null as &byte,
@@ -100,4 +104,17 @@ test "border allocation pads storage and offsets visible origin" {
     try assert_eq_i32((try plane_get(&frame.plane, 16, 16)) as i32, 123);
     try assert_eq_i32(frame.plane.data[(32 * 96 + 32) + (16 * 96) + 16] as i32, 123);
     try assert_eq_i32(frame.plane.data[0] as i32, 0);
+}
+
+test "aligned frame plane guard bytes detect out of bounds writes" {
+    var frame: AlignedFramePlane = try allocate_aligned_frame_plane_with_border(17, 17, 32, 32);
+    defer free_aligned_frame_plane(&frame);
+
+    try expect(frame_aligned_plane_guards_intact(&frame));
+
+    try plane_set(&frame.plane, 16, 16, 99 as byte);
+    try expect(frame_aligned_plane_guards_intact(&frame));
+
+    frame.raw[0] = 0 as byte;
+    try expect(!frame_aligned_plane_guards_intact(&frame));
 }

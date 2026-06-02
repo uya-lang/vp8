@@ -60,6 +60,9 @@ fn empty_aligned_frame_plane() AlignedFramePlane {
         raw: null as &byte,
         raw_len: 0,
         alignment: 0,
+        guard_prefix_len: 0,
+        guard_suffix_len: 0,
+        guard_byte: 0 as byte,
         plane: Plane{
             data: null as &byte,
             origin: null as &byte,
