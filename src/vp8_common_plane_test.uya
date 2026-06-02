@@ -1,0 +1,71 @@
+use std.testing.assert_eq_i32;
+
+use vp8.common.plane.Plane;
+use vp8.common.plane.make_plane_view;
+use vp8.common.plane.plane_get;
+use vp8.common.plane.plane_origin_index;
+use vp8.common.plane.plane_row;
+use vp8.common.plane.plane_set;
+use vp8.common.plane.plane_visible_byte_count;
+
+fn dummy_plane(data: &byte) Plane {
+    return Plane{
+        data: data,
+        origin: data,
+        width: 0,
+        height: 0,
+        stride: 0,
+        border: 0,
+        storage_len: 0
+    };
+}
+
+test "Plane view tracks visible dimensions stride border and origin" {
+    var storage: [byte: 64] = [];
+    var plane: Plane = try make_plane_view(&storage[0] as &byte, 64, 3, 2, 8, 1);
+
+    try assert_eq_i32(plane.width as i32, 3);
+    try assert_eq_i32(plane.height as i32, 2);
+    try assert_eq_i32(plane.stride as i32, 8);
+    try assert_eq_i32(plane.border as i32, 1);
+    try assert_eq_i32(plane.storage_len as i32, 64);
+    try assert_eq_i32(plane_visible_byte_count(&plane) as i32, 16);
+    try assert_eq_i32(plane_origin_index(&plane) as i32, 9);
+}
+
+test "Plane get and set address visible pixels through origin offset" {
+    var storage: [byte: 64] = [];
+    var plane: Plane = try make_plane_view(&storage[0] as &byte, 64, 3, 2, 8, 1);
+
+    try plane_set(&plane, 2, 1, 77 as byte);
+
+    try assert_eq_i32(storage[19] as i32, 77);
+    try assert_eq_i32((try plane_get(&plane, 2, 1)) as i32, 77);
+    const row: &byte = try plane_row(&plane, 1);
+    try assert_eq_i32(row[2] as i32, 77);
+}
+
+test "Plane rejects invalid geometry and visible bounds" {
+    var storage: [byte: 16] = [];
+    var failed_geometry: i32 = 0;
+    var failed_get: i32 = 0;
+    var failed_set: i32 = 0;
+
+    _ = make_plane_view(&storage[0] as &byte, 16, 4, 4, 3, 0) catch {
+        failed_geometry = 1;
+        dummy_plane(&storage[0] as &byte);
+    };
+
+    var plane: Plane = try make_plane_view(&storage[0] as &byte, 16, 2, 2, 4, 0);
+    _ = plane_get(&plane, 2, 0) catch {
+        failed_get = 1;
+        0 as byte;
+    };
+    _ = plane_set(&plane, 0, 2, 1 as byte) catch {
+        failed_set = 1;
+    };
+
+    try assert_eq_i32(failed_geometry, 1);
+    try assert_eq_i32(failed_get, 1);
+    try assert_eq_i32(failed_set, 1);
+}

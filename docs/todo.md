@@ -90,7 +90,7 @@
 
 ## Phase 4: Decoder Context 与内存布局
 
-- [ ] 实现 `Plane`。
+- [x] 实现 `Plane`。
 - [ ] 实现 aligned frame allocation。
 - [ ] 实现 border allocation 和 origin offset。
 - [ ] 实现 `FrameBuffer`。

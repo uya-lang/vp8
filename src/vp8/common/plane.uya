@@ -1,0 +1,81 @@
+error ErrPlaneInvalidGeometry;
+error ErrPlaneOutOfBounds;
+
+export struct Plane {
+    data: &byte,
+    origin: &byte,
+    width: usize,
+    height: usize,
+    stride: usize,
+    border: usize,
+    storage_len: usize
+}
+
+fn plane_required_storage(width: usize, height: usize, stride: usize, border: usize) !usize {
+    if width == 0 || height == 0 || stride < width {
+        return error.ErrPlaneInvalidGeometry;
+    }
+
+    const padded_width: usize = width + (border * 2);
+    if stride < padded_width {
+        return error.ErrPlaneInvalidGeometry;
+    }
+
+    return (height + (border * 2)) * stride;
+}
+
+export fn make_plane_view(data: &byte, storage_len: usize, width: usize, height: usize, stride: usize, border: usize) !Plane {
+    const required: usize = try plane_required_storage(width, height, stride, border);
+    if storage_len < required {
+        return error.ErrPlaneInvalidGeometry;
+    }
+
+    const origin_offset: usize = (border * stride) + border;
+    return Plane{
+        data: data,
+        origin: &data[origin_offset] as &byte,
+        width: width,
+        height: height,
+        stride: stride,
+        border: border,
+        storage_len: storage_len
+    };
+}
+
+export fn plane_visible_byte_count(plane: &Plane) usize {
+    if plane.height == 0 {
+        return 0;
+    }
+
+    return plane.stride * plane.height;
+}
+
+export fn plane_origin_index(plane: &Plane) usize {
+    return (plane.border * plane.stride) + plane.border;
+}
+
+fn plane_pixel_index(plane: &Plane, x: usize, y: usize) !usize {
+    if x >= plane.width || y >= plane.height {
+        return error.ErrPlaneOutOfBounds;
+    }
+
+    return (y * plane.stride) + x;
+}
+
+export fn plane_row(plane: &Plane, y: usize) !&byte {
+    if y >= plane.height {
+        return error.ErrPlaneOutOfBounds;
+    }
+
+    return &plane.origin[y * plane.stride] as &byte;
+}
+
+export fn plane_get(plane: &Plane, x: usize, y: usize) !byte {
+    const index: usize = try plane_pixel_index(plane, x, y);
+    return plane.origin[index];
+}
+
+export fn plane_set(plane: &Plane, x: usize, y: usize, value: byte) !void {
+    const index: usize = try plane_pixel_index(plane, x, y);
+    plane.origin[index] = value;
+}
