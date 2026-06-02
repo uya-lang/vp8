@@ -7,6 +7,10 @@ export const VP8_Y_MODE_V: byte = 1 as byte;
 export const VP8_Y_MODE_H: byte = 2 as byte;
 export const VP8_Y_MODE_TM: byte = 3 as byte;
 export const VP8_Y_MODE_B: byte = 4 as byte;
+export const VP8_UV_MODE_DC: byte = 0 as byte;
+export const VP8_UV_MODE_V: byte = 1 as byte;
+export const VP8_UV_MODE_H: byte = 2 as byte;
+export const VP8_UV_MODE_TM: byte = 3 as byte;
 
 export fn parse_key_frame_y_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
     if (try read_bit_with_probability(reader, probs.y_mode_probs[0])) == 0 {
@@ -22,4 +26,17 @@ export fn parse_key_frame_y_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
         return VP8_Y_MODE_TM;
     }
     return VP8_Y_MODE_B;
+}
+
+export fn parse_key_frame_uv_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
+    if (try read_bit_with_probability(reader, probs.uv_mode_probs[0])) == 0 {
+        return VP8_UV_MODE_DC;
+    }
+    if (try read_bit_with_probability(reader, probs.uv_mode_probs[1])) == 0 {
+        return VP8_UV_MODE_V;
+    }
+    if (try read_bit_with_probability(reader, probs.uv_mode_probs[2])) == 0 {
+        return VP8_UV_MODE_H;
+    }
+    return VP8_UV_MODE_TM;
 }

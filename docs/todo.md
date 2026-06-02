@@ -119,7 +119,7 @@
 ## Phase 5: Mode 与 Token Parse
 
 - [x] 解析 key frame macroblock y mode。
-- [ ] 解析 key frame UV mode。
+- [x] 解析 key frame UV mode。
 - [ ] 解析 4x4 luma block mode。
 - [ ] 解析 inter/intra flag。
 - [ ] 解析 inter reference frame。
