@@ -16,7 +16,7 @@
 - [x] 创建 `AGENT.md`，记录纯 UYA、bit-exact、SIMD、测试约束。
 - [x] 创建 `Makefile`。
 - [x] 创建 `src/main.uya` CLI scaffold。
-- [ ] 创建 `src/vp8` 模块目录。
+- [x] 创建 `src/vp8` 模块目录。
 - [ ] 创建 `tests/README.md`。
 - [ ] 创建 `bench/README.md`。
 - [ ] 增加 `.gitignore`，排除 build、fixtures 大文件、YUV 输出、coverage。
