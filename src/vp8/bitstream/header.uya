@@ -177,6 +177,28 @@ export fn vp8_default_probs() Vp8Probs {
     };
 }
 
+export fn reset_vp8_key_frame_probs(probs: &Vp8Probs) void {
+    probs.y_mode_probs[0] = 112 as byte;
+    probs.y_mode_probs[1] = 86 as byte;
+    probs.y_mode_probs[2] = 140 as byte;
+    probs.y_mode_probs[3] = 37 as byte;
+    probs.uv_mode_probs[0] = 162 as byte;
+    probs.uv_mode_probs[1] = 101 as byte;
+    probs.uv_mode_probs[2] = 204 as byte;
+
+    var index: usize = 0;
+    while index < VP8_COEFF_PROB_COUNT {
+        probs.coeff_probs[index] = VP8_DEFAULT_COEFF_PROBS[index];
+        index = index + 1;
+    }
+
+    index = 0;
+    while index < VP8_MV_PROB_COUNT {
+        probs.mv_probs[index] = VP8_DEFAULT_MV_PROBS[index];
+        index = index + 1;
+    }
+}
+
 export fn vp8_coeff_update_probability(index: usize) byte {
     if index >= VP8_COEFF_PROB_COUNT {
         return 255 as byte;

@@ -19,6 +19,7 @@ use vp8.bitstream.header.vp8_coeff_update_probability;
 use vp8.bitstream.header.vp8_mv_update_probability;
 use vp8.bitstream.header.parse_vp8_frame_tag;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
+use vp8.bitstream.header.reset_vp8_key_frame_probs;
 use vp8.bitstream.header.vp8_default_probs;
 use vp8.bitstream.bool_reader.BoolReader;
 use vp8.bitstream.bool_reader.make_bool_reader;
@@ -299,6 +300,43 @@ test "parse VP8 MV probability updates into caller state" {
     try assert_eq_i32(probs.mv_probs[0] as i32, 162);
     try assert_eq_i32(probs.mv_probs[2] as i32, 99);
     try assert_eq_i32(probs.mv_probs[3] as i32, 146);
+}
+
+test "key frame reset restores caller probability state to VP8 defaults" {
+    var coeff_probs: [byte: 1056] = [];
+    var mv_probs: [byte: 38] = [];
+    var index: usize = 0;
+
+    while index < 1056 {
+        coeff_probs[index] = 1 as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 38 {
+        mv_probs[index] = 1 as byte;
+        index = index + 1;
+    }
+
+    var probs: Vp8Probs = Vp8Probs{
+        y_mode_probs: [ 1, 1, 1, 1 ],
+        uv_mode_probs: [ 1, 1, 1 ],
+        coeff_probs: &coeff_probs[0] as &byte,
+        coeff_prob_count: 1056,
+        mv_probs: &mv_probs[0] as &byte,
+        mv_prob_count: 38
+    };
+
+    reset_vp8_key_frame_probs(&probs);
+
+    try assert_eq_i32(probs.y_mode_probs[0] as i32, 112);
+    try assert_eq_i32(probs.y_mode_probs[3] as i32, 37);
+    try assert_eq_i32(probs.uv_mode_probs[0] as i32, 162);
+    try assert_eq_i32(probs.uv_mode_probs[2] as i32, 204);
+    try assert_eq_i32(probs.coeff_probs[0] as i32, 128);
+    try assert_eq_i32(probs.coeff_probs[33] as i32, 253);
+    try assert_eq_i32(probs.coeff_probs[1055] as i32, 128);
+    try assert_eq_i32(probs.mv_probs[0] as i32, 162);
+    try assert_eq_i32(probs.mv_probs[37] as i32, 254);
 }
 
 test "parse VP8 segmentation enabled update data and map probabilities" {
