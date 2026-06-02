@@ -172,7 +172,7 @@
 - [ ] 实现 inter frame decode。
 - [ ] 实现 current frame reconstruction。
 - [ ] 实现 row-delayed loop filter。
-- [ ] 实现 reference refresh。
+- [x] 实现 reference refresh。
 - [ ] 实现 show_frame output。
 - [x] 实现 visible crop。
 - [ ] 实现 `decode <input.ivf> --yuv out.yuv`。
