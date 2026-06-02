@@ -1,0 +1,129 @@
+use libc.free;
+use libc.malloc;
+use libc.memset;
+
+error ErrScratchInvalidGeometry;
+error ErrScratchOverflow;
+error ErrScratchOutOfMemory;
+error ErrScratchCapacityExceeded;
+
+export struct RowScratchArena {
+    raw: &byte,
+    raw_len: usize,
+    data: &byte,
+    capacity: usize,
+    offset: usize,
+    high_water: usize,
+    alignment: usize
+}
+
+export fn empty_row_scratch_arena() RowScratchArena {
+    return RowScratchArena{
+        raw: null as &byte,
+        raw_len: 0,
+        data: null as &byte,
+        capacity: 0,
+        offset: 0,
+        high_water: 0,
+        alignment: 0
+    };
+}
+
+fn is_power_of_two(value: usize) bool {
+    if value == 0 {
+        return false;
+    }
+    var n: usize = value;
+    while (n % (2 as usize)) == 0 {
+        n = n / (2 as usize);
+    }
+    return n == 1;
+}
+
+fn align_up(value: usize, alignment: usize) !usize {
+    if !is_power_of_two(alignment) {
+        return error.ErrScratchInvalidGeometry;
+    }
+    const addend: usize = alignment - 1;
+    const padded: usize = value + addend;
+    if padded < value {
+        return error.ErrScratchOverflow;
+    }
+    return (padded / alignment) * alignment;
+}
+
+export fn allocate_row_scratch_arena(capacity: usize, alignment: usize) !RowScratchArena {
+    if capacity == 0 || !is_power_of_two(alignment) {
+        return error.ErrScratchInvalidGeometry;
+    }
+
+    const raw_len: usize = capacity + alignment - 1;
+    if raw_len < capacity {
+        return error.ErrScratchOverflow;
+    }
+
+    const raw: &byte = malloc(raw_len) as &byte;
+    if raw == null {
+        return error.ErrScratchOutOfMemory;
+    }
+    _ = memset(raw as *byte, 0, raw_len);
+
+    const aligned_addr: usize = try align_up(@usize_from_ptr(raw as &void), alignment);
+    return RowScratchArena{
+        raw: raw,
+        raw_len: raw_len,
+        data: @ptr_from_usize(aligned_addr) as &byte,
+        capacity: capacity,
+        offset: 0,
+        high_water: 0,
+        alignment: alignment
+    };
+}
+
+export fn free_row_scratch_arena(arena: &RowScratchArena) void {
+    if arena.raw != null {
+        free(arena.raw as &void);
+    }
+    arena.raw = null as &byte;
+    arena.raw_len = 0;
+    arena.data = null as &byte;
+    arena.capacity = 0;
+    arena.offset = 0;
+    arena.high_water = 0;
+    arena.alignment = 0;
+}
+
+export fn row_scratch_reset(arena: &RowScratchArena) !void {
+    if arena.data == null {
+        return error.ErrScratchInvalidGeometry;
+    }
+    arena.offset = 0;
+}
+
+export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignment: usize) !&byte {
+    if arena.data == null || size == 0 || !is_power_of_two(alignment) {
+        return error.ErrScratchInvalidGeometry;
+    }
+
+    const base_addr: usize = @usize_from_ptr(arena.data as &void);
+    const current_addr: usize = base_addr + arena.offset;
+    if current_addr < base_addr {
+        return error.ErrScratchOverflow;
+    }
+
+    const aligned_addr: usize = try align_up(current_addr, alignment);
+    const aligned_offset: usize = aligned_addr - base_addr;
+    const end_offset: usize = aligned_offset + size;
+    if end_offset < aligned_offset {
+        return error.ErrScratchOverflow;
+    }
+    if end_offset > arena.capacity {
+        return error.ErrScratchCapacityExceeded;
+    }
+
+    arena.offset = end_offset;
+    if arena.offset > arena.high_water {
+        arena.high_water = arena.offset;
+    }
+    return @ptr_from_usize(aligned_addr) as &byte;
+}

@@ -1,0 +1,50 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.scratch.RowScratchArena;
+use vp8.common.scratch.allocate_row_scratch_arena;
+use vp8.common.scratch.free_row_scratch_arena;
+use vp8.common.scratch.row_scratch_alloc_bytes;
+use vp8.common.scratch.row_scratch_reset;
+
+fn assert_aligned(ptr: &byte, alignment: usize) !void {
+    try expect((@usize_from_ptr(ptr as &void) % alignment) == 0);
+}
+
+test "RowScratchArena bump allocates aligned memory and resets per row" {
+    var arena: RowScratchArena = try allocate_row_scratch_arena(64, 16);
+    defer free_row_scratch_arena(&arena);
+
+    try assert_eq_i32(arena.capacity as i32, 64);
+    try assert_eq_i32(arena.offset as i32, 0);
+    try assert_aligned(arena.data, 16);
+
+    const first: &byte = try row_scratch_alloc_bytes(&arena, 5, 8);
+    const second: &byte = try row_scratch_alloc_bytes(&arena, 9, 16);
+
+    try assert_aligned(first, 8);
+    try assert_aligned(second, 16);
+    try assert_eq_i32(arena.offset as i32, 25);
+    try assert_eq_i32(arena.high_water as i32, 25);
+
+    try row_scratch_reset(&arena);
+    try assert_eq_i32(arena.offset as i32, 0);
+
+    _ = try row_scratch_alloc_bytes(&arena, 4, 8);
+    try assert_eq_i32(arena.offset as i32, 4);
+}
+
+test "RowScratchArena rejects invalid allocation requests and clears ownership" {
+    var arena: RowScratchArena = try allocate_row_scratch_arena(16, 8);
+
+    var failed_too_large: i32 = 0;
+    _ = row_scratch_alloc_bytes(&arena, 32, 8) catch {
+        failed_too_large = 1;
+        null as &byte;
+    };
+    try assert_eq_i32(failed_too_large, 1);
+
+    free_row_scratch_arena(&arena);
+    try expect(arena.data == null);
+    try assert_eq_i32(arena.capacity as i32, 0);
+}
