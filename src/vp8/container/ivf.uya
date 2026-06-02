@@ -7,6 +7,7 @@ use bitstream.readers.BoundedSlice;
 error ErrInvalidIvfSignature;
 error ErrInvalidIvfHeaderSize;
 error ErrUnsupportedIvfFourcc;
+error ErrIvfWriteOutOfBounds;
 
 export struct IvfHeader {
     version: u16,
@@ -91,4 +92,67 @@ export fn ivf_frame_iterator_next(iterator: &IvfFrameIterator) !IvfFrame {
     iterator.next_offset = offset + 12 + (payload_size as usize);
     iterator.frame_index = iterator.frame_index + 1;
     return frame;
+}
+
+fn ensure_write_available(len: usize, offset: usize, need: usize) !void {
+    if offset > len {
+        return error.ErrIvfWriteOutOfBounds;
+    }
+
+    const remaining: usize = len - offset;
+    if remaining < need {
+        return error.ErrIvfWriteOutOfBounds;
+    }
+}
+
+fn write_le_u16_at(out: &byte, len: usize, offset: usize, value: u16) !void {
+    try ensure_write_available(len, offset, 2);
+    out[offset] = (value & (0xff as u16)) as byte;
+    out[offset + 1] = ((value >> 8) & (0xff as u16)) as byte;
+}
+
+fn write_le_u32_at(out: &byte, len: usize, offset: usize, value: u32) !void {
+    try ensure_write_available(len, offset, 4);
+    out[offset] = (value & (0xff as u32)) as byte;
+    out[offset + 1] = ((value >> 8) & (0xff as u32)) as byte;
+    out[offset + 2] = ((value >> 16) & (0xff as u32)) as byte;
+    out[offset + 3] = ((value >> 24) & (0xff as u32)) as byte;
+}
+
+fn write_le_u64_at(out: &byte, len: usize, offset: usize, value: u64) !void {
+    try ensure_write_available(len, offset, 8);
+    out[offset] = (value & (0xff as u64)) as byte;
+    out[offset + 1] = ((value >> 8) & (0xff as u64)) as byte;
+    out[offset + 2] = ((value >> 16) & (0xff as u64)) as byte;
+    out[offset + 3] = ((value >> 24) & (0xff as u64)) as byte;
+    out[offset + 4] = ((value >> 32) & (0xff as u64)) as byte;
+    out[offset + 5] = ((value >> 40) & (0xff as u64)) as byte;
+    out[offset + 6] = ((value >> 48) & (0xff as u64)) as byte;
+    out[offset + 7] = ((value >> 56) & (0xff as u64)) as byte;
+}
+
+export fn write_ivf_header(out: &byte, len: usize, header: &IvfHeader) !void {
+    try ensure_write_available(len, 0, 32);
+    out[0] = 'D' as byte;
+    out[1] = 'K' as byte;
+    out[2] = 'I' as byte;
+    out[3] = 'F' as byte;
+    try write_le_u16_at(out, len, 4, header.version);
+    try write_le_u16_at(out, len, 6, 32);
+    out[8] = 'V' as byte;
+    out[9] = 'P' as byte;
+    out[10] = '8' as byte;
+    out[11] = '0' as byte;
+    try write_le_u16_at(out, len, 12, header.width);
+    try write_le_u16_at(out, len, 14, header.height);
+    try write_le_u32_at(out, len, 16, header.timebase_denominator);
+    try write_le_u32_at(out, len, 20, header.timebase_numerator);
+    try write_le_u32_at(out, len, 24, header.frame_count);
+    try write_le_u32_at(out, len, 28, header.unused);
+}
+
+export fn write_ivf_frame_header(out: &byte, len: usize, offset: usize, payload_size: u32, timestamp: u64) !void {
+    try ensure_write_available(len, offset, 12);
+    try write_le_u32_at(out, len, offset, payload_size);
+    try write_le_u64_at(out, len, offset + 4, timestamp);
 }

@@ -8,6 +8,8 @@ use container.ivf.ivf_frame_iterator_has_next;
 use container.ivf.ivf_frame_iterator_next;
 use container.ivf.make_ivf_frame_iterator;
 use container.ivf.parse_ivf_header;
+use container.ivf.write_ivf_frame_header;
+use container.ivf.write_ivf_header;
 
 fn dummy_header() IvfHeader {
     return IvfHeader{
@@ -124,4 +126,53 @@ test "iterate IVF frames" {
     };
     try assert_eq_i32(failed_frame1.index as i32, 99);
     try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, true as i32);
+}
+
+test "write IVF header and frame header" {
+    var out: [byte: 47] = [];
+    const source: IvfHeader = IvfHeader{
+        version: 0,
+        header_size: 32,
+        width: 16,
+        height: 8,
+        timebase_denominator: 60,
+        timebase_numerator: 1,
+        frame_count: 1,
+        unused: 0
+    };
+
+    try write_ivf_header(&out[0] as &byte, 47, &source);
+    try write_ivf_frame_header(&out[0] as &byte, 47, 32, 3, 123);
+    out[44] = 0xde;
+    out[45] = 0xad;
+    out[46] = 0xbe;
+
+    const parsed: IvfHeader = try parse_ivf_header(&out[0] as &byte, 47);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, 47, &parsed);
+    const frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+
+    try assert_eq_i32(parsed.width as i32, 16);
+    try assert_eq_i32(parsed.height as i32, 8);
+    try assert_eq_i32(parsed.timebase_denominator as i32, 60);
+    try assert_eq_i32(frame.timestamp as i32, 123);
+    try assert_eq_i32(frame.payload.len as i32, 3);
+    try assert_eq_i32(frame.payload.data[1] as i32, 0xad);
+    try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, false as i32);
+}
+
+test "IVF writer rejects short output" {
+    var out: [byte: 16] = [];
+    const source: IvfHeader = dummy_header();
+    var header_failed: i32 = 0;
+    var frame_failed: i32 = 0;
+
+    _ = write_ivf_header(&out[0] as &byte, 16, &source) catch {
+        header_failed = 1;
+    };
+    _ = write_ivf_frame_header(&out[0] as &byte, 16, 8, 9, 10) catch {
+        frame_failed = 1;
+    };
+
+    try assert_eq_i32(header_failed, 1);
+    try assert_eq_i32(frame_failed, 1);
 }
