@@ -17,6 +17,16 @@ export struct Vp8FrameHeader {
     vertical_scale: u8
 }
 
+export struct Vp8Segmentation {
+    enabled: bool,
+    update_map: bool,
+    update_data: bool,
+    absolute_delta: bool,
+    quantizer_delta: [i16: 4],
+    loop_filter_delta: [i8: 4],
+    segment_prob: [byte: 3]
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,

@@ -3,6 +3,7 @@ use std.testing.assert_eq_i32;
 use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
+use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
 use vp8.bitstream.header.parse_vp8_frame_tag;
@@ -46,6 +47,30 @@ test "define VP8 frame header fields" {
     try assert_eq_i32(header.height as i32, 480);
     try assert_eq_i32(header.horizontal_scale as i32, 0);
     try assert_eq_i32(header.vertical_scale as i32, 0);
+}
+
+test "define VP8 segmentation fields" {
+    const segmentation: Vp8Segmentation = Vp8Segmentation{
+        enabled: true,
+        update_map: true,
+        update_data: true,
+        absolute_delta: false,
+        quantizer_delta: [ 0, 1, -2, 3 ],
+        loop_filter_delta: [ 0, -1, 2, -3 ],
+        segment_prob: [ 255, 128, 0 ]
+    };
+
+    try assert_eq_i32(segmentation.enabled as i32, true as i32);
+    try assert_eq_i32(segmentation.update_map as i32, true as i32);
+    try assert_eq_i32(segmentation.update_data as i32, true as i32);
+    try assert_eq_i32(segmentation.absolute_delta as i32, false as i32);
+    try assert_eq_i32(segmentation.quantizer_delta[1] as i32, 1);
+    try assert_eq_i32(segmentation.quantizer_delta[2] as i32, -2);
+    try assert_eq_i32(segmentation.loop_filter_delta[1] as i32, -1);
+    try assert_eq_i32(segmentation.loop_filter_delta[2] as i32, 2);
+    try assert_eq_i32(segmentation.segment_prob[0] as i32, 255);
+    try assert_eq_i32(segmentation.segment_prob[1] as i32, 128);
+    try assert_eq_i32(segmentation.segment_prob[2] as i32, 0);
 }
 
 test "parse VP8 frame tag" {
