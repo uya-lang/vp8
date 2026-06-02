@@ -123,7 +123,7 @@
 - [x] 解析 4x4 luma block mode。
 - [x] 解析 inter/intra flag。
 - [x] 解析 inter reference frame。
-- [ ] 解析 nearest/near/zero/new MV。
+- [x] 解析 nearest/near/zero/new MV。
 - [ ] 实现 MV clamp 和边界检查。
 - [ ] 解析 skip coefficient flag。
 - [ ] 解析 coefficient tokens。

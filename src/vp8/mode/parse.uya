@@ -25,8 +25,19 @@ export const VP8_REF_CURRENT: byte = 0 as byte;
 export const VP8_REF_LAST: byte = 1 as byte;
 export const VP8_REF_GOLDEN: byte = 2 as byte;
 export const VP8_REF_ALTREF: byte = 3 as byte;
+export const VP8_INTER_MV_MODE_NEAREST: byte = 0 as byte;
+export const VP8_INTER_MV_MODE_NEAR: byte = 1 as byte;
+export const VP8_INTER_MV_MODE_ZERO: byte = 2 as byte;
+export const VP8_INTER_MV_MODE_NEW: byte = 3 as byte;
 
 error ErrVp8BModeProbOutOfBounds;
+error ErrVp8MvProbOutOfBounds;
+
+export struct Vp8MotionVector {
+    y: i16,
+    x: i16,
+    mode: byte
+}
 
 var VP8_KF_BMODE_PROBS: [byte: 900] = [
     231, 120, 48, 89, 115, 113, 120, 152, 112, 152, 179, 64, 126, 170, 118, 46, 70, 95,
@@ -198,4 +209,97 @@ export fn parse_inter_reference_frame(reader: &BoolReader, prob_last: byte, prob
         return VP8_REF_GOLDEN;
     }
     return VP8_REF_ALTREF;
+}
+
+fn parse_inter_mv_mode(reader: &BoolReader) !byte {
+    if (try read_bit_with_probability(reader, 2 as byte)) == 0 {
+        return VP8_INTER_MV_MODE_ZERO;
+    }
+    if (try read_bit_with_probability(reader, 173 as byte)) != 0 {
+        return VP8_INTER_MV_MODE_NEW;
+    }
+    if (try read_bit_with_probability(reader, 34 as byte)) != 0 {
+        return VP8_INTER_MV_MODE_ZERO;
+    }
+    if (try read_bit_with_probability(reader, 173 as byte)) != 0 {
+        return VP8_INTER_MV_MODE_NEAR;
+    }
+    return VP8_INTER_MV_MODE_NEAREST;
+}
+
+fn parse_small_mv_component(reader: &BoolReader, probs: &byte) !i16 {
+    if (try read_bit_with_probability(reader, probs[2])) == 0 {
+        if (try read_bit_with_probability(reader, probs[3])) == 0 {
+            if (try read_bit_with_probability(reader, probs[4])) == 0 {
+                return 0 as i16;
+            }
+            return 1 as i16;
+        }
+        if (try read_bit_with_probability(reader, probs[5])) == 0 {
+            return 2 as i16;
+        }
+        return 3 as i16;
+    }
+
+    if (try read_bit_with_probability(reader, probs[6])) == 0 {
+        if (try read_bit_with_probability(reader, probs[7])) == 0 {
+            return 4 as i16;
+        }
+        return 5 as i16;
+    }
+    if (try read_bit_with_probability(reader, probs[8])) == 0 {
+        return 6 as i16;
+    }
+    return 7 as i16;
+}
+
+fn parse_large_mv_component(reader: &BoolReader, probs: &byte) !i16 {
+    var magnitude: i16 = (try read_literal(reader, 4 as u8)) as i16;
+    var bit_index: usize = 0;
+    while bit_index < 4 {
+        if (try read_bit_with_probability(reader, probs[9 + bit_index])) != 0 {
+            magnitude = (magnitude + ((16 as i16) << (bit_index as i32))) as i16;
+        }
+        bit_index = bit_index + 1;
+    }
+    return magnitude;
+}
+
+fn parse_mv_component(reader: &BoolReader, probs: &byte) !i16 {
+    var magnitude: i16 = 0;
+    if (try read_bit_with_probability(reader, probs[0])) == 0 {
+        magnitude = try parse_small_mv_component(reader, probs);
+    } else {
+        magnitude = try parse_large_mv_component(reader, probs);
+    }
+
+    if magnitude != 0 && (try read_bit_with_probability(reader, probs[1])) != 0 {
+        return (0 - magnitude) as i16;
+    }
+    return magnitude;
+}
+
+export fn parse_inter_motion_vector(reader: &BoolReader, probs: &Vp8Probs, nearest: &Vp8MotionVector, near: &Vp8MotionVector, new_base: &Vp8MotionVector) !Vp8MotionVector {
+    if probs.mv_prob_count < 38 {
+        return error.ErrVp8MvProbOutOfBounds;
+    }
+
+    const mode: byte = try parse_inter_mv_mode(reader);
+    if mode == VP8_INTER_MV_MODE_NEAREST {
+        return Vp8MotionVector{ y: nearest.y, x: nearest.x, mode: mode };
+    }
+    if mode == VP8_INTER_MV_MODE_NEAR {
+        return Vp8MotionVector{ y: near.y, x: near.x, mode: mode };
+    }
+    if mode == VP8_INTER_MV_MODE_ZERO {
+        return Vp8MotionVector{ y: 0, x: 0, mode: mode };
+    }
+
+    const delta_y: i16 = try parse_mv_component(reader, &probs.mv_probs[0] as &byte);
+    const delta_x: i16 = try parse_mv_component(reader, &probs.mv_probs[19] as &byte);
+    return Vp8MotionVector{
+        y: (new_base.y + delta_y) as i16,
+        x: (new_base.x + delta_x) as i16,
+        mode: mode
+    };
 }
