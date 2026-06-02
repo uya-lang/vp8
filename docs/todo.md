@@ -72,7 +72,7 @@
 - [x] 定义 `Vp8Segmentation`。
 - [x] 定义 `Vp8LoopFilterHeader`。
 - [x] 定义 `Vp8QuantHeader`。
-- [ ] 定义 `Vp8Probs`。
+- [x] 定义 `Vp8Probs`。
 - [ ] 填入 VP8 默认概率表。
 - [ ] 解析 segmentation enabled/update/map probs。
 - [ ] 解析 loop filter type/level/sharpness/ref deltas/mode deltas。

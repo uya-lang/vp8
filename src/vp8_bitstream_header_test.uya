@@ -4,6 +4,7 @@ use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
 use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
@@ -115,6 +116,28 @@ test "define VP8 quant header fields" {
     try assert_eq_i32(quant.y2_ac_delta as i32, 6);
     try assert_eq_i32(quant.uv_dc_delta as i32, -1);
     try assert_eq_i32(quant.uv_ac_delta as i32, 3);
+}
+
+test "define VP8 probability state fields" {
+    var coeff_probs: [byte: 4] = [ 1, 2, 3, 4 ];
+    var mv_probs: [byte: 3] = [ 5, 6, 7 ];
+    const probs: Vp8Probs = Vp8Probs{
+        y_mode_probs: [ 112, 86, 140, 37 ],
+        uv_mode_probs: [ 162, 101, 204 ],
+        coeff_probs: &coeff_probs[0] as &byte,
+        coeff_prob_count: 4,
+        mv_probs: &mv_probs[0] as &byte,
+        mv_prob_count: 3
+    };
+
+    try assert_eq_i32(probs.y_mode_probs[0] as i32, 112);
+    try assert_eq_i32(probs.y_mode_probs[3] as i32, 37);
+    try assert_eq_i32(probs.uv_mode_probs[0] as i32, 162);
+    try assert_eq_i32(probs.uv_mode_probs[2] as i32, 204);
+    try assert_eq_i32(probs.coeff_prob_count as i32, 4);
+    try assert_eq_i32(probs.coeff_probs[2] as i32, 3);
+    try assert_eq_i32(probs.mv_prob_count as i32, 3);
+    try assert_eq_i32(probs.mv_probs[1] as i32, 6);
 }
 
 test "parse VP8 frame tag" {

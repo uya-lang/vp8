@@ -46,6 +46,15 @@ export struct Vp8QuantHeader {
     uv_ac_delta: i8
 }
 
+export struct Vp8Probs {
+    y_mode_probs: [byte: 4],
+    uv_mode_probs: [byte: 3],
+    coeff_probs: &byte,
+    coeff_prob_count: usize,
+    mv_probs: &byte,
+    mv_prob_count: usize
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,
