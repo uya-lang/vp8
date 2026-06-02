@@ -160,6 +160,24 @@ test "FramePool refresh aliases logical refs to physical current without copying
     try assert_eq_i32(pool.altref_slot as i32, 3);
 }
 
+test "FramePool normal reference refresh never copies whole frames" {
+    var pool: FramePool = try allocate_frame_pool(16, 16, 32, 32);
+    defer free_frame_pool(&pool);
+
+    try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
+
+    try frame_pool_refresh_references(&pool, true, false, false);
+    try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
+
+    try frame_pool_begin_frame(&pool);
+    try frame_pool_refresh_references(&pool, false, true, true);
+    try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
+
+    try frame_pool_begin_frame(&pool);
+    try frame_pool_refresh_references(&pool, true, true, true);
+    try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
+}
+
 test "FrameBuffer tracks reference border dirty flags per plane" {
     var frame: FrameBuffer = try allocate_frame_buffer(16, 16, 32, 32);
     defer free_frame_buffer(&frame);
