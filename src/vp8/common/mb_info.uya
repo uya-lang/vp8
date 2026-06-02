@@ -9,6 +9,12 @@ error ErrMacroblockInfoInvalidGeometry;
 error ErrMacroblockInfoOutOfMemory;
 error ErrMacroblockInfoOutOfBounds;
 error ErrMacroblockInfoOverflow;
+error ErrMacroblockCoeffSummaryCountOutOfBounds;
+
+export const MACROBLOCK_COEFF_SUMMARY_HAS_COEFF: byte = 1 as byte;
+export const MACROBLOCK_COEFF_SUMMARY_DC_ONLY: byte = 2 as byte;
+export const MACROBLOCK_COEFF_SUMMARY_COUNT_SHIFT: i32 = 2;
+export const MACROBLOCK_COEFF_SUMMARY_COUNT_MASK: byte = 0x7c as byte;
 
 export struct MacroblockInfoArrays {
     mb_cols: usize,
@@ -33,6 +39,33 @@ export struct MacroblockInfoValue {
     mv_x: i16,
     mv_y: i16,
     coeff_summary: byte
+}
+
+export fn make_macroblock_coeff_summary(has_coeff: bool, dc_only: bool, coefficient_count: byte) !byte {
+    if coefficient_count > (31 as byte) {
+        return error.ErrMacroblockCoeffSummaryCountOutOfBounds;
+    }
+
+    var summary: byte = (coefficient_count << MACROBLOCK_COEFF_SUMMARY_COUNT_SHIFT) as byte;
+    if has_coeff {
+        summary = (summary | MACROBLOCK_COEFF_SUMMARY_HAS_COEFF) as byte;
+    }
+    if dc_only {
+        summary = (summary | MACROBLOCK_COEFF_SUMMARY_DC_ONLY) as byte;
+    }
+    return summary;
+}
+
+export fn macroblock_coeff_summary_has_coeff(summary: byte) bool {
+    return (summary & MACROBLOCK_COEFF_SUMMARY_HAS_COEFF) != (0 as byte);
+}
+
+export fn macroblock_coeff_summary_dc_only(summary: byte) bool {
+    return (summary & MACROBLOCK_COEFF_SUMMARY_DC_ONLY) != (0 as byte);
+}
+
+export fn macroblock_coeff_summary_count(summary: byte) byte {
+    return ((summary & MACROBLOCK_COEFF_SUMMARY_COUNT_MASK) >> MACROBLOCK_COEFF_SUMMARY_COUNT_SHIFT) as byte;
 }
 
 export fn empty_macroblock_info_arrays() MacroblockInfoArrays {

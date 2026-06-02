@@ -9,6 +9,10 @@ use vp8.common.mb_info.allocate_macroblock_info_arrays;
 use vp8.common.mb_info.free_macroblock_info_arrays;
 use vp8.common.mb_info.macroblock_info_get;
 use vp8.common.mb_info.macroblock_info_set;
+use vp8.common.mb_info.macroblock_coeff_summary_has_coeff;
+use vp8.common.mb_info.macroblock_coeff_summary_dc_only;
+use vp8.common.mb_info.macroblock_coeff_summary_count;
+use vp8.common.mb_info.make_macroblock_coeff_summary;
 
 test "MacroblockInfoArrays allocate one SoA entry per macroblock" {
     var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
@@ -78,4 +82,56 @@ test "MacroblockInfoArrays reject invalid access and clear ownership on free" {
     try expect(info.y_mode == null);
     try expect(info.mv_x == null);
     try assert_eq_i32(info.mb_count as i32, 0);
+}
+
+test "MacroblockInfoArrays record mode ref mv and coeff summary per macroblock" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(32, 32);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+
+    var top_left: MacroblockInfoValue = MacroblockInfoValue{
+        y_mode: 0 as byte,
+        uv_mode: 1 as byte,
+        segment_id: 0 as byte,
+        skip_coeff: false,
+        ref_frame: 1 as byte,
+        mv_x: -4,
+        mv_y: 8,
+        coeff_summary: try make_macroblock_coeff_summary(true, true, 1 as byte)
+    };
+    var bottom_right: MacroblockInfoValue = MacroblockInfoValue{
+        y_mode: 4 as byte,
+        uv_mode: 3 as byte,
+        segment_id: 2 as byte,
+        skip_coeff: true,
+        ref_frame: 2 as byte,
+        mv_x: 127,
+        mv_y: -128,
+        coeff_summary: try make_macroblock_coeff_summary(true, false, 16 as byte)
+    };
+
+    try macroblock_info_set(&info, 0, 0, &top_left);
+    try macroblock_info_set(&info, 1, 1, &bottom_right);
+
+    const got_top_left: MacroblockInfoValue = try macroblock_info_get(&info, 0, 0);
+    const got_bottom_right: MacroblockInfoValue = try macroblock_info_get(&info, 1, 1);
+
+    try assert_eq_i32(got_top_left.y_mode as i32, 0);
+    try assert_eq_i32(got_top_left.uv_mode as i32, 1);
+    try assert_eq_i32(got_top_left.ref_frame as i32, 1);
+    try assert_eq_i32(got_top_left.mv_x as i32, -4);
+    try assert_eq_i32(got_top_left.mv_y as i32, 8);
+    try expect(macroblock_coeff_summary_has_coeff(got_top_left.coeff_summary));
+    try expect(macroblock_coeff_summary_dc_only(got_top_left.coeff_summary));
+    try assert_eq_i32(macroblock_coeff_summary_count(got_top_left.coeff_summary) as i32, 1);
+
+    try assert_eq_i32(got_bottom_right.y_mode as i32, 4);
+    try assert_eq_i32(got_bottom_right.uv_mode as i32, 3);
+    try expect(got_bottom_right.skip_coeff);
+    try assert_eq_i32(got_bottom_right.ref_frame as i32, 2);
+    try assert_eq_i32(got_bottom_right.mv_x as i32, 127);
+    try assert_eq_i32(got_bottom_right.mv_y as i32, -128);
+    try expect(macroblock_coeff_summary_has_coeff(got_bottom_right.coeff_summary));
+    try assert_eq_i32(macroblock_coeff_summary_dc_only(got_bottom_right.coeff_summary) as i32, false as i32);
+    try assert_eq_i32(macroblock_coeff_summary_count(got_bottom_right.coeff_summary) as i32, 16);
 }

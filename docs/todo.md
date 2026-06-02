@@ -131,7 +131,7 @@
 - [x] 实现 EOB=0、DC-only coefficient summary/fast-path。
 - [x] 实现 Y2 block token decode。
 - [x] 支持 1/2/4/8 token partitions。
-- [ ] 为每个 macroblock 记录 mode/ref/mv/coeff summary。
+- [x] 为每个 macroblock 记录 mode/ref/mv/coeff summary。
 
 验收标准：
 
