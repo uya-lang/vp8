@@ -17,6 +17,7 @@ use vp8.bitstream.header.parse_vp8_mv_probability_updates;
 use vp8.bitstream.header.parse_vp8_quant;
 use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_token_partition_count;
+use vp8.bitstream.header.parse_vp8_token_partition_readers;
 use vp8.bitstream.header.vp8_coeff_update_probability;
 use vp8.bitstream.header.vp8_mv_update_probability;
 use vp8.bitstream.header.parse_vp8_frame_tag;
@@ -26,6 +27,8 @@ use vp8.bitstream.header.vp8_default_probs;
 use vp8.bitstream.bool_reader.BoolReader;
 use vp8.bitstream.bool_reader.bool_reader_error_byte_offset;
 use vp8.bitstream.bool_reader.bool_reader_error_partition_id;
+use vp8.bitstream.bool_reader.bool_reader_partition_id;
+use vp8.bitstream.bool_reader.bool_reader_byte_offset;
 use vp8.bitstream.bool_reader.make_bool_reader;
 use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
 use vp8.bitstream.bool_writer.BoolWriter;
@@ -548,6 +551,50 @@ test "parse VP8 token partition count code" {
     try assert_eq_i32((try parse_vp8_token_partition_count(&reader)) as i32, 2);
     try assert_eq_i32((try parse_vp8_token_partition_count(&reader)) as i32, 4);
     try assert_eq_i32((try parse_vp8_token_partition_count(&reader)) as i32, 8);
+}
+
+test "parse VP8 token partitions from frame payload size table" {
+    var frame: [byte: 32] = [
+        0x60, 0x00, 0x00,
+        0xaa, 0xbb, 0xcc,
+        0x02, 0x00, 0x00,
+        0x03, 0x00, 0x00,
+        0x02, 0x00, 0x00,
+        0x10, 0x11,
+        0x20, 0x21, 0x22,
+        0x30, 0x31,
+        0x40, 0x41, 0x42, 0x43,
+        0, 0, 0, 0, 0
+    ];
+    var readers: [BoolReader: 8] = [];
+
+    try parse_vp8_token_partition_readers(&frame[0] as &byte, 28, 3, 4 as u8, &readers[0] as &BoolReader);
+
+    try assert_eq_i32(bool_reader_partition_id(&readers[0]), 0);
+    try assert_eq_i32(bool_reader_partition_id(&readers[1]), 1);
+    try assert_eq_i32(bool_reader_partition_id(&readers[2]), 2);
+    try assert_eq_i32(bool_reader_partition_id(&readers[3]), 3);
+    try assert_eq_i32(bool_reader_byte_offset(&readers[0]) as i32, 2);
+    try assert_eq_i32(bool_reader_byte_offset(&readers[3]) as i32, 2);
+}
+
+test "reject VP8 token partition size table overrun" {
+    var frame: [byte: 18] = [
+        0x60, 0x00, 0x00,
+        0xaa, 0xbb, 0xcc,
+        0x09, 0x00, 0x00,
+        0x03, 0x00, 0x00,
+        0x02, 0x00, 0x00,
+        0x10, 0x11, 0x12
+    ];
+    var readers: [BoolReader: 8] = [];
+    var failed: i32 = 0;
+
+    _ = parse_vp8_token_partition_readers(&frame[0] as &byte, 18, 3, 4 as u8, &readers[0] as &BoolReader) catch {
+        failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
 }
 
 test "parse VP8 frame tag" {

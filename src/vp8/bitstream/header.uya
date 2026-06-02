@@ -3,12 +3,15 @@ use vp8.bitstream.readers.BoundedSlice;
 use vp8.bitstream.readers.read_le_u16_at;
 use vp8.bitstream.readers.read_slice_at;
 use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
 use vp8.bitstream.bool_reader.read_bit_with_probability;
 use vp8.bitstream.bool_reader.read_literal;
 use vp8.bitstream.bool_reader.read_signed_value;
 
 error ErrInvalidKeyFrameStartCode;
 error ErrFirstPartitionOutOfBounds;
+error ErrInvalidTokenPartitionCount;
+error ErrTokenPartitionOutOfBounds;
 
 export struct Vp8FrameHeader {
     frame_type: u8,
@@ -358,6 +361,52 @@ export fn parse_vp8_quant(reader: &BoolReader) !Vp8QuantHeader {
 export fn parse_vp8_token_partition_count(reader: &BoolReader) !u8 {
     const code: u32 = try read_literal(reader, 2 as u8);
     return (1 as u8) << (code as i32);
+}
+
+fn validate_vp8_token_partition_count(count: u8) !void {
+    if count == (1 as u8) || count == (2 as u8) || count == (4 as u8) || count == (8 as u8) {
+        return;
+    }
+
+    return error.ErrInvalidTokenPartitionCount;
+}
+
+export fn parse_vp8_token_partition_readers(data: &byte, len: usize, first_partition_size: u32, token_partition_count: u8, readers: &BoolReader) !void {
+    try validate_vp8_token_partition_count(token_partition_count);
+
+    if len < 3 {
+        return error.ErrFirstPartitionOutOfBounds;
+    }
+
+    const first_partition_end: usize = 3 + (first_partition_size as usize);
+    if first_partition_end < 3 || first_partition_end > len {
+        return error.ErrFirstPartitionOutOfBounds;
+    }
+
+    const size_table_len: usize = ((token_partition_count as usize) - 1) * 3;
+    if (len - first_partition_end) < size_table_len {
+        return error.ErrTokenPartitionOutOfBounds;
+    }
+
+    const size_table_offset: usize = first_partition_end;
+    var partition_offset: usize = first_partition_end + size_table_len;
+    var index: usize = 0;
+
+    while index < (token_partition_count as usize) {
+        var partition_len: usize = 0;
+        if index + 1 < (token_partition_count as usize) {
+            partition_len = (try read_le_u24_at(data, len, size_table_offset + (index * 3))) as usize;
+            if partition_len > (len - partition_offset) {
+                return error.ErrTokenPartitionOutOfBounds;
+            }
+        } else {
+            partition_len = len - partition_offset;
+        }
+
+        readers[index] = try make_bool_reader_for_partition(&data[partition_offset] as &byte, partition_len, index as i32);
+        partition_offset = partition_offset + partition_len;
+        index = index + 1;
+    }
 }
 
 export struct Vp8FrameTag {
