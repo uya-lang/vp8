@@ -176,7 +176,7 @@
 - [ ] 实现 show_frame output。
 - [ ] 实现 visible crop。
 - [ ] 实现 `decode <input.ivf> --yuv out.yuv`。
-- [ ] 实现 `info <input.ivf>`。
+- [x] 实现 `info <input.ivf>`。
 - [ ] 实现 `decode-frame --index N`。
 
 验收标准：
