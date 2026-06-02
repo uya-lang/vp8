@@ -212,6 +212,13 @@ export fn parse_inter_reference_frame(reader: &BoolReader, prob_last: byte, prob
     return VP8_REF_ALTREF;
 }
 
+export fn parse_skip_coefficient_flag(reader: &BoolReader, skip_enabled: bool, prob_skip_false: byte) !bool {
+    if !skip_enabled {
+        return false;
+    }
+    return (try read_bit_with_probability(reader, prob_skip_false)) != 0;
+}
+
 fn parse_inter_mv_mode(reader: &BoolReader) !byte {
     if (try read_bit_with_probability(reader, 2 as byte)) == 0 {
         return VP8_INTER_MV_MODE_ZERO;
