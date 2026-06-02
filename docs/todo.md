@@ -154,7 +154,7 @@
 - [x] 实现 luma sub-pixel filter。
 - [x] 实现 chroma sub-pixel filter。
 - [x] 实现 border extension。
-- [ ] 实现 simple loop filter。
+- [x] 实现 simple loop filter。
 - [ ] 实现 normal loop filter。
 
 验收标准：

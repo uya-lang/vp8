@@ -29,6 +29,8 @@ use vp8.kernels.scalar.predict_y4x4_horizontal_up;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.predict_chroma_subpixel;
+use vp8.kernels.scalar.loop_filter_simple_vertical_edge;
+use vp8.kernels.scalar.loop_filter_simple_horizontal_edge;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -588,4 +590,65 @@ test "scalar chroma sub-pixel predictor applies VP8 bilinear filters" {
     predict_chroma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 11, 8, 8, 3 as u8, 5 as u8);
     try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &both_expected[0] as &byte);
     try assert_eq_i32(dst[(4 * 12) + 10] as i32, 89);
+}
+
+test "scalar simple loop filter updates only p0 and q0 when threshold passes" {
+    var vertical: [byte: 64] = [];
+    var row: usize = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        vertical[base + 1] = 100 as byte;
+        vertical[base + 2] = 110 as byte;
+        vertical[base + 3] = 120 as byte;
+        vertical[base + 4] = 125 as byte;
+        row = row + 1;
+    }
+
+    loop_filter_simple_vertical_edge(&vertical[0] as &byte, 8, 3, 4, 40 as u8);
+
+    row = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        try assert_eq_i32(vertical[base + 1] as i32, 100);
+        try assert_eq_i32(vertical[base + 2] as i32, 111);
+        try assert_eq_i32(vertical[base + 3] as i32, 119);
+        try assert_eq_i32(vertical[base + 4] as i32, 125);
+        row = row + 1;
+    }
+
+    var horizontal: [byte: 64] = [];
+    var col: usize = 0;
+    while col < 4 {
+        horizontal[(1 * 8) + col] = 128 as byte;
+        horizontal[(2 * 8) + col] = 122 as byte;
+        horizontal[(3 * 8) + col] = 110 as byte;
+        horizontal[(4 * 8) + col] = 100 as byte;
+        col = col + 1;
+    }
+
+    loop_filter_simple_horizontal_edge(&horizontal[0] as &byte, 8, 3, 4, 40 as u8);
+
+    col = 0;
+    while col < 4 {
+        try assert_eq_i32(horizontal[(1 * 8) + col] as i32, 128);
+        try assert_eq_i32(horizontal[(2 * 8) + col] as i32, 121);
+        try assert_eq_i32(horizontal[(3 * 8) + col] as i32, 111);
+        try assert_eq_i32(horizontal[(4 * 8) + col] as i32, 100);
+        col = col + 1;
+    }
+}
+
+test "scalar simple loop filter leaves edges unchanged when threshold fails" {
+    var pixels: [byte: 32] = [];
+    pixels[1] = 0 as byte;
+    pixels[2] = 10 as byte;
+    pixels[3] = 240 as byte;
+    pixels[4] = 255 as byte;
+
+    loop_filter_simple_vertical_edge(&pixels[0] as &byte, 8, 3, 1, 40 as u8);
+
+    try assert_eq_i32(pixels[1] as i32, 0);
+    try assert_eq_i32(pixels[2] as i32, 10);
+    try assert_eq_i32(pixels[3] as i32, 240);
+    try assert_eq_i32(pixels[4] as i32, 255);
 }
