@@ -6,6 +6,9 @@ use vp8.bitstream.bool_writer.BoolWriter;
 use vp8.bitstream.bool_writer.bool_writer_flush;
 use vp8.bitstream.bool_writer.bool_writer_write;
 use vp8.token.parse.CoefficientToken;
+use vp8.token.parse.coefficient_band;
+use vp8.token.parse.coefficient_eob_context;
+use vp8.token.parse.coefficient_scan_index;
 use vp8.token.parse.parse_coefficient_token;
 use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
 use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
@@ -65,4 +68,19 @@ test "parse coefficient category token extra bits and sign" {
     const cat3: CoefficientToken = try parse_token_from_script(&cat3_bits[0] as &u8, 13, &cat3_probs[0] as &byte);
     try assert_eq_i32(cat3.token as i32, VP8_COEFF_TOKEN_CAT3 as i32);
     try assert_eq_i32(cat3.coefficient as i32, -16);
+}
+
+test "coefficient scan order bands and eob contexts match VP8 tables" {
+    try assert_eq_i32((try coefficient_scan_index(0)) as i32, 0);
+    try assert_eq_i32((try coefficient_scan_index(3)) as i32, 8);
+    try assert_eq_i32((try coefficient_scan_index(15)) as i32, 15);
+
+    try assert_eq_i32((try coefficient_band(0)) as i32, 0);
+    try assert_eq_i32((try coefficient_band(4)) as i32, 6);
+    try assert_eq_i32((try coefficient_band(5)) as i32, 4);
+    try assert_eq_i32((try coefficient_band(15)) as i32, 7);
+
+    try assert_eq_i32(coefficient_eob_context(0 as byte, 0 as byte) as i32, 0);
+    try assert_eq_i32(coefficient_eob_context(1 as byte, 0 as byte) as i32, 1);
+    try assert_eq_i32(coefficient_eob_context(1 as byte, 1 as byte) as i32, 2);
 }

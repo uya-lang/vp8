@@ -127,7 +127,7 @@
 - [x] 实现 MV clamp 和边界检查。
 - [x] 解析 skip coefficient flag。
 - [x] 解析 coefficient tokens。
-- [ ] 实现 coefficient bands、scan order、EOB context。
+- [x] 实现 coefficient bands、scan order、EOB context。
 - [ ] 实现 EOB=0、DC-only coefficient summary/fast-path。
 - [ ] 实现 Y2 block token decode。
 - [ ] 支持 1/2/4/8 token partitions。

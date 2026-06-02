@@ -19,12 +19,41 @@ export struct CoefficientToken {
     coefficient: i16
 }
 
+error ErrVp8CoefficientIndexOutOfBounds;
+
+var VP8_COEFF_SCAN_ORDER: [byte: 16] = [ 0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15 ];
+var VP8_COEFF_BANDS: [byte: 16] = [ 0, 1, 2, 3, 6, 4, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7 ];
 var VP8_CAT1_PROBS: [byte: 1] = [ 159 ];
 var VP8_CAT2_PROBS: [byte: 2] = [ 165, 145 ];
 var VP8_CAT3_PROBS: [byte: 3] = [ 173, 148, 140 ];
 var VP8_CAT4_PROBS: [byte: 4] = [ 176, 155, 140, 135 ];
 var VP8_CAT5_PROBS: [byte: 5] = [ 180, 157, 141, 134, 130 ];
 var VP8_CAT6_PROBS: [byte: 11] = [ 254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129 ];
+
+export fn coefficient_scan_index(position: usize) !byte {
+    if position >= 16 {
+        return error.ErrVp8CoefficientIndexOutOfBounds;
+    }
+    return VP8_COEFF_SCAN_ORDER[position];
+}
+
+export fn coefficient_band(position: usize) !byte {
+    if position >= 16 {
+        return error.ErrVp8CoefficientIndexOutOfBounds;
+    }
+    return VP8_COEFF_BANDS[position];
+}
+
+export fn coefficient_eob_context(above_has_coeff: byte, left_has_coeff: byte) byte {
+    var context: byte = 0 as byte;
+    if above_has_coeff != (0 as byte) {
+        context = (context + (1 as byte)) as byte;
+    }
+    if left_has_coeff != (0 as byte) {
+        context = (context + (1 as byte)) as byte;
+    }
+    return context;
+}
 
 fn read_extra_bits(reader: &BoolReader, probs: &byte, count: usize) !i16 {
     var value: i16 = 0;
