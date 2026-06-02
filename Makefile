@@ -2,11 +2,13 @@ SHELL := /bin/bash
 
 BUILD_DIR := build
 BIN := $(BUILD_DIR)/vp8uya
+TOOLCHAIN_HELLO := $(BUILD_DIR)/toolchain_hello
 SRC := src/main.uya
+TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check test clean require-uya
+.PHONY: all build check check-toolchain test clean require-uya
 
 all: build
 
@@ -16,10 +18,17 @@ $(BIN): $(SRC) Makefile
 	mkdir -p $(BUILD_DIR)
 	$(UYA) build $(SRC) -o $@
 
+$(TOOLCHAIN_HELLO): $(TOOLCHAIN_HELLO_SRC) Makefile
+	mkdir -p $(BUILD_DIR)
+	$(UYA) build $(TOOLCHAIN_HELLO_SRC) -o $@
+
 check: require-uya
 	$(UYA) check $(SRC)
 
-test: build
+check-toolchain: require-uya $(TOOLCHAIN_HELLO)
+	$(TOOLCHAIN_HELLO) >/dev/null
+
+test: build check-toolchain
 	test -x $(BIN)
 	$(BIN) --help >/dev/null
 	$(BIN) version >/dev/null

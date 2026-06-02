@@ -36,6 +36,8 @@ Compiler selection:
   `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya`.
 - If no compiler is available, `make build` fails early with a clear message
   instead of producing a fake binary.
+- `make check-toolchain` builds and runs a minimal UYA hello-world program to
+  confirm the compiler can produce a native executable.
 
 Run the scaffold after building:
 

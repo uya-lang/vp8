@@ -1,0 +1,6 @@
+use libc.printf;
+
+export extern fn main() i32 {
+    _ = printf("hello from uya\n");
+    return 0;
+}
