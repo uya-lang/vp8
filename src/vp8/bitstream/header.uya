@@ -371,6 +371,11 @@ fn validate_vp8_token_partition_count(count: u8) !void {
     return error.ErrInvalidTokenPartitionCount;
 }
 
+export fn vp8_token_partition_for_row(mb_row: usize, token_partition_count: u8) !u8 {
+    try validate_vp8_token_partition_count(token_partition_count);
+    return (mb_row % (token_partition_count as usize)) as u8;
+}
+
 export fn parse_vp8_token_partition_readers(data: &byte, len: usize, first_partition_size: u32, token_partition_count: u8, readers: &BoolReader) !void {
     try validate_vp8_token_partition_count(token_partition_count);
 

@@ -18,6 +18,7 @@ use vp8.bitstream.header.parse_vp8_quant;
 use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_token_partition_count;
 use vp8.bitstream.header.parse_vp8_token_partition_readers;
+use vp8.bitstream.header.vp8_token_partition_for_row;
 use vp8.bitstream.header.vp8_coeff_update_probability;
 use vp8.bitstream.header.vp8_mv_update_probability;
 use vp8.bitstream.header.parse_vp8_frame_tag;
@@ -595,6 +596,17 @@ test "reject VP8 token partition size table overrun" {
     };
 
     try assert_eq_i32(failed, 1);
+}
+
+test "map macroblock rows to VP8 token partitions by row modulo partition count" {
+    try assert_eq_i32((try vp8_token_partition_for_row(0, 4 as u8)) as i32, 0);
+    try assert_eq_i32((try vp8_token_partition_for_row(1, 4 as u8)) as i32, 1);
+    try assert_eq_i32((try vp8_token_partition_for_row(2, 4 as u8)) as i32, 2);
+    try assert_eq_i32((try vp8_token_partition_for_row(3, 4 as u8)) as i32, 3);
+    try assert_eq_i32((try vp8_token_partition_for_row(4, 4 as u8)) as i32, 0);
+    try assert_eq_i32((try vp8_token_partition_for_row(7, 4 as u8)) as i32, 3);
+    try assert_eq_i32((try vp8_token_partition_for_row(8, 8 as u8)) as i32, 0);
+    try assert_eq_i32((try vp8_token_partition_for_row(15, 8 as u8)) as i32, 7);
 }
 
 test "parse VP8 frame tag" {
