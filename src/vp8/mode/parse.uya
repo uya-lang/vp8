@@ -21,6 +21,10 @@ export const VP8_B_MODE_VR: byte = 6 as byte;
 export const VP8_B_MODE_VL: byte = 7 as byte;
 export const VP8_B_MODE_HD: byte = 8 as byte;
 export const VP8_B_MODE_HU: byte = 9 as byte;
+export const VP8_REF_CURRENT: byte = 0 as byte;
+export const VP8_REF_LAST: byte = 1 as byte;
+export const VP8_REF_GOLDEN: byte = 2 as byte;
+export const VP8_REF_ALTREF: byte = 3 as byte;
 
 error ErrVp8BModeProbOutOfBounds;
 
@@ -184,4 +188,14 @@ export fn parse_key_frame_luma_4x4_modes(reader: &BoolReader, above_modes: &byte
 
 export fn parse_inter_intra_flag(reader: &BoolReader, prob_inter: byte) !bool {
     return (try read_bit_with_probability(reader, prob_inter)) != 0;
+}
+
+export fn parse_inter_reference_frame(reader: &BoolReader, prob_last: byte, prob_gf: byte) !byte {
+    if (try read_bit_with_probability(reader, prob_last)) == 0 {
+        return VP8_REF_LAST;
+    }
+    if (try read_bit_with_probability(reader, prob_gf)) == 0 {
+        return VP8_REF_GOLDEN;
+    }
+    return VP8_REF_ALTREF;
 }

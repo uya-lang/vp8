@@ -122,7 +122,7 @@
 - [x] 解析 key frame UV mode。
 - [x] 解析 4x4 luma block mode。
 - [x] 解析 inter/intra flag。
-- [ ] 解析 inter reference frame。
+- [x] 解析 inter reference frame。
 - [ ] 解析 nearest/near/zero/new MV。
 - [ ] 实现 MV clamp 和边界检查。
 - [ ] 解析 skip coefficient flag。
