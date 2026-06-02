@@ -55,6 +55,14 @@ export fn read_le_u64_at(data: &byte, len: usize, offset: usize) !u64 {
         ((data[offset + 7] as u64) << 56);
 }
 
+export fn read_slice_at(data: &byte, len: usize, offset: usize, slice_len: usize) !BoundedSlice {
+    try ensure_available(len, offset, slice_len);
+    return BoundedSlice{
+        data: &data[offset] as &byte,
+        len: slice_len
+    };
+}
+
 export fn make_slice_reader(data: &byte, len: usize) SliceReader {
     return SliceReader{
         data: data,
@@ -107,11 +115,7 @@ export fn reader_read_le_u64(reader: &SliceReader) !u64 {
 }
 
 export fn reader_read_slice(reader: &SliceReader, len: usize) !BoundedSlice {
-    try ensure_available(reader.len, reader.pos, len);
-    const slice: BoundedSlice = BoundedSlice{
-        data: &reader.data[reader.pos] as &byte,
-        len: len
-    };
+    const slice: BoundedSlice = try read_slice_at(reader.data, reader.len, reader.pos, len);
     reader.pos = reader.pos + len;
     return slice;
 }

@@ -1,6 +1,12 @@
 use std.testing.assert_eq_i32;
 
+use bitstream.readers.BoundedSlice;
 use container.ivf.IvfHeader;
+use container.ivf.IvfFrame;
+use container.ivf.IvfFrameIterator;
+use container.ivf.ivf_frame_iterator_has_next;
+use container.ivf.ivf_frame_iterator_next;
+use container.ivf.make_ivf_frame_iterator;
 use container.ivf.parse_ivf_header;
 
 fn dummy_header() IvfHeader {
@@ -82,4 +88,40 @@ test "reject malformed IVF header" {
     try assert_eq_i32(short_failed, 1);
     try assert_eq_i32(signature_failed, 1);
     try assert_eq_i32(fourcc_failed, 1);
+}
+
+test "iterate IVF frames" {
+    var data: [byte: 53] = [
+        'D' as byte, 'K' as byte, 'I' as byte, 'F' as byte,
+        0x00, 0x00, 0x20, 0x00,
+        'V' as byte, 'P' as byte, '8' as byte, '0' as byte,
+        0x02, 0x00, 0x02, 0x00,
+        0x1e, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x03, 0x00, 0x00, 0x00,
+        0x0a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0xaa, 0xbb, 0xcc,
+        0x02, 0x00, 0x00, 0x00,
+        0x0b, 0x00
+    ];
+
+    const header: IvfHeader = try parse_ivf_header(&data[0] as &byte, 53);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&data[0] as &byte, 53, &header);
+
+    try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, true as i32);
+    const frame0: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    try assert_eq_i32(frame0.index as i32, 0);
+    try assert_eq_i32(frame0.timestamp as i32, 10);
+    try assert_eq_i32(frame0.payload.len as i32, 3);
+    try assert_eq_i32(frame0.payload.data[2] as i32, 0xcc);
+
+    const failed_frame1: IvfFrame = ivf_frame_iterator_next(&iterator) catch {
+        dummy_header();
+        IvfFrame{ index: 99, timestamp: 99, payload: BoundedSlice{ data: &data[0] as &byte, len: 99 } };
+    };
+    try assert_eq_i32(failed_frame1.index as i32, 99);
+    try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, true as i32);
 }

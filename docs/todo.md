@@ -33,7 +33,7 @@
 - [x] 实现 little-endian reader。
 - [x] 实现 bounded slice reader，所有 read 都检查长度。
 - [x] 实现 IVF header parser。
-- [ ] 实现 IVF frame iterator。
+- [x] 实现 IVF frame iterator。
 - [ ] 实现 IVF writer。
 - [ ] 实现裸 VP8 frame payload reader。
 - [ ] 解析 VP8 frame tag：frame type、version、show frame、first partition size。

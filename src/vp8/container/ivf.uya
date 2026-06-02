@@ -1,5 +1,8 @@
 use bitstream.readers.read_le_u16_at;
 use bitstream.readers.read_le_u32_at;
+use bitstream.readers.read_le_u64_at;
+use bitstream.readers.read_slice_at;
+use bitstream.readers.BoundedSlice;
 
 error ErrInvalidIvfSignature;
 error ErrInvalidIvfHeaderSize;
@@ -14,6 +17,19 @@ export struct IvfHeader {
     timebase_numerator: u32,
     frame_count: u32,
     unused: u32
+}
+
+export struct IvfFrame {
+    index: u32,
+    timestamp: u64,
+    payload: BoundedSlice
+}
+
+export struct IvfFrameIterator {
+    data: &byte,
+    len: usize,
+    next_offset: usize,
+    frame_index: u32
 }
 
 export fn parse_ivf_header(data: &byte, len: usize) !IvfHeader {
@@ -43,4 +59,36 @@ export fn parse_ivf_header(data: &byte, len: usize) !IvfHeader {
         frame_count: try read_le_u32_at(data, len, 24),
         unused: try read_le_u32_at(data, len, 28)
     };
+}
+
+export fn make_ivf_frame_iterator(data: &byte, len: usize, header: &IvfHeader) !IvfFrameIterator {
+    _ = try read_slice_at(data, len, 0, header.header_size as usize);
+    return IvfFrameIterator{
+        data: data,
+        len: len,
+        next_offset: header.header_size as usize,
+        frame_index: 0
+    };
+}
+
+export fn ivf_frame_iterator_has_next(iterator: &IvfFrameIterator) bool {
+    return iterator.next_offset < iterator.len;
+}
+
+export fn ivf_frame_iterator_next(iterator: &IvfFrameIterator) !IvfFrame {
+    const offset: usize = iterator.next_offset;
+    _ = try read_slice_at(iterator.data, iterator.len, offset, 12);
+
+    const payload_size: u32 = try read_le_u32_at(iterator.data, iterator.len, offset);
+    const timestamp: u64 = try read_le_u64_at(iterator.data, iterator.len, offset + 4);
+    const payload: BoundedSlice = try read_slice_at(iterator.data, iterator.len, offset + 12, payload_size as usize);
+
+    const frame: IvfFrame = IvfFrame{
+        index: iterator.frame_index,
+        timestamp: timestamp,
+        payload: payload
+    };
+    iterator.next_offset = offset + 12 + (payload_size as usize);
+    iterator.frame_index = iterator.frame_index + 1;
+    return frame;
 }

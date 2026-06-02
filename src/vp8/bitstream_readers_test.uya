@@ -5,6 +5,7 @@ use bitstream.readers.read_le_u16_at;
 use bitstream.readers.read_le_u24_at;
 use bitstream.readers.read_le_u32_at;
 use bitstream.readers.read_le_u64_at;
+use bitstream.readers.read_slice_at;
 use bitstream.readers.BoundedSlice;
 use bitstream.readers.SliceReader;
 use bitstream.readers.make_slice_reader;
@@ -40,6 +41,18 @@ test "little endian reads reject short input" {
     try assert_eq_i32(u24_fallback as i32, 0xffffff);
     try assert_eq_i32(u32_fallback as i32, -1);
     try expect(u64_fallback == 0xffffffffffffffff as u64);
+}
+
+test "bounded slice at checks length" {
+    var data: [byte: 3] = [ 0x0a, 0x0b, 0x0c ];
+    const ok: BoundedSlice = try read_slice_at(&data[0] as &byte, 3, 1, 2);
+    const fallback: BoundedSlice = read_slice_at(&data[0] as &byte, 3, 2, 2) catch {
+        BoundedSlice{ data: &data[0] as &byte, len: 99 };
+    };
+
+    try assert_eq_i32(ok.len as i32, 2);
+    try assert_eq_i32(ok.data[0] as i32, 0x0b);
+    try assert_eq_i32(fallback.len as i32, 99);
 }
 
 test "slice reader advances after bounded reads" {
