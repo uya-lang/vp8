@@ -10,6 +10,9 @@ error ErrFramePoolNoFreeSlot;
 export struct FrameBuffer {
     width: usize,
     height: usize,
+    y_border_dirty: bool,
+    u_border_dirty: bool,
+    v_border_dirty: bool,
     y: AlignedFramePlane,
     u: AlignedFramePlane,
     v: AlignedFramePlane
@@ -54,6 +57,9 @@ export fn empty_frame_buffer() FrameBuffer {
     return FrameBuffer{
         width: 0,
         height: 0,
+        y_border_dirty: false,
+        u_border_dirty: false,
+        v_border_dirty: false,
         y: empty_aligned_frame_plane(),
         u: empty_aligned_frame_plane(),
         v: empty_aligned_frame_plane()
@@ -125,6 +131,9 @@ export fn free_frame_buffer(frame: &FrameBuffer) void {
     free_aligned_frame_plane(&frame.y);
     frame.width = 0;
     frame.height = 0;
+    frame.y_border_dirty = false;
+    frame.u_border_dirty = false;
+    frame.v_border_dirty = false;
 }
 
 export fn allocate_frame_pool(width: usize, height: usize, border: usize, alignment: usize) !FramePool {
@@ -181,6 +190,22 @@ export fn frame_pool_get_slot(pool: &FramePool, slot: usize) !&FrameBuffer {
         return &pool.slot3;
     }
     return error.ErrFramePoolInvalidSlot;
+}
+
+export fn frame_buffer_mark_border_dirty(frame: &FrameBuffer) void {
+    frame.y_border_dirty = true;
+    frame.u_border_dirty = true;
+    frame.v_border_dirty = true;
+}
+
+export fn frame_buffer_clear_border_dirty(frame: &FrameBuffer) void {
+    frame.y_border_dirty = false;
+    frame.u_border_dirty = false;
+    frame.v_border_dirty = false;
+}
+
+export fn frame_buffer_border_dirty(frame: &FrameBuffer) bool {
+    return frame.y_border_dirty || frame.u_border_dirty || frame.v_border_dirty;
 }
 
 fn frame_pool_get_ref_count(pool: &FramePool, slot: usize) !usize {
@@ -265,6 +290,11 @@ export fn frame_pool_begin_frame(pool: &FramePool) !void {
 
 export fn frame_pool_refresh_references(pool: &FramePool, refresh_last: bool, refresh_golden: bool, refresh_altref: bool) !void {
     const current: usize = pool.current_slot;
+
+    if refresh_last || refresh_golden || refresh_altref {
+        const current_frame: &FrameBuffer = try frame_pool_get_slot(pool, current);
+        frame_buffer_mark_border_dirty(current_frame);
+    }
 
     if refresh_last {
         try frame_pool_dec_ref_count(pool, pool.last_slot);
