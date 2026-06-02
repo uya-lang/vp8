@@ -18,6 +18,14 @@ export struct FrameBuffer {
     v: AlignedFramePlane
 }
 
+export struct FrameVisibleView {
+    width: usize,
+    height: usize,
+    y: Plane,
+    u: Plane,
+    v: Plane
+}
+
 export struct FramePool {
     width: usize,
     height: usize,
@@ -92,6 +100,28 @@ export fn frame_buffer_chroma_dim(value: usize) usize {
 
 export fn frame_buffer_chroma_border(border: usize) usize {
     return (border + 1) / (2 as usize);
+}
+
+fn frame_visible_plane_view(plane: &Plane) Plane {
+    return Plane{
+        data: plane.origin,
+        origin: plane.origin,
+        width: plane.width,
+        height: plane.height,
+        stride: plane.stride,
+        border: 0,
+        storage_len: plane.stride * plane.height
+    };
+}
+
+export fn frame_buffer_visible_view(frame: &FrameBuffer) FrameVisibleView {
+    return FrameVisibleView{
+        width: frame.width,
+        height: frame.height,
+        y: frame_visible_plane_view(&frame.y.plane),
+        u: frame_visible_plane_view(&frame.u.plane),
+        v: frame_visible_plane_view(&frame.v.plane)
+    };
 }
 
 export fn allocate_frame_buffer(width: usize, height: usize, border: usize, alignment: usize) !FrameBuffer {

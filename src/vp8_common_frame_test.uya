@@ -3,6 +3,7 @@ use std.testing.expect;
 
 use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.FramePool;
+use vp8.common.frame.FrameVisibleView;
 use vp8.common.frame.allocate_frame_buffer;
 use vp8.common.frame.allocate_frame_pool;
 use vp8.common.frame.empty_frame_buffer;
@@ -13,6 +14,7 @@ use vp8.common.frame.frame_buffer_chroma_dim;
 use vp8.common.frame.frame_buffer_border_dirty;
 use vp8.common.frame.frame_buffer_clear_border_dirty;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
+use vp8.common.frame.frame_buffer_visible_view;
 use vp8.common.frame.frame_pool_begin_frame;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
@@ -147,4 +149,27 @@ test "FramePool refresh marks aliased current border dirty" {
 
     const last: &FrameBuffer = try frame_pool_get_slot(&pool, pool.last_slot);
     try expect(frame_buffer_border_dirty(last));
+}
+
+test "FrameBuffer visible view exposes Y U V origins without border" {
+    var frame: FrameBuffer = try allocate_frame_buffer(17, 17, 32, 32);
+    defer free_frame_buffer(&frame);
+
+    var view: FrameVisibleView = frame_buffer_visible_view(&frame);
+
+    try assert_eq_i32(view.width as i32, 17);
+    try assert_eq_i32(view.height as i32, 17);
+    try assert_eq_i32(view.y.width as i32, 17);
+    try assert_eq_i32(view.y.height as i32, 17);
+    try assert_eq_i32(view.y.stride as i32, frame.y.plane.stride as i32);
+    try assert_eq_i32(view.y.border as i32, 0);
+    try assert_eq_i32(view.u.width as i32, 9);
+    try assert_eq_i32(view.u.height as i32, 9);
+    try assert_eq_i32(view.u.border as i32, 0);
+    try assert_eq_i32(view.v.width as i32, 9);
+    try assert_eq_i32(view.v.height as i32, 9);
+    try assert_eq_i32(view.v.border as i32, 0);
+    try expect(view.y.origin == frame.y.plane.origin);
+    try expect(view.u.origin == frame.u.plane.origin);
+    try expect(view.v.origin == frame.v.plane.origin);
 }
