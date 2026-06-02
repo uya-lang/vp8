@@ -2,8 +2,10 @@ use std.testing.assert_eq_i32;
 
 use vp8.bitstream.bool_reader.BoolReader;
 use vp8.bitstream.bool_reader.make_bool_reader;
+use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
 use vp8.bitstream.bool_reader.bool_reader_bit_offset;
 use vp8.bitstream.bool_reader.bool_reader_byte_offset;
+use vp8.bitstream.bool_reader.bool_reader_partition_id;
 use vp8.bitstream.bool_reader.bool_reader_read;
 use vp8.bitstream.bool_reader.read_bit_with_probability;
 use vp8.bitstream.bool_reader.read_literal;
@@ -50,7 +52,7 @@ test "read signed value helper applies trailing sign bit" {
 test "VP8 boolean reader rejects short initialization and overread" {
     var empty_data: [byte: 1] = [ 0x00 ];
     const init_fallback: usize = (make_bool_reader(&empty_data[0] as &byte, 1) catch {
-        BoolReader{ data: &empty_data[0] as &byte, len: 0, byte_pos: 0, range: 0, value: 0, bits_left: 0, bit_offset: 99 };
+        BoolReader{ data: &empty_data[0] as &byte, len: 0, partition_id: 0, byte_pos: 0, range: 0, value: 0, bits_left: 0, bit_offset: 99 };
     }).bit_offset;
     try assert_eq_i32(init_fallback as i32, 99);
 
@@ -65,4 +67,23 @@ test "VP8 boolean reader rejects short initialization and overread" {
     const bit_fallback: u8 = bool_reader_read(&reader, 128 as byte) catch { 7 as u8; };
     try assert_eq_i32(bit_fallback as i32, 7);
     try assert_eq_i32(bool_reader_byte_offset(&reader) as i32, 2);
+}
+
+test "partition boundary overread keeps reader offsets stable" {
+    var data: [byte: 2] = [ 0x00, 0x00 ];
+    var reader: BoolReader = try make_bool_reader_for_partition(&data[0] as &byte, 2, 4);
+    var count: i32 = 0;
+    while count < 9 {
+        try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
+        count = count + 1;
+    }
+
+    const bit_offset_before: usize = bool_reader_bit_offset(&reader);
+    const byte_offset_before: usize = bool_reader_byte_offset(&reader);
+    const fallback: u8 = bool_reader_read(&reader, 128 as byte) catch { 9 as u8; };
+
+    try assert_eq_i32(fallback as i32, 9);
+    try assert_eq_i32(bool_reader_partition_id(&reader), 4);
+    try assert_eq_i32(bool_reader_bit_offset(&reader) as i32, bit_offset_before as i32);
+    try assert_eq_i32(bool_reader_byte_offset(&reader) as i32, byte_offset_before as i32);
 }

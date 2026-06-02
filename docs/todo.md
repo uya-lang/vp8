@@ -53,7 +53,7 @@
 - [x] 实现 read bit with probability。
 - [x] 实现 literal read helper。
 - [x] 实现 signed value helper。
-- [ ] 实现 partition boundary 检查。
+- [x] 实现 partition boundary 检查。
 - [ ] 实现 reader trace 模式，记录 bit/prob/offset。
 - [ ] 实现 boolean writer。
 - [ ] 实现 writer flush 和 carry handling。
