@@ -24,9 +24,9 @@
 
 验收标准：
 
-- [ ] `make build` 能生成 CLI，或文档明确记录当前 UYA 编译器缺失。
-- [ ] `vp8uya --help` 能显示 scaffold 命令。
-- [ ] 文档明确说明当前尚无真实编解码能力。
+- [x] `make build` 能生成 CLI，或文档明确记录当前 UYA 编译器缺失。
+- [x] `vp8uya --help` 能显示 scaffold 命令。
+- [x] 文档明确说明当前尚无真实编解码能力。
 
 ## Phase 1: Bitstream 与 IVF 基础
 
