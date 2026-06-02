@@ -1,4 +1,8 @@
 use bitstream.readers.read_le_u24_at;
+use bitstream.readers.BoundedSlice;
+use bitstream.readers.read_slice_at;
+
+error ErrInvalidKeyFrameStartCode;
 
 export struct Vp8FrameTag {
     frame_type: u8,
@@ -15,4 +19,11 @@ export fn parse_vp8_frame_tag(data: &byte, len: usize) !Vp8FrameTag {
         show_frame: (((tag >> 4) & (0x01 as u32)) != 0),
         first_partition_size: tag >> 5
     };
+}
+
+export fn parse_key_frame_start_code(data: &byte, len: usize) !void {
+    const start_code: BoundedSlice = try read_slice_at(data, len, 3, 3);
+    if start_code.data[0] != 0x9d as byte || start_code.data[1] != 0x01 as byte || start_code.data[2] != 0x2a as byte {
+        return error.ErrInvalidKeyFrameStartCode;
+    }
 }

@@ -30,7 +30,7 @@ check-toolchain: require-uya $(TOOLCHAIN_HELLO)
 	$(TOOLCHAIN_HELLO) >/dev/null
 
 test: build check-toolchain
-	for test_src in $(UYA_TESTS); do $(UYA) test $$test_src; done
+	set -e; for test_src in $(UYA_TESTS); do $(UYA) test $$test_src; done
 	test -x $(BIN)
 	$(BIN) --help >/dev/null
 	$(BIN) version >/dev/null
