@@ -7,6 +7,7 @@ use vp8.bitstream.bool_reader.bool_reader_byte_offset;
 use vp8.bitstream.bool_reader.bool_reader_read;
 use vp8.bitstream.bool_reader.read_bit_with_probability;
 use vp8.bitstream.bool_reader.read_literal;
+use vp8.bitstream.bool_reader.read_signed_value;
 
 test "VP8 boolean reader decodes probability split bits" {
     var data: [byte: 3] = [ 0x80, 0x00, 0x00 ];
@@ -34,6 +35,16 @@ test "read literal helper accumulates MSB-first bits" {
     try assert_eq_i32((try read_literal(&reader, 3 as u8)) as i32, 5);
     try assert_eq_i32((try read_literal(&reader, 0 as u8)) as i32, 0);
     try assert_eq_i32(bool_reader_bit_offset(&reader) as i32, 3);
+}
+
+test "read signed value helper applies trailing sign bit" {
+    var positive_data: [byte: 3] = [ 0xa0, 0x00, 0x00 ];
+    var positive_reader: BoolReader = try make_bool_reader(&positive_data[0] as &byte, 3);
+    try assert_eq_i32(try read_signed_value(&positive_reader, 3 as u8), 5);
+
+    var negative_data: [byte: 3] = [ 0xb0, 0x00, 0x00 ];
+    var negative_reader: BoolReader = try make_bool_reader(&negative_data[0] as &byte, 3);
+    try assert_eq_i32(try read_signed_value(&negative_reader, 3 as u8), -5);
 }
 
 test "VP8 boolean reader rejects short initialization and overread" {

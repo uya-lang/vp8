@@ -101,3 +101,13 @@ export fn read_literal(reader: &BoolReader, bit_count: u8) !u32 {
 
     return value;
 }
+
+export fn read_signed_value(reader: &BoolReader, bit_count: u8) !i32 {
+    const magnitude: i32 = (try read_literal(reader, bit_count)) as i32;
+    const sign: u8 = try read_bit_with_probability(reader, 128 as byte);
+    if sign != 0 {
+        return 0 - magnitude;
+    }
+
+    return magnitude;
+}
