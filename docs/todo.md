@@ -137,7 +137,7 @@
 
 - [x] 小 key frame 的 mode map 与 golden 一致。
 - [x] token partition 映射在多 row、多 partition 下正确。
-- [ ] 任意 token overread 返回 `ErrBoolReaderOverread`。
+- [x] 任意 token overread 返回 `ErrBoolReaderOverread`。
 
 ## Phase 6: Scalar Kernel Reference
 
