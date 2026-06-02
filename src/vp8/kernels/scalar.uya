@@ -82,3 +82,46 @@ export fn inverse_transform_4x4(input: &i16, output: &i16) void {
         col = col + 1;
     }
 }
+
+export fn inverse_walsh_hadamard_y2_4x4(input: &i16, output: &i16) void {
+    var tmp: [i32: 16] = [];
+
+    var col: usize = 0;
+    while col < 4 {
+        const in0: i32 = input[col] as i32;
+        const in1: i32 = input[4 + col] as i32;
+        const in2: i32 = input[8 + col] as i32;
+        const in3: i32 = input[12 + col] as i32;
+
+        const a1: i32 = in0 + in3;
+        const b1: i32 = in1 + in2;
+        const c1: i32 = in1 - in2;
+        const d1: i32 = in0 - in3;
+
+        tmp[col] = a1 + b1;
+        tmp[4 + col] = c1 + d1;
+        tmp[8 + col] = a1 - b1;
+        tmp[12 + col] = d1 - c1;
+        col = col + 1;
+    }
+
+    var row: usize = 0;
+    while row < 4 {
+        const base: usize = row * 4;
+        const t0: i32 = tmp[base];
+        const t1: i32 = tmp[base + 1];
+        const t2: i32 = tmp[base + 2];
+        const t3: i32 = tmp[base + 3];
+
+        const a1: i32 = t0 + t3;
+        const b1: i32 = t1 + t2;
+        const c1: i32 = t1 - t2;
+        const d1: i32 = t0 - t3;
+
+        output[base] = ((a1 + b1 + 3) >> 3) as i16;
+        output[base + 1] = ((c1 + d1 + 3) >> 3) as i16;
+        output[base + 2] = ((a1 - b1 + 3) >> 3) as i16;
+        output[base + 3] = ((d1 - c1 + 3) >> 3) as i16;
+        row = row + 1;
+    }
+}

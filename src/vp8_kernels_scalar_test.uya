@@ -6,6 +6,7 @@ use vp8.kernels.scalar.clip_i32_to_u8;
 use vp8.kernels.scalar.clip_i16_to_u8;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
+use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
 
 test "scalar clamp helpers keep values inside signed bounds" {
     try assert_eq_i32(clamp_i32_to_i32(-300, -128, 127), -128);
@@ -80,5 +81,26 @@ test "scalar 4x4 inverse DCT matches deterministic VP8 golden blocks" {
     var mixed_expected: [i16: 16] = [ 0, 2, 3, -1, -2, -1, -1, 13, -1, 0, 0, 4, 6, 3, 6, 3 ];
 
     inverse_transform_4x4(&mixed_input[0] as &i16, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &mixed_expected[0] as &i16);
+}
+
+test "scalar inverse Walsh Hadamard Y2 matches deterministic VP8 golden blocks" {
+    var out: [i16: 16] = [];
+    var dc_input: [i16: 16] = [ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    var dc_expected: [i16: 16] = [ 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4 ];
+
+    inverse_walsh_hadamard_y2_4x4(&dc_input[0] as &i16, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &dc_expected[0] as &i16);
+
+    var ac_input: [i16: 16] = [ 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    var ac_expected: [i16: 16] = [ 1, 1, -1, -1, 1, 1, -1, -1, 1, 1, -1, -1, 1, 1, -1, -1 ];
+
+    inverse_walsh_hadamard_y2_4x4(&ac_input[0] as &i16, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &ac_expected[0] as &i16);
+
+    var mixed_input: [i16: 16] = [ 8, -4, 2, -1, 3, -6, 9, -12, 5, 7, -10, 11, -13, 14, -15, 6 ];
+    var mixed_expected: [i16: 16] = [ 0, 3, 1, -3, -1, -2, -2, 14, -1, 0, -1, -5, 4, 0, 6, 1 ];
+
+    inverse_walsh_hadamard_y2_4x4(&mixed_input[0] as &i16, &out[0] as &i16);
     try assert_eq_4x4(&out[0] as &i16, &mixed_expected[0] as &i16);
 }
