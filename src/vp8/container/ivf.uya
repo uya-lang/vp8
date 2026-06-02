@@ -1,0 +1,46 @@
+use bitstream.readers.read_le_u16_at;
+use bitstream.readers.read_le_u32_at;
+
+error ErrInvalidIvfSignature;
+error ErrInvalidIvfHeaderSize;
+error ErrUnsupportedIvfFourcc;
+
+export struct IvfHeader {
+    version: u16,
+    header_size: u16,
+    width: u16,
+    height: u16,
+    timebase_denominator: u32,
+    timebase_numerator: u32,
+    frame_count: u32,
+    unused: u32
+}
+
+export fn parse_ivf_header(data: &byte, len: usize) !IvfHeader {
+    const magic: u32 = try read_le_u32_at(data, len, 0);
+    if magic != 0x46494b44 as u32 {
+        return error.ErrInvalidIvfSignature;
+    }
+
+    const version: u16 = try read_le_u16_at(data, len, 4);
+    const header_size: u16 = try read_le_u16_at(data, len, 6);
+    if header_size < 32 {
+        return error.ErrInvalidIvfHeaderSize;
+    }
+
+    const fourcc: u32 = try read_le_u32_at(data, len, 8);
+    if fourcc != 0x30385056 as u32 {
+        return error.ErrUnsupportedIvfFourcc;
+    }
+
+    return IvfHeader{
+        version: version,
+        header_size: header_size,
+        width: try read_le_u16_at(data, len, 12),
+        height: try read_le_u16_at(data, len, 14),
+        timebase_denominator: try read_le_u32_at(data, len, 16),
+        timebase_numerator: try read_le_u32_at(data, len, 20),
+        frame_count: try read_le_u32_at(data, len, 24),
+        unused: try read_le_u32_at(data, len, 28)
+    };
+}

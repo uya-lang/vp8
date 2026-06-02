@@ -1,0 +1,85 @@
+use std.testing.assert_eq_i32;
+
+use container.ivf.IvfHeader;
+use container.ivf.parse_ivf_header;
+
+fn dummy_header() IvfHeader {
+    return IvfHeader{
+        version: 0,
+        header_size: 0,
+        width: 0,
+        height: 0,
+        timebase_denominator: 0,
+        timebase_numerator: 0,
+        frame_count: 0,
+        unused: 0
+    };
+}
+
+test "parse IVF VP8 header" {
+    var data: [byte: 32] = [
+        'D' as byte, 'K' as byte, 'I' as byte, 'F' as byte,
+        0x00, 0x00, 0x20, 0x00,
+        'V' as byte, 'P' as byte, '8' as byte, '0' as byte,
+        0x80, 0x02, 0xe0, 0x01,
+        0x1e, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x2a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    ];
+
+    const header: IvfHeader = try parse_ivf_header(&data[0] as &byte, 32);
+
+    try assert_eq_i32(header.version as i32, 0);
+    try assert_eq_i32(header.header_size as i32, 32);
+    try assert_eq_i32(header.width as i32, 640);
+    try assert_eq_i32(header.height as i32, 480);
+    try assert_eq_i32(header.timebase_denominator as i32, 30);
+    try assert_eq_i32(header.timebase_numerator as i32, 1);
+    try assert_eq_i32(header.frame_count as i32, 42);
+}
+
+test "reject malformed IVF header" {
+    var short_data: [byte: 3] = [ 'D' as byte, 'K' as byte, 'I' as byte ];
+    var bad_signature: [byte: 32] = [
+        'B' as byte, 'A' as byte, 'D' as byte, '!' as byte,
+        0x00, 0x00, 0x20, 0x00,
+        'V' as byte, 'P' as byte, '8' as byte, '0' as byte,
+        0x80, 0x02, 0xe0, 0x01,
+        0x1e, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x2a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    ];
+    var bad_fourcc: [byte: 32] = [
+        'D' as byte, 'K' as byte, 'I' as byte, 'F' as byte,
+        0x00, 0x00, 0x20, 0x00,
+        'A' as byte, 'V' as byte, '1' as byte, '0' as byte,
+        0x80, 0x02, 0xe0, 0x01,
+        0x1e, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x2a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    ];
+
+    var short_failed: i32 = 0;
+    var signature_failed: i32 = 0;
+    var fourcc_failed: i32 = 0;
+
+    _ = parse_ivf_header(&short_data[0] as &byte, 3) catch {
+        short_failed = 1;
+        dummy_header();
+    };
+    _ = parse_ivf_header(&bad_signature[0] as &byte, 32) catch {
+        signature_failed = 1;
+        dummy_header();
+    };
+    _ = parse_ivf_header(&bad_fourcc[0] as &byte, 32) catch {
+        fourcc_failed = 1;
+        dummy_header();
+    };
+
+    try assert_eq_i32(short_failed, 1);
+    try assert_eq_i32(signature_failed, 1);
+    try assert_eq_i32(fourcc_failed, 1);
+}
