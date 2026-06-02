@@ -1,0 +1,37 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.make_bool_reader;
+use vp8.bitstream.bool_reader.bool_reader_bit_offset;
+use vp8.bitstream.bool_reader.bool_reader_byte_offset;
+use vp8.bitstream.bool_reader.bool_reader_read;
+
+test "VP8 boolean reader decodes probability split bits" {
+    var data: [byte: 3] = [ 0x80, 0x00, 0x00 ];
+    var reader: BoolReader = try make_bool_reader(&data[0] as &byte, 3);
+
+    try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
+    try assert_eq_i32(bool_reader_bit_offset(&reader) as i32, 3);
+}
+
+test "VP8 boolean reader rejects short initialization and overread" {
+    var empty_data: [byte: 1] = [ 0x00 ];
+    const init_fallback: usize = (make_bool_reader(&empty_data[0] as &byte, 1) catch {
+        BoolReader{ data: &empty_data[0] as &byte, len: 0, byte_pos: 0, range: 0, value: 0, bits_left: 0, bit_offset: 99 };
+    }).bit_offset;
+    try assert_eq_i32(init_fallback as i32, 99);
+
+    var data: [byte: 2] = [ 0x00, 0x00 ];
+    var reader: BoolReader = try make_bool_reader(&data[0] as &byte, 2);
+    var count: i32 = 0;
+    while count < 9 {
+        try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
+        count = count + 1;
+    }
+
+    const bit_fallback: u8 = bool_reader_read(&reader, 128 as byte) catch { 7 as u8; };
+    try assert_eq_i32(bit_fallback as i32, 7);
+    try assert_eq_i32(bool_reader_byte_offset(&reader) as i32, 2);
+}

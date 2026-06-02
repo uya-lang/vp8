@@ -49,7 +49,7 @@
 
 ## Phase 2: Boolean Reader/Writer
 
-- [ ] 实现 VP8 boolean arithmetic reader。
+- [x] 实现 VP8 boolean arithmetic reader。
 - [ ] 实现 read bit with probability。
 - [ ] 实现 literal read helper。
 - [ ] 实现 signed value helper。
