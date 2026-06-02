@@ -35,7 +35,7 @@
 - [x] 实现 IVF header parser。
 - [x] 实现 IVF frame iterator。
 - [x] 实现 IVF writer。
-- [ ] 实现裸 VP8 frame payload reader。
+- [x] 实现裸 VP8 frame payload reader。
 - [ ] 解析 VP8 frame tag：frame type、version、show frame、first partition size。
 - [ ] 解析 key frame start code。
 - [ ] 解析 key frame width/height/scale。

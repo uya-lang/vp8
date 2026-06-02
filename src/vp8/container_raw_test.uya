@@ -1,0 +1,26 @@
+use std.testing.assert_eq_i32;
+
+use bitstream.readers.BoundedSlice;
+use container.raw.RawVp8Frame;
+use container.raw.read_raw_vp8_frame;
+
+test "read raw VP8 payload as bounded slice" {
+    var data: [byte: 5] = [ 0x9d, 0x01, 0x2a, 0xaa, 0xbb ];
+    const frame: RawVp8Frame = try read_raw_vp8_frame(&data[0] as &byte, 5);
+
+    try assert_eq_i32(frame.payload.len as i32, 5);
+    try assert_eq_i32(frame.payload.data[0] as i32, 0x9d);
+    try assert_eq_i32(frame.payload.data[4] as i32, 0xbb);
+}
+
+test "reject empty raw VP8 payload" {
+    var data: [byte: 1] = [ 0x00 ];
+    var failed: i32 = 0;
+
+    _ = read_raw_vp8_frame(&data[0] as &byte, 0) catch {
+        failed = 1;
+        RawVp8Frame{ payload: BoundedSlice{ data: &data[0] as &byte, len: 0 } };
+    };
+
+    try assert_eq_i32(failed, 1);
+}

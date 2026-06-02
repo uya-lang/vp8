@@ -1,0 +1,18 @@
+use bitstream.readers.BoundedSlice;
+use bitstream.readers.read_slice_at;
+
+error ErrEmptyRawVp8Payload;
+
+export struct RawVp8Frame {
+    payload: BoundedSlice
+}
+
+export fn read_raw_vp8_frame(data: &byte, len: usize) !RawVp8Frame {
+    if len == 0 {
+        return error.ErrEmptyRawVp8Payload;
+    }
+
+    return RawVp8Frame{
+        payload: try read_slice_at(data, len, 0, len)
+    };
+}
