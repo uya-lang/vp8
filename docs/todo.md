@@ -63,7 +63,7 @@
 验收标准：
 
 - [x] reader 不会越过 partition。
-- [ ] writer 写出的 synthetic stream 可被 reader 还原。
+- [x] writer 写出的 synthetic stream 可被 reader 还原。
 - [ ] 错误中包含 partition id 和 byte offset。
 
 ## Phase 3: VP8 Header 与概率状态
