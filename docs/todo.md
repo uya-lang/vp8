@@ -18,7 +18,7 @@
 - [x] 创建 `src/main.uya` CLI scaffold。
 - [x] 创建 `src/vp8` 模块目录。
 - [x] 创建 `tests/README.md`。
-- [ ] 创建 `bench/README.md`。
+- [x] 创建 `bench/README.md`。
 - [ ] 增加 `.gitignore`，排除 build、fixtures 大文件、YUV 输出、coverage。
 - [ ] 确认本机 UYA 编译器路径和最小 hello-world 可构建。
 
