@@ -1,5 +1,16 @@
 error ErrReaderOutOfBounds;
 
+export struct BoundedSlice {
+    data: &byte,
+    len: usize
+}
+
+export struct SliceReader {
+    data: &byte,
+    len: usize,
+    pos: usize
+}
+
 fn ensure_available(len: usize, offset: usize, need: usize) !void {
     if offset > len {
         return error.ErrReaderOutOfBounds;
@@ -42,4 +53,70 @@ export fn read_le_u64_at(data: &byte, len: usize, offset: usize) !u64 {
         ((data[offset + 5] as u64) << 40) |
         ((data[offset + 6] as u64) << 48) |
         ((data[offset + 7] as u64) << 56);
+}
+
+export fn make_slice_reader(data: &byte, len: usize) SliceReader {
+    return SliceReader{
+        data: data,
+        len: len,
+        pos: 0
+    };
+}
+
+export fn reader_position(reader: &SliceReader) usize {
+    return reader.pos;
+}
+
+export fn reader_remaining(reader: &SliceReader) usize {
+    if reader.pos >= reader.len {
+        return 0;
+    }
+
+    return reader.len - reader.pos;
+}
+
+export fn reader_read_u8(reader: &SliceReader) !byte {
+    try ensure_available(reader.len, reader.pos, 1);
+    const value: byte = reader.data[reader.pos];
+    reader.pos = reader.pos + 1;
+    return value;
+}
+
+export fn reader_read_le_u16(reader: &SliceReader) !u16 {
+    const value: u16 = try read_le_u16_at(reader.data, reader.len, reader.pos);
+    reader.pos = reader.pos + 2;
+    return value;
+}
+
+export fn reader_read_le_u24(reader: &SliceReader) !u32 {
+    const value: u32 = try read_le_u24_at(reader.data, reader.len, reader.pos);
+    reader.pos = reader.pos + 3;
+    return value;
+}
+
+export fn reader_read_le_u32(reader: &SliceReader) !u32 {
+    const value: u32 = try read_le_u32_at(reader.data, reader.len, reader.pos);
+    reader.pos = reader.pos + 4;
+    return value;
+}
+
+export fn reader_read_le_u64(reader: &SliceReader) !u64 {
+    const value: u64 = try read_le_u64_at(reader.data, reader.len, reader.pos);
+    reader.pos = reader.pos + 8;
+    return value;
+}
+
+export fn reader_read_slice(reader: &SliceReader, len: usize) !BoundedSlice {
+    try ensure_available(reader.len, reader.pos, len);
+    const slice: BoundedSlice = BoundedSlice{
+        data: &reader.data[reader.pos] as &byte,
+        len: len
+    };
+    reader.pos = reader.pos + len;
+    return slice;
+}
+
+export fn reader_skip(reader: &SliceReader, len: usize) !void {
+    try ensure_available(reader.len, reader.pos, len);
+    reader.pos = reader.pos + len;
 }

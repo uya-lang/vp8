@@ -5,6 +5,17 @@ use bitstream.readers.read_le_u16_at;
 use bitstream.readers.read_le_u24_at;
 use bitstream.readers.read_le_u32_at;
 use bitstream.readers.read_le_u64_at;
+use bitstream.readers.BoundedSlice;
+use bitstream.readers.SliceReader;
+use bitstream.readers.make_slice_reader;
+use bitstream.readers.reader_position;
+use bitstream.readers.reader_remaining;
+use bitstream.readers.reader_read_u8;
+use bitstream.readers.reader_read_le_u16;
+use bitstream.readers.reader_read_le_u24;
+use bitstream.readers.reader_read_le_u32;
+use bitstream.readers.reader_read_slice;
+use bitstream.readers.reader_skip;
 
 test "little endian fixed width reads" {
     var data: [byte: 9] = [ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x10 ];
@@ -29,4 +40,41 @@ test "little endian reads reject short input" {
     try assert_eq_i32(u24_fallback as i32, 0xffffff);
     try assert_eq_i32(u32_fallback as i32, -1);
     try expect(u64_fallback == 0xffffffffffffffff as u64);
+}
+
+test "slice reader advances after bounded reads" {
+    var data: [byte: 10] = [ 0x10, 0x20, 0x01, 0x02, 0x03, 0xaa, 0xbb, 0xcc, 0xdd, 0xee ];
+    var reader: SliceReader = make_slice_reader(&data[0] as &byte, 10);
+
+    try assert_eq_i32((try reader_read_u8(&reader)) as i32, 0x10);
+    try assert_eq_i32(reader_position(&reader) as i32, 1);
+    try assert_eq_i32((try reader_read_le_u16(&reader)) as i32, 0x0120);
+    try assert_eq_i32(reader_position(&reader) as i32, 3);
+    try assert_eq_i32((try reader_read_le_u24(&reader)) as i32, 0xaa0302);
+    try assert_eq_i32(reader_position(&reader) as i32, 6);
+
+    const slice: BoundedSlice = try reader_read_slice(&reader, 3);
+    try assert_eq_i32(slice.len as i32, 3);
+    try assert_eq_i32(slice.data[0] as i32, 0xbb);
+    try assert_eq_i32(slice.data[2] as i32, 0xdd);
+    try assert_eq_i32(reader_remaining(&reader) as i32, 1);
+}
+
+test "slice reader short reads do not advance" {
+    var data: [byte: 5] = [ 0x01, 0x02, 0x03, 0x04, 0x05 ];
+    var reader: SliceReader = make_slice_reader(&data[0] as &byte, 5);
+
+    try reader_skip(&reader, 2);
+    const before: usize = reader_position(&reader);
+
+    const u32_fallback: u32 = reader_read_le_u32(&reader) catch { 0xffffffff as u32; };
+    const slice_len: usize = (reader_read_slice(&reader, 4) catch {
+        BoundedSlice{ data: &data[0] as &byte, len: 99 };
+    }).len;
+
+    try assert_eq_i32(u32_fallback as i32, -1);
+    try assert_eq_i32(slice_len as i32, 99);
+    try assert_eq_i32(reader_position(&reader) as i32, before as i32);
+    try assert_eq_i32((try reader_read_le_u24(&reader)) as i32, 0x050403);
+    try assert_eq_i32(reader_remaining(&reader) as i32, 0);
 }
