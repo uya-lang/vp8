@@ -2,6 +2,10 @@ use vp8.bitstream.readers.read_le_u24_at;
 use vp8.bitstream.readers.BoundedSlice;
 use vp8.bitstream.readers.read_le_u16_at;
 use vp8.bitstream.readers.read_slice_at;
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.read_bit_with_probability;
+use vp8.bitstream.bool_reader.read_literal;
+use vp8.bitstream.bool_reader.read_signed_value;
 
 error ErrInvalidKeyFrameStartCode;
 error ErrFirstPartitionOutOfBounds;
@@ -119,6 +123,58 @@ export fn vp8_default_probs() Vp8Probs {
         mv_probs: &VP8_DEFAULT_MV_PROBS[0] as &byte,
         mv_prob_count: VP8_MV_PROB_COUNT
     };
+}
+
+export fn parse_vp8_segmentation(reader: &BoolReader) !Vp8Segmentation {
+    var segmentation: Vp8Segmentation = Vp8Segmentation{
+        enabled: false,
+        update_map: false,
+        update_data: false,
+        absolute_delta: false,
+        quantizer_delta: [ 0, 0, 0, 0 ],
+        loop_filter_delta: [ 0, 0, 0, 0 ],
+        segment_prob: [ 255, 255, 255 ]
+    };
+
+    segmentation.enabled = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+    if !segmentation.enabled {
+        return segmentation;
+    }
+
+    segmentation.update_map = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+    segmentation.update_data = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+
+    if segmentation.update_data {
+        segmentation.absolute_delta = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+
+        var quant_index: usize = 0;
+        while quant_index < 4 {
+            if (try read_bit_with_probability(reader, 128 as byte)) != 0 {
+                segmentation.quantizer_delta[quant_index] = (try read_signed_value(reader, 7 as u8)) as i16;
+            }
+            quant_index = quant_index + 1;
+        }
+
+        var filter_index: usize = 0;
+        while filter_index < 4 {
+            if (try read_bit_with_probability(reader, 128 as byte)) != 0 {
+                segmentation.loop_filter_delta[filter_index] = (try read_signed_value(reader, 6 as u8)) as i8;
+            }
+            filter_index = filter_index + 1;
+        }
+    }
+
+    if segmentation.update_map {
+        var prob_index: usize = 0;
+        while prob_index < 3 {
+            if (try read_bit_with_probability(reader, 128 as byte)) != 0 {
+                segmentation.segment_prob[prob_index] = (try read_literal(reader, 8 as u8)) as byte;
+            }
+            prob_index = prob_index + 1;
+        }
+    }
+
+    return segmentation;
 }
 
 export struct Vp8FrameTag {

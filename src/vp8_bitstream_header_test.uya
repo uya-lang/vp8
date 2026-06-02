@@ -9,9 +9,16 @@ use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
+use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_frame_tag;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
 use vp8.bitstream.header.vp8_default_probs;
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.make_bool_reader;
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_flush;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.bool_writer.make_bool_writer;
 
 fn dummy_tag() Vp8FrameTag {
     return Vp8FrameTag{
@@ -29,6 +36,14 @@ fn dummy_size() Vp8KeyFrameSize {
         horizontal_scale: 0,
         vertical_scale: 0
     };
+}
+
+fn write_literal_for_header(writer: &BoolWriter, value: u32, bit_count: u8) !void {
+    var index: i8 = (bit_count as i8) - 1;
+    while index >= 0 {
+        try bool_writer_write(writer, ((value >> (index as u8)) & (1 as u32)) as u8, 128 as byte);
+        index = index - 1;
+    }
 }
 
 test "define VP8 frame header fields" {
@@ -162,6 +177,39 @@ test "VP8 default probability state matches spec tables" {
     try assert_eq_i32(probs.mv_probs[18] as i32, 254);
     try assert_eq_i32(probs.mv_probs[19] as i32, 164);
     try assert_eq_i32(probs.mv_probs[37] as i32, 254);
+}
+
+test "parse VP8 segmentation enabled update data and map probabilities" {
+    var out: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 32);
+
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 200, 8 as u8);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, 32);
+    const segmentation: Vp8Segmentation = try parse_vp8_segmentation(&reader);
+
+    try assert_eq_i32(segmentation.enabled as i32, true as i32);
+    try assert_eq_i32(segmentation.update_map as i32, true as i32);
+    try assert_eq_i32(segmentation.update_data as i32, false as i32);
+    try assert_eq_i32(segmentation.absolute_delta as i32, false as i32);
+    try assert_eq_i32(segmentation.quantizer_delta[0] as i32, 0);
+    try assert_eq_i32(segmentation.quantizer_delta[1] as i32, 0);
+    try assert_eq_i32(segmentation.quantizer_delta[2] as i32, 0);
+    try assert_eq_i32(segmentation.quantizer_delta[3] as i32, 0);
+    try assert_eq_i32(segmentation.loop_filter_delta[0] as i32, 0);
+    try assert_eq_i32(segmentation.loop_filter_delta[1] as i32, 0);
+    try assert_eq_i32(segmentation.loop_filter_delta[2] as i32, 0);
+    try assert_eq_i32(segmentation.loop_filter_delta[3] as i32, 0);
+    try assert_eq_i32(segmentation.segment_prob[0] as i32, 200);
+    try assert_eq_i32(segmentation.segment_prob[1] as i32, 255);
+    try assert_eq_i32(segmentation.segment_prob[2] as i32, 255);
 }
 
 test "parse VP8 frame tag" {

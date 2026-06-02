@@ -74,7 +74,7 @@
 - [x] 定义 `Vp8QuantHeader`。
 - [x] 定义 `Vp8Probs`。
 - [x] 填入 VP8 默认概率表。
-- [ ] 解析 segmentation enabled/update/map probs。
+- [x] 解析 segmentation enabled/update/map probs。
 - [ ] 解析 loop filter type/level/sharpness/ref deltas/mode deltas。
 - [ ] 解析 base quant 和 y1/y2/uv delta。
 - [ ] 解析 token partition count。
