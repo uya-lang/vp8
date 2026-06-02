@@ -6,7 +6,7 @@ export struct BoolWriter {
     byte_pos: usize,
     range: u32,
     low_value: u32,
-    pending_bits: u8,
+    count: i32,
     bit_count: usize
 }
 
@@ -17,7 +17,7 @@ export fn make_bool_writer(out: &byte, len: usize) BoolWriter {
         byte_pos: 0,
         range: 255,
         low_value: 0,
-        pending_bits: 0,
+        count: -24,
         bit_count: 0
     };
 }
@@ -44,6 +44,37 @@ fn ensure_output_available(writer: &BoolWriter) !void {
     }
 }
 
+fn bool_writer_norm(range: u32) i32 {
+    var normalized: u32 = range;
+    var shift: i32 = 0;
+
+    while normalized < 128 {
+        normalized = normalized << (1 as i32);
+        shift = shift + 1;
+    }
+
+    return shift;
+}
+
+fn bool_writer_put_byte(writer: &BoolWriter, offset: i32) !void {
+    try ensure_output_available(writer);
+
+    if ((writer.low_value << (offset - 1)) & (0x80000000 as u32)) != 0 {
+        var carry_index: i32 = (writer.byte_pos as i32) - 1;
+        while carry_index >= 0 && writer.out[carry_index as usize] == 0xff as byte {
+            writer.out[carry_index as usize] = 0x00 as byte;
+            carry_index = carry_index - 1;
+        }
+
+        if carry_index >= 0 {
+            writer.out[carry_index as usize] = (writer.out[carry_index as usize] + 1) as byte;
+        }
+    }
+
+    writer.out[writer.byte_pos] = ((writer.low_value >> (24 - offset)) & (0xff as u32)) as byte;
+    writer.byte_pos = writer.byte_pos + 1;
+}
+
 export fn bool_writer_write(writer: &BoolWriter, bit: u8, probability: byte) !void {
     try ensure_output_available(writer);
 
@@ -55,11 +86,27 @@ export fn bool_writer_write(writer: &BoolWriter, bit: u8, probability: byte) !vo
         writer.range = split;
     }
 
-    while writer.range < 128 {
-        writer.range = writer.range << 1;
-        writer.low_value = writer.low_value << 1;
-        writer.pending_bits = writer.pending_bits + 1;
+    var shift: i32 = bool_writer_norm(writer.range);
+    writer.range = writer.range << shift;
+    writer.count = writer.count + shift;
+
+    if writer.count >= 0 {
+        const offset: i32 = shift - writer.count;
+        try bool_writer_put_byte(writer, offset);
+        writer.low_value = writer.low_value << offset;
+        shift = writer.count;
+        writer.low_value = writer.low_value & (0x00ffffff as u32);
+        writer.count = writer.count - 8;
     }
 
+    writer.low_value = writer.low_value << shift;
     writer.bit_count = writer.bit_count + 1;
+}
+
+export fn bool_writer_flush(writer: &BoolWriter) !void {
+    var index: i32 = 0;
+    while index < 32 {
+        try bool_writer_write(writer, 0 as u8, 128 as byte);
+        index = index + 1;
+    }
 }
