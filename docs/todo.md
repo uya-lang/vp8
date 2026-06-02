@@ -161,7 +161,7 @@
 
 - [x] 每个 transform 有 deterministic golden。
 - [x] 每个 predictor 有边界 golden。
-- [ ] loop filter 单边测试覆盖 hev、limit、blimit。
+- [x] loop filter 单边测试覆盖 hev、limit、blimit。
 - [ ] scalar kernels 无 heap allocation。
 
 ## Phase 7: Scalar Decoder 完整闭环

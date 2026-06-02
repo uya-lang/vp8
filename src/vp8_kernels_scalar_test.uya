@@ -794,3 +794,32 @@ test "scalar normal macroblock loop filter widens only when edge is not hev" {
         col = col + 1;
     }
 }
+
+test "scalar normal loop filter leaves edge unchanged when blimit rejects" {
+    var pixels: [byte: 64] = [];
+    var row: usize = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        pixels[base + 0] = 100 as byte;
+        pixels[base + 1] = 103 as byte;
+        pixels[base + 2] = 106 as byte;
+        pixels[base + 3] = 110 as byte;
+        pixels[base + 4] = 170 as byte;
+        pixels[base + 5] = 174 as byte;
+        pixels[base + 6] = 177 as byte;
+        pixels[base + 7] = 180 as byte;
+        row = row + 1;
+    }
+
+    loop_filter_normal_vertical_edge(&pixels[0] as &byte, 8, 4, 4, 80 as u8, 40 as u8, 80 as u8);
+
+    row = 0;
+    while row < 4 {
+        const base: usize = row * 8;
+        try assert_eq_i32(pixels[base + 2] as i32, 106);
+        try assert_eq_i32(pixels[base + 3] as i32, 110);
+        try assert_eq_i32(pixels[base + 4] as i32, 170);
+        try assert_eq_i32(pixels[base + 5] as i32, 174);
+        row = row + 1;
+    }
+}
