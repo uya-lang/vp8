@@ -8,6 +8,10 @@ use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
+use vp8.kernels.scalar.predict_y16x16_dc;
+use vp8.kernels.scalar.predict_y16x16_vertical;
+use vp8.kernels.scalar.predict_y16x16_horizontal;
+use vp8.kernels.scalar.predict_y16x16_true_motion;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -165,4 +169,53 @@ test "scalar residual add clamps reconstructed 4x4 pixels across stride" {
         try assert_eq_i32(dst[index] as i32, expected[index] as i32);
         index = index + 1;
     }
+}
+
+fn assert_y16_row(dst: &byte, stride: usize, row: usize, expected: byte) !void {
+    var col: usize = 0;
+    while col < 16 {
+        try assert_eq_i32(dst[(row * stride) + col] as i32, expected as i32);
+        col = col + 1;
+    }
+}
+
+test "scalar Y 16x16 DC predictor handles all boundary availability cases" {
+    var dst: [byte: 288] = [];
+    var above: [byte: 16] = [ 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40 ];
+    var left: [byte: 16] = [ 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80 ];
+
+    predict_y16x16_dc(&dst[0] as &byte, 18, &above[0] as &byte, true, &left[0] as &byte, true);
+    try assert_y16_row(&dst[0] as &byte, 18, 0, 45 as byte);
+    try assert_y16_row(&dst[0] as &byte, 18, 15, 45 as byte);
+
+    predict_y16x16_dc(&dst[0] as &byte, 18, &above[0] as &byte, true, &left[0] as &byte, false);
+    try assert_y16_row(&dst[0] as &byte, 18, 4, 25 as byte);
+
+    predict_y16x16_dc(&dst[0] as &byte, 18, &above[0] as &byte, false, &left[0] as &byte, true);
+    try assert_y16_row(&dst[0] as &byte, 18, 8, 65 as byte);
+
+    predict_y16x16_dc(&dst[0] as &byte, 18, &above[0] as &byte, false, &left[0] as &byte, false);
+    try assert_y16_row(&dst[0] as &byte, 18, 12, 128 as byte);
+}
+
+test "scalar Y 16x16 directional predictors match VP8 edge rules" {
+    var dst: [byte: 288] = [];
+    var above: [byte: 16] = [ 3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63 ];
+    var left: [byte: 16] = [ 200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50 ];
+
+    predict_y16x16_vertical(&dst[0] as &byte, 18, &above[0] as &byte);
+    try assert_eq_i32(dst[0] as i32, 3);
+    try assert_eq_i32(dst[15] as i32, 63);
+    try assert_eq_i32(dst[(15 * 18) + 2] as i32, 11);
+
+    predict_y16x16_horizontal(&dst[0] as &byte, 18, &left[0] as &byte);
+    try assert_eq_i32(dst[0] as i32, 200);
+    try assert_eq_i32(dst[15] as i32, 200);
+    try assert_eq_i32(dst[(15 * 18) + 7] as i32, 50);
+
+    predict_y16x16_true_motion(&dst[0] as &byte, 18, &above[0] as &byte, &left[0] as &byte, 100 as byte);
+    try assert_eq_i32(dst[0] as i32, 103);
+    try assert_eq_i32(dst[15] as i32, 163);
+    try assert_eq_i32(dst[(15 * 18)] as i32, 0);
+    try assert_eq_i32(dst[(15 * 18) + 15] as i32, 13);
 }
