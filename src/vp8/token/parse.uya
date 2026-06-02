@@ -168,3 +168,7 @@ export fn parse_coefficient_block_summary(reader: &BoolReader, probs: &byte, coe
     summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16);
     return summary;
 }
+
+export fn parse_y2_coefficient_block_summary(reader: &BoolReader, probs: &byte, coefficients: &i16) !CoefficientBlockSummary {
+    return try parse_coefficient_block_summary(reader, probs, coefficients);
+}

@@ -12,6 +12,7 @@ use vp8.token.parse.coefficient_eob_context;
 use vp8.token.parse.coefficient_scan_index;
 use vp8.token.parse.parse_coefficient_block_summary;
 use vp8.token.parse.parse_coefficient_token;
+use vp8.token.parse.parse_y2_coefficient_block_summary;
 use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
 use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
 use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
@@ -116,4 +117,25 @@ test "coefficient block summary fast paths eob zero and dc only" {
     try assert_eq_i32(dc_only.coefficient_count as i32, 1);
     try assert_eq_i32(dc_only.eob_position as i32, 1);
     try assert_eq_i32(coeffs[0] as i32, 1);
+}
+
+test "parse y2 coefficient block tokens into scan order" {
+    var coeffs: [i16: 16] = [];
+    var bits: [u8: 8] = [ 1, 0, 1, 1, 0, 0, 0, 0 ];
+    var probs: [byte: 8] = [ 10, 20, 10, 20, 30, 128, 10, 20 ];
+
+    var encoded: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
+    try write_token_path(&writer, &bits[0] as &u8, 8, &probs[0] as &byte);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
+    const summary: CoefficientBlockSummary = try parse_y2_coefficient_block_summary(&reader, &probs[0] as &byte, &coeffs[0] as &i16);
+
+    try assert_eq_i32(summary.has_coeff as i32, 1);
+    try assert_eq_i32(summary.dc_only as i32, 0);
+    try assert_eq_i32(summary.coefficient_count as i32, 1);
+    try assert_eq_i32(summary.eob_position as i32, 2);
+    try assert_eq_i32(coeffs[0] as i32, 0);
+    try assert_eq_i32(coeffs[1] as i32, 1);
 }

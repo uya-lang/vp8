@@ -129,7 +129,7 @@
 - [x] 解析 coefficient tokens。
 - [x] 实现 coefficient bands、scan order、EOB context。
 - [x] 实现 EOB=0、DC-only coefficient summary/fast-path。
-- [ ] 实现 Y2 block token decode。
+- [x] 实现 Y2 block token decode。
 - [ ] 支持 1/2/4/8 token partitions。
 - [ ] 为每个 macroblock 记录 mode/ref/mv/coeff summary。
 
