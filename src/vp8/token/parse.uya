@@ -1,0 +1,94 @@
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.read_bit_with_probability;
+
+export const VP8_COEFF_TOKEN_EOB: byte = 0 as byte;
+export const VP8_COEFF_TOKEN_ZERO: byte = 1 as byte;
+export const VP8_COEFF_TOKEN_ONE: byte = 2 as byte;
+export const VP8_COEFF_TOKEN_TWO: byte = 3 as byte;
+export const VP8_COEFF_TOKEN_THREE: byte = 4 as byte;
+export const VP8_COEFF_TOKEN_FOUR: byte = 5 as byte;
+export const VP8_COEFF_TOKEN_CAT1: byte = 6 as byte;
+export const VP8_COEFF_TOKEN_CAT2: byte = 7 as byte;
+export const VP8_COEFF_TOKEN_CAT3: byte = 8 as byte;
+export const VP8_COEFF_TOKEN_CAT4: byte = 9 as byte;
+export const VP8_COEFF_TOKEN_CAT5: byte = 10 as byte;
+export const VP8_COEFF_TOKEN_CAT6: byte = 11 as byte;
+
+export struct CoefficientToken {
+    token: byte,
+    coefficient: i16
+}
+
+var VP8_CAT1_PROBS: [byte: 1] = [ 159 ];
+var VP8_CAT2_PROBS: [byte: 2] = [ 165, 145 ];
+var VP8_CAT3_PROBS: [byte: 3] = [ 173, 148, 140 ];
+var VP8_CAT4_PROBS: [byte: 4] = [ 176, 155, 140, 135 ];
+var VP8_CAT5_PROBS: [byte: 5] = [ 180, 157, 141, 134, 130 ];
+var VP8_CAT6_PROBS: [byte: 11] = [ 254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129 ];
+
+fn read_extra_bits(reader: &BoolReader, probs: &byte, count: usize) !i16 {
+    var value: i16 = 0;
+    var index: usize = 0;
+    while index < count {
+        value = (value << (1 as i32)) as i16;
+        if (try read_bit_with_probability(reader, probs[index])) != 0 {
+            value = (value + (1 as i16)) as i16;
+        }
+        index = index + 1;
+    }
+    return value;
+}
+
+fn signed_coefficient(reader: &BoolReader, magnitude: i16) !i16 {
+    if magnitude == 0 {
+        return 0 as i16;
+    }
+    if (try read_bit_with_probability(reader, 128 as byte)) != 0 {
+        return (0 - magnitude) as i16;
+    }
+    return magnitude;
+}
+
+fn make_token(reader: &BoolReader, token: byte, magnitude: i16) !CoefficientToken {
+    return CoefficientToken{
+        token: token,
+        coefficient: try signed_coefficient(reader, magnitude)
+    };
+}
+
+export fn parse_coefficient_token(reader: &BoolReader, probs: &byte) !CoefficientToken {
+    if (try read_bit_with_probability(reader, probs[0])) == 0 {
+        return CoefficientToken{ token: VP8_COEFF_TOKEN_EOB, coefficient: 0 as i16 };
+    }
+    if (try read_bit_with_probability(reader, probs[1])) == 0 {
+        return CoefficientToken{ token: VP8_COEFF_TOKEN_ZERO, coefficient: 0 as i16 };
+    }
+    if (try read_bit_with_probability(reader, probs[2])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_ONE, 1 as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[3])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_TWO, 2 as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[4])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_THREE, 3 as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[5])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_FOUR, 4 as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[6])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_CAT1, (5 + (try read_extra_bits(reader, &VP8_CAT1_PROBS[0] as &byte, 1))) as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[7])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_CAT2, (7 + (try read_extra_bits(reader, &VP8_CAT2_PROBS[0] as &byte, 2))) as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[8])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_CAT3, (11 + (try read_extra_bits(reader, &VP8_CAT3_PROBS[0] as &byte, 3))) as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[9])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_CAT4, (19 + (try read_extra_bits(reader, &VP8_CAT4_PROBS[0] as &byte, 4))) as i16);
+    }
+    if (try read_bit_with_probability(reader, probs[10])) == 0 {
+        return try make_token(reader, VP8_COEFF_TOKEN_CAT5, (35 + (try read_extra_bits(reader, &VP8_CAT5_PROBS[0] as &byte, 5))) as i16);
+    }
+    return try make_token(reader, VP8_COEFF_TOKEN_CAT6, (67 + (try read_extra_bits(reader, &VP8_CAT6_PROBS[0] as &byte, 11))) as i16);
+}
