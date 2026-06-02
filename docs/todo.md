@@ -79,7 +79,7 @@
 - [x] 解析 base quant 和 y1/y2/uv delta。
 - [x] 解析 token partition count。
 - [x] 解析 coefficient probability updates。
-- [ ] 解析 MV probability updates。
+- [x] 解析 MV probability updates。
 - [ ] 实现 key frame 重置概率状态。
 
 验收标准：

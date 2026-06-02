@@ -161,6 +161,11 @@ var VP8_COEFF_UPDATE_PROBS: [byte: 1056] = [
     255, 255, 254, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
 ];
 
+var VP8_MV_UPDATE_PROBS: [byte: 38] = [
+    237, 246, 253, 253, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 250, 250, 252, 254, 254,
+    231, 243, 245, 253, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 251, 251, 254, 254, 254
+];
+
 export fn vp8_default_probs() Vp8Probs {
     return Vp8Probs{
         y_mode_probs: [ 112, 86, 140, 37 ],
@@ -185,6 +190,24 @@ export fn parse_vp8_coeff_probability_updates(reader: &BoolReader, probs: &Vp8Pr
     while index < VP8_COEFF_PROB_COUNT {
         if (try read_bit_with_probability(reader, VP8_COEFF_UPDATE_PROBS[index])) != 0 {
             probs.coeff_probs[index] = (try read_literal(reader, 8 as u8)) as byte;
+        }
+        index = index + 1;
+    }
+}
+
+export fn vp8_mv_update_probability(index: usize) byte {
+    if index >= VP8_MV_PROB_COUNT {
+        return 255 as byte;
+    }
+
+    return VP8_MV_UPDATE_PROBS[index];
+}
+
+export fn parse_vp8_mv_probability_updates(reader: &BoolReader, probs: &Vp8Probs) !void {
+    var index: usize = 0;
+    while index < VP8_MV_PROB_COUNT {
+        if (try read_bit_with_probability(reader, VP8_MV_UPDATE_PROBS[index])) != 0 {
+            probs.mv_probs[index] = (try read_literal(reader, 7 as u8)) as byte;
         }
         index = index + 1;
     }
