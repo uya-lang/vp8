@@ -5,6 +5,7 @@ use bitstream.header.Vp8KeyFrameSize;
 use bitstream.header.parse_key_frame_start_code;
 use bitstream.header.parse_key_frame_size;
 use bitstream.header.parse_vp8_frame_tag;
+use bitstream.header.parse_vp8_frame_tag_checked;
 
 fn dummy_tag() Vp8FrameTag {
     return Vp8FrameTag{
@@ -44,6 +45,53 @@ test "reject short VP8 frame tag" {
     };
 
     try assert_eq_i32(failed, 1);
+}
+
+test "validate VP8 first partition size" {
+    var ok_data: [byte: 5] = [ 0x50, 0x00, 0x00, 0xaa, 0xbb ];
+    var short_data: [byte: 4] = [ 0x50, 0x00, 0x00, 0xaa ];
+    var failed: i32 = 0;
+
+    const ok: Vp8FrameTag = try parse_vp8_frame_tag_checked(&ok_data[0] as &byte, 5);
+    _ = parse_vp8_frame_tag_checked(&short_data[0] as &byte, 4) catch {
+        failed = 1;
+        dummy_tag();
+    };
+
+    try assert_eq_i32(ok.first_partition_size as i32, 2);
+    try assert_eq_i32(failed, 1);
+}
+
+test "fuzz smoke frame tag and partition size" {
+    var data: [byte: 12] = [];
+    var i: u32 = 0;
+    var accepted: i32 = 0;
+    var rejected: i32 = 0;
+
+    while i < 512 {
+        data[0] = (i & (0xff as u32)) as byte;
+        data[1] = (((i * 17) >> 1) & (0xff as u32)) as byte;
+        data[2] = (((i * 31) >> 2) & (0xff as u32)) as byte;
+        data[3] = 0x9d;
+        data[4] = 0x01;
+        data[5] = 0x2a;
+
+        const len: usize = ((i % (12 as u32)) + 1) as usize;
+        _ = parse_vp8_frame_tag_checked(&data[0] as &byte, len) catch {
+            rejected = rejected + 1;
+            dummy_tag();
+        };
+        if len >= 3 {
+            _ = parse_vp8_frame_tag(&data[0] as &byte, len) catch {
+                dummy_tag();
+            };
+        }
+        accepted = accepted + 1;
+        i = i + 1;
+    }
+
+    try assert_eq_i32(accepted, 512);
+    try assert_eq_i32(rejected > 0, true as i32);
 }
 
 test "parse key frame start code" {

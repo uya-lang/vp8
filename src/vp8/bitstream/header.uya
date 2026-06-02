@@ -4,6 +4,7 @@ use bitstream.readers.read_le_u16_at;
 use bitstream.readers.read_slice_at;
 
 error ErrInvalidKeyFrameStartCode;
+error ErrFirstPartitionOutOfBounds;
 
 export struct Vp8FrameTag {
     frame_type: u8,
@@ -27,6 +28,16 @@ export fn parse_vp8_frame_tag(data: &byte, len: usize) !Vp8FrameTag {
         show_frame: (((tag >> 4) & (0x01 as u32)) != 0),
         first_partition_size: tag >> 5
     };
+}
+
+export fn parse_vp8_frame_tag_checked(data: &byte, len: usize) !Vp8FrameTag {
+    const tag: Vp8FrameTag = try parse_vp8_frame_tag(data, len);
+    const remaining: usize = len - 3;
+    if (tag.first_partition_size as usize) > remaining {
+        return error.ErrFirstPartitionOutOfBounds;
+    }
+
+    return tag;
 }
 
 export fn parse_key_frame_start_code(data: &byte, len: usize) !void {

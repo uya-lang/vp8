@@ -39,7 +39,7 @@
 - [x] 解析 VP8 frame tag：frame type、version、show frame、first partition size。
 - [x] 解析 key frame start code。
 - [x] 解析 key frame width/height/scale。
-- [ ] 对 frame tag 和 partition size 做 fuzz smoke。
+- [x] 对 frame tag 和 partition size 做 fuzz smoke。
 
 验收标准：
 
