@@ -1,0 +1,72 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mode_context.AboveLeftModeContext;
+use vp8.common.mode_context.ModeContextValue;
+use vp8.common.mode_context.allocate_above_left_mode_context;
+use vp8.common.mode_context.free_above_left_mode_context;
+use vp8.common.mode_context.mode_context_get;
+use vp8.common.mode_context.mode_context_start_row;
+use vp8.common.mode_context.mode_context_store_after_decode;
+
+test "AboveLeftModeContext tracks above arrays and left state" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
+    var ctx: AboveLeftModeContext = try allocate_above_left_mode_context(&grid);
+    defer free_above_left_mode_context(&ctx);
+
+    try assert_eq_i32(ctx.mb_cols as i32, 2);
+    try assert_eq_i32(ctx.mb_rows as i32, 2);
+    try expect(ctx.above_y_mode != null);
+    try expect(ctx.above_uv_mode != null);
+
+    var initial: ModeContextValue = try mode_context_get(&ctx, 0);
+    try assert_eq_i32(initial.above_y_mode as i32, 0);
+    try assert_eq_i32(initial.above_uv_mode as i32, 0);
+    try assert_eq_i32(initial.left_y_mode as i32, 0);
+    try assert_eq_i32(initial.left_uv_mode as i32, 0);
+
+    var first: ModeContextValue = ModeContextValue{
+        above_y_mode: 0 as byte,
+        above_uv_mode: 0 as byte,
+        left_y_mode: 7 as byte,
+        left_uv_mode: 8 as byte
+    };
+    try mode_context_store_after_decode(&ctx, 0, &first);
+
+    var second: ModeContextValue = try mode_context_get(&ctx, 1);
+    try assert_eq_i32(second.above_y_mode as i32, 0);
+    try assert_eq_i32(second.above_uv_mode as i32, 0);
+    try assert_eq_i32(second.left_y_mode as i32, 7);
+    try assert_eq_i32(second.left_uv_mode as i32, 8);
+
+    try mode_context_start_row(&ctx);
+    var row1_col0: ModeContextValue = try mode_context_get(&ctx, 0);
+    try assert_eq_i32(row1_col0.above_y_mode as i32, 7);
+    try assert_eq_i32(row1_col0.above_uv_mode as i32, 8);
+    try assert_eq_i32(row1_col0.left_y_mode as i32, 0);
+    try assert_eq_i32(row1_col0.left_uv_mode as i32, 0);
+}
+
+test "AboveLeftModeContext rejects out of range columns and clears ownership" {
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(16, 16);
+    var ctx: AboveLeftModeContext = try allocate_above_left_mode_context(&grid);
+
+    var failed: i32 = 0;
+    _ = mode_context_get(&ctx, 1) catch {
+        failed = 1;
+        ModeContextValue{
+            above_y_mode: 0 as byte,
+            above_uv_mode: 0 as byte,
+            left_y_mode: 0 as byte,
+            left_uv_mode: 0 as byte
+        };
+    };
+    try assert_eq_i32(failed, 1);
+
+    free_above_left_mode_context(&ctx);
+    try expect(ctx.above_y_mode == null);
+    try expect(ctx.above_uv_mode == null);
+    try assert_eq_i32(ctx.mb_cols as i32, 0);
+}

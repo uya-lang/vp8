@@ -1,0 +1,115 @@
+use libc.free;
+use libc.malloc;
+use libc.memset;
+
+use vp8.common.mb_grid.MacroblockGrid;
+
+error ErrModeContextInvalidGeometry;
+error ErrModeContextOutOfMemory;
+error ErrModeContextOutOfBounds;
+
+export struct AboveLeftModeContext {
+    mb_cols: usize,
+    mb_rows: usize,
+    above_y_mode: &byte,
+    above_uv_mode: &byte,
+    left_y_mode: byte,
+    left_uv_mode: byte
+}
+
+export struct ModeContextValue {
+    above_y_mode: byte,
+    above_uv_mode: byte,
+    left_y_mode: byte,
+    left_uv_mode: byte
+}
+
+export fn empty_above_left_mode_context() AboveLeftModeContext {
+    return AboveLeftModeContext{
+        mb_cols: 0,
+        mb_rows: 0,
+        above_y_mode: null as &byte,
+        above_uv_mode: null as &byte,
+        left_y_mode: 0 as byte,
+        left_uv_mode: 0 as byte
+    };
+}
+
+fn alloc_zeroed_mode_array(count: usize) !&byte {
+    if count == 0 {
+        return error.ErrModeContextInvalidGeometry;
+    }
+    const ptr: &byte = malloc(count) as &byte;
+    if ptr == null {
+        return error.ErrModeContextOutOfMemory;
+    }
+    _ = memset(ptr as *byte, 0, count);
+    return ptr;
+}
+
+export fn free_above_left_mode_context(ctx: &AboveLeftModeContext) void {
+    if ctx.above_uv_mode != null {
+        free(ctx.above_uv_mode as &void);
+    }
+    if ctx.above_y_mode != null {
+        free(ctx.above_y_mode as &void);
+    }
+
+    ctx.mb_cols = 0;
+    ctx.mb_rows = 0;
+    ctx.above_y_mode = null as &byte;
+    ctx.above_uv_mode = null as &byte;
+    ctx.left_y_mode = 0 as byte;
+    ctx.left_uv_mode = 0 as byte;
+}
+
+export fn allocate_above_left_mode_context(grid: &MacroblockGrid) !AboveLeftModeContext {
+    if grid.mb_cols == 0 || grid.mb_rows == 0 {
+        return error.ErrModeContextInvalidGeometry;
+    }
+
+    var ctx: AboveLeftModeContext = empty_above_left_mode_context();
+    ctx.mb_cols = grid.mb_cols;
+    ctx.mb_rows = grid.mb_rows;
+    ctx.above_y_mode = alloc_zeroed_mode_array(grid.mb_cols) catch {
+        free_above_left_mode_context(&ctx);
+        return error.ErrModeContextOutOfMemory;
+    };
+    ctx.above_uv_mode = alloc_zeroed_mode_array(grid.mb_cols) catch {
+        free_above_left_mode_context(&ctx);
+        return error.ErrModeContextOutOfMemory;
+    };
+    return ctx;
+}
+
+fn mode_context_check_col(ctx: &AboveLeftModeContext, mb_x: usize) !void {
+    if mb_x >= ctx.mb_cols {
+        return error.ErrModeContextOutOfBounds;
+    }
+}
+
+export fn mode_context_start_row(ctx: &AboveLeftModeContext) !void {
+    if ctx.mb_cols == 0 || ctx.above_y_mode == null || ctx.above_uv_mode == null {
+        return error.ErrModeContextInvalidGeometry;
+    }
+    ctx.left_y_mode = 0 as byte;
+    ctx.left_uv_mode = 0 as byte;
+}
+
+export fn mode_context_get(ctx: &AboveLeftModeContext, mb_x: usize) !ModeContextValue {
+    try mode_context_check_col(ctx, mb_x);
+    return ModeContextValue{
+        above_y_mode: ctx.above_y_mode[mb_x],
+        above_uv_mode: ctx.above_uv_mode[mb_x],
+        left_y_mode: ctx.left_y_mode,
+        left_uv_mode: ctx.left_uv_mode
+    };
+}
+
+export fn mode_context_store_after_decode(ctx: &AboveLeftModeContext, mb_x: usize, decoded: &ModeContextValue) !void {
+    try mode_context_check_col(ctx, mb_x);
+    ctx.above_y_mode[mb_x] = decoded.left_y_mode;
+    ctx.above_uv_mode[mb_x] = decoded.left_uv_mode;
+    ctx.left_y_mode = decoded.left_y_mode;
+    ctx.left_uv_mode = decoded.left_uv_mode;
+}
