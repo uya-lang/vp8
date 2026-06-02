@@ -27,6 +27,7 @@ use vp8.kernels.scalar.predict_y4x4_vertical_left;
 use vp8.kernels.scalar.predict_y4x4_horizontal_down;
 use vp8.kernels.scalar.predict_y4x4_horizontal_up;
 use vp8.kernels.scalar.predict_inter_copy;
+use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -436,4 +437,79 @@ test "scalar inter copy predictor copies integer reference pixels across strides
         try assert_eq_i32(chroma_dst[(row * 12) + 8] as i32, 17);
         row = row + 1;
     }
+}
+
+test "scalar luma sub-pixel predictor applies VP8 six tap filters" {
+    var src: [byte: 182] = [];
+    var dst: [byte: 96] = [];
+
+    var row: usize = 0;
+    while row < 13 {
+        var col: usize = 0;
+        while col < 14 {
+            src[(row * 14) + col] = (((23 as usize) + (row * 19) + (col * 7) + ((row * col) % (11 as usize))) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var index: usize = 0;
+    while index < 96 {
+        dst[index] = 231 as byte;
+        index = index + 1;
+    }
+
+    var horizontal_expected: [byte: 64] = [
+        84, 92, 103, 105, 107, 118, 126, 137,
+        106, 110, 113, 124, 135, 139, 142, 154,
+        121, 125, 139, 143, 147, 161, 165, 171,
+        142, 149, 156, 162, 169, 175, 182, 188,
+        159, 166, 174, 181, 189, 196, 203, 212,
+        180, 190, 190, 200, 210, 210, 220, 230,
+        195, 206, 216, 219, 222, 233, 243, 240,
+        217, 223, 226, 232, 255, 125, 0, 14
+    ];
+    predict_luma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 14, 8, 8, 4 as u8, 0 as u8);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &horizontal_expected[0] as &byte);
+    try assert_eq_i32(dst[8] as i32, 231);
+
+    index = 0;
+    while index < 96 {
+        dst[index] = 19 as byte;
+        index = index + 1;
+    }
+
+    var vertical_expected: [byte: 64] = [
+        87, 97, 102, 111, 113, 122, 127, 137,
+        108, 114, 117, 128, 134, 145, 148, 154,
+        129, 128, 141, 148, 152, 159, 172, 171,
+        146, 151, 160, 165, 173, 178, 187, 192,
+        159, 174, 175, 185, 191, 201, 202, 217,
+        181, 191, 199, 202, 212, 215, 235, 245,
+        202, 205, 218, 222, 242, 246, 159, 162,
+        223, 229, 245, 251, 164, 169, 0, 0
+    ];
+    predict_luma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 14, 8, 8, 0 as u8, 3 as u8);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &vertical_expected[0] as &byte);
+    try assert_eq_i32(dst[(7 * 12) + 8] as i32, 19);
+
+    index = 0;
+    while index < 96 {
+        dst[index] = 77 as byte;
+        index = index + 1;
+    }
+
+    var both_expected: [byte: 64] = [
+        95, 103, 107, 115, 122, 130, 133, 145,
+        114, 118, 126, 135, 140, 151, 156, 161,
+        135, 137, 148, 153, 160, 166, 175, 178,
+        150, 159, 164, 173, 179, 187, 193, 202,
+        168, 181, 182, 190, 201, 205, 210, 223,
+        187, 197, 207, 210, 216, 225, 251, 255,
+        208, 213, 221, 231, 255, 219, 83, 90,
+        230, 238, 255, 222, 88, 74, 0, 6
+    ];
+    predict_luma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 14, 8, 8, 2 as u8, 5 as u8);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &both_expected[0] as &byte);
+    try assert_eq_i32(dst[(3 * 12) + 9] as i32, 77);
 }

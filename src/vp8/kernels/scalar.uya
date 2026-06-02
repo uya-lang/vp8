@@ -111,6 +111,109 @@ export fn predict_inter_copy(dst: &byte, dst_stride: usize, src: &byte, src_stri
     }
 }
 
+const VP8_SUBPIXEL_FILTERS: [i16: 48] = [
+    0, 0, 128, 0, 0, 0,
+    0, -6, 123, 12, -1, 0,
+    2, -11, 108, 36, -8, 1,
+    0, -9, 93, 50, -6, 0,
+    3, -16, 77, 77, -16, 3,
+    0, -6, 50, 93, -9, 0,
+    1, -8, 36, 108, -11, 2,
+    0, -1, 12, 123, -6, 0
+];
+
+fn subpixel_offset_index(offset: u8) usize {
+    if offset > (7 as u8) {
+        return 7;
+    }
+    return offset as usize;
+}
+
+fn luma_filter_sample(src: &byte, start: usize, stride: usize, is_vertical: bool, offset: u8) byte {
+    const filter_base: usize = subpixel_offset_index(offset) * 6;
+    var sum: i32 = 0;
+    var tap: usize = 0;
+    while tap < 6 {
+        var sample_index: usize = start + tap;
+        if is_vertical {
+            sample_index = start + (tap * stride);
+        }
+        sum = sum + ((src[sample_index] as i32) * (VP8_SUBPIXEL_FILTERS[filter_base + tap] as i32));
+        tap = tap + 1;
+    }
+    return clip_i32_to_u8((sum + 64) >> 7);
+}
+
+export fn predict_luma_subpixel(dst: &byte, dst_stride: usize, src_window: &byte, src_stride: usize, width: usize, height: usize, xoffset: u8, yoffset: u8) void {
+    if xoffset == (0 as u8) && yoffset == (0 as u8) {
+        var copy_row: usize = 0;
+        while copy_row < height {
+            const dst_base: usize = copy_row * dst_stride;
+            const src_base: usize = (copy_row + 2) * src_stride;
+            var copy_col: usize = 0;
+            while copy_col < width {
+                dst[dst_base + copy_col] = src_window[src_base + copy_col + 2];
+                copy_col = copy_col + 1;
+            }
+            copy_row = copy_row + 1;
+        }
+        return;
+    }
+
+    if yoffset == (0 as u8) {
+        var h_row: usize = 0;
+        while h_row < height {
+            const dst_base: usize = h_row * dst_stride;
+            const src_base: usize = (h_row + 2) * src_stride;
+            var h_col: usize = 0;
+            while h_col < width {
+                dst[dst_base + h_col] = luma_filter_sample(src_window, src_base + h_col, src_stride, false, xoffset);
+                h_col = h_col + 1;
+            }
+            h_row = h_row + 1;
+        }
+        return;
+    }
+
+    if xoffset == (0 as u8) {
+        var v_row: usize = 0;
+        while v_row < height {
+            const dst_base: usize = v_row * dst_stride;
+            const src_base: usize = v_row * src_stride;
+            var v_col: usize = 0;
+            while v_col < width {
+                dst[dst_base + v_col] = luma_filter_sample(src_window, src_base + v_col + 2, src_stride, true, yoffset);
+                v_col = v_col + 1;
+            }
+            v_row = v_row + 1;
+        }
+        return;
+    }
+
+    var tmp: [byte: 336] = [];
+    var tmp_row: usize = 0;
+    while tmp_row < height + 5 {
+        const src_base: usize = tmp_row * src_stride;
+        var tmp_col: usize = 0;
+        while tmp_col < width {
+            tmp[(tmp_row * 16) + tmp_col] = luma_filter_sample(src_window, src_base + tmp_col, src_stride, false, xoffset);
+            tmp_col = tmp_col + 1;
+        }
+        tmp_row = tmp_row + 1;
+    }
+
+    var out_row: usize = 0;
+    while out_row < height {
+        const dst_base: usize = out_row * dst_stride;
+        var out_col: usize = 0;
+        while out_col < width {
+            dst[dst_base + out_col] = luma_filter_sample(&tmp[0] as &byte, (out_row * 16) + out_col, 16, true, yoffset);
+            out_col = out_col + 1;
+        }
+        out_row = out_row + 1;
+    }
+}
+
 fn fill_16x16(dst: &byte, dst_stride: usize, value: byte) void {
     var row: usize = 0;
     while row < 16 {
