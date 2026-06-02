@@ -214,6 +214,30 @@ export fn predict_luma_subpixel(dst: &byte, dst_stride: usize, src_window: &byte
     }
 }
 
+export fn predict_chroma_subpixel(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize, width: usize, height: usize, xoffset: u8, yoffset: u8) void {
+    const x: i32 = subpixel_offset_index(xoffset) as i32;
+    const y: i32 = subpixel_offset_index(yoffset) as i32;
+    const inv_x: i32 = 8 - x;
+    const inv_y: i32 = 8 - y;
+
+    var row: usize = 0;
+    while row < height {
+        const dst_base: usize = row * dst_stride;
+        const src_base: usize = row * src_stride;
+        var col: usize = 0;
+        while col < width {
+            const p00: i32 = src[src_base + col] as i32;
+            const p01: i32 = src[src_base + col + 1] as i32;
+            const p10: i32 = src[src_base + src_stride + col] as i32;
+            const p11: i32 = src[src_base + src_stride + col + 1] as i32;
+            const value: i32 = ((inv_x * inv_y * p00) + (x * inv_y * p01) + (inv_x * y * p10) + (x * y * p11) + 32) >> 6;
+            dst[dst_base + col] = value as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
 fn fill_16x16(dst: &byte, dst_stride: usize, value: byte) void {
     var row: usize = 0;
     while row < 16 {

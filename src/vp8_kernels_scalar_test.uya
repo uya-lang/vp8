@@ -28,6 +28,7 @@ use vp8.kernels.scalar.predict_y4x4_horizontal_down;
 use vp8.kernels.scalar.predict_y4x4_horizontal_up;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_luma_subpixel;
+use vp8.kernels.scalar.predict_chroma_subpixel;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -512,4 +513,79 @@ test "scalar luma sub-pixel predictor applies VP8 six tap filters" {
     predict_luma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 14, 8, 8, 2 as u8, 5 as u8);
     try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &both_expected[0] as &byte);
     try assert_eq_i32(dst[(3 * 12) + 9] as i32, 77);
+}
+
+test "scalar chroma sub-pixel predictor applies VP8 bilinear filters" {
+    var src: [byte: 110] = [];
+    var dst: [byte: 96] = [];
+
+    var row: usize = 0;
+    while row < 10 {
+        var col: usize = 0;
+        while col < 11 {
+            src[(row * 11) + col] = (((31 as usize) + (row * 17) + (col * 13) + (((row * 3) + (col * 5)) % (19 as usize))) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var index: usize = 0;
+    while index < 96 {
+        dst[index] = 211 as byte;
+        index = index + 1;
+    }
+
+    var horizontal_expected: [byte: 64] = [
+        38, 56, 74, 85, 91, 109, 127, 138,
+        58, 76, 94, 105, 111, 129, 140, 146,
+        78, 96, 107, 113, 131, 149, 160, 166,
+        98, 109, 115, 133, 151, 162, 168, 186,
+        118, 129, 135, 153, 171, 182, 188, 206,
+        131, 137, 155, 173, 184, 190, 208, 226,
+        151, 157, 175, 186, 192, 210, 228, 239,
+        159, 177, 195, 206, 212, 230, 152, 3
+    ];
+    predict_chroma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 11, 8, 8, 3 as u8, 0 as u8);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &horizontal_expected[0] as &byte);
+    try assert_eq_i32(dst[8] as i32, 211);
+
+    index = 0;
+    while index < 96 {
+        dst[index] = 43 as byte;
+        index = index + 1;
+    }
+
+    var vertical_expected: [byte: 64] = [
+        44, 62, 80, 98, 97, 115, 133, 139,
+        64, 82, 100, 106, 117, 135, 153, 152,
+        84, 102, 108, 119, 137, 155, 161, 172,
+        104, 122, 121, 139, 157, 175, 174, 192,
+        124, 130, 141, 159, 177, 183, 194, 212,
+        144, 143, 161, 179, 185, 196, 214, 232,
+        152, 163, 181, 199, 198, 216, 234, 92,
+        165, 183, 201, 207, 218, 236, 94, 4
+    ];
+    predict_chroma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 11, 8, 8, 0 as u8, 5 as u8);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &vertical_expected[0] as &byte);
+    try assert_eq_i32(dst[(7 * 12) + 8] as i32, 43);
+
+    index = 0;
+    while index < 96 {
+        dst[index] = 89 as byte;
+        index = index + 1;
+    }
+
+    var both_expected: [byte: 64] = [
+        50, 68, 86, 97, 103, 121, 135, 143,
+        70, 88, 102, 110, 123, 141, 152, 158,
+        90, 104, 112, 125, 143, 157, 165, 178,
+        110, 121, 127, 145, 163, 174, 180, 198,
+        126, 134, 147, 165, 179, 187, 200, 218,
+        143, 149, 167, 181, 189, 202, 220, 234,
+        156, 169, 187, 198, 204, 222, 180, 91,
+        171, 189, 203, 211, 224, 182, 60, 8
+    ];
+    predict_chroma_subpixel(&dst[0] as &byte, 12, &src[0] as &byte, 11, 8, 8, 3 as u8, 5 as u8);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 12, &both_expected[0] as &byte);
+    try assert_eq_i32(dst[(4 * 12) + 10] as i32, 89);
 }

@@ -152,7 +152,7 @@
 - [x] 实现 UV 8x8 intra predictors。
 - [x] 实现 inter copy predictor。
 - [x] 实现 luma sub-pixel filter。
-- [ ] 实现 chroma sub-pixel filter。
+- [x] 实现 chroma sub-pixel filter。
 - [ ] 实现 border extension。
 - [ ] 实现 simple loop filter。
 - [ ] 实现 normal loop filter。
