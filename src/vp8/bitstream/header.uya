@@ -236,6 +236,11 @@ export fn parse_vp8_quant(reader: &BoolReader) !Vp8QuantHeader {
     };
 }
 
+export fn parse_vp8_token_partition_count(reader: &BoolReader) !u8 {
+    const code: u32 = try read_literal(reader, 2 as u8);
+    return (1 as u8) << (code as i32);
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,

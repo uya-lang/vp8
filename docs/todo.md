@@ -77,7 +77,7 @@
 - [x] 解析 segmentation enabled/update/map probs。
 - [x] 解析 loop filter type/level/sharpness/ref deltas/mode deltas。
 - [x] 解析 base quant 和 y1/y2/uv delta。
-- [ ] 解析 token partition count。
+- [x] 解析 token partition count。
 - [ ] 解析 coefficient probability updates。
 - [ ] 解析 MV probability updates。
 - [ ] 实现 key frame 重置概率状态。
