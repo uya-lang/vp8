@@ -12,6 +12,16 @@ use vp8.kernels.scalar.predict_y16x16_dc;
 use vp8.kernels.scalar.predict_y16x16_vertical;
 use vp8.kernels.scalar.predict_y16x16_horizontal;
 use vp8.kernels.scalar.predict_y16x16_true_motion;
+use vp8.kernels.scalar.predict_y4x4_dc;
+use vp8.kernels.scalar.predict_y4x4_true_motion;
+use vp8.kernels.scalar.predict_y4x4_vertical_edge;
+use vp8.kernels.scalar.predict_y4x4_horizontal_edge;
+use vp8.kernels.scalar.predict_y4x4_down_left;
+use vp8.kernels.scalar.predict_y4x4_down_right;
+use vp8.kernels.scalar.predict_y4x4_vertical_right;
+use vp8.kernels.scalar.predict_y4x4_vertical_left;
+use vp8.kernels.scalar.predict_y4x4_horizontal_down;
+use vp8.kernels.scalar.predict_y4x4_horizontal_up;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -56,6 +66,18 @@ fn assert_eq_4x4(actual: &i16, expected: &i16) !void {
     while index < 16 {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
+    }
+}
+
+fn assert_eq_u8_4x4_stride(actual: &byte, stride: usize, expected: &byte) !void {
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            try assert_eq_i32(actual[(row * stride) + col] as i32, expected[(row * 4) + col] as i32);
+            col = col + 1;
+        }
+        row = row + 1;
     }
 }
 
@@ -218,4 +240,62 @@ test "scalar Y 16x16 directional predictors match VP8 edge rules" {
     try assert_eq_i32(dst[15] as i32, 163);
     try assert_eq_i32(dst[(15 * 18)] as i32, 0);
     try assert_eq_i32(dst[(15 * 18) + 15] as i32, 13);
+}
+
+test "scalar Y 4x4 intra predictors match VP8 boundary golden blocks" {
+    var dst: [byte: 24] = [];
+    var above: [byte: 8] = [ 100, 110, 120, 130, 140, 150, 160, 170 ];
+    var left: [byte: 4] = [ 20, 40, 60, 80 ];
+
+    var dc_expected: [byte: 16] = [ 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83 ];
+    predict_y4x4_dc(&dst[0] as &byte, 6, &above[0] as &byte, true, &left[0] as &byte, true);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &dc_expected[0] as &byte);
+
+    var dc_above_expected: [byte: 16] = [ 115, 115, 115, 115, 115, 115, 115, 115, 115, 115, 115, 115, 115, 115, 115, 115 ];
+    predict_y4x4_dc(&dst[0] as &byte, 6, &above[0] as &byte, true, &left[0] as &byte, false);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &dc_above_expected[0] as &byte);
+
+    var dc_left_expected: [byte: 16] = [ 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50 ];
+    predict_y4x4_dc(&dst[0] as &byte, 6, &above[0] as &byte, false, &left[0] as &byte, true);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &dc_left_expected[0] as &byte);
+
+    var dc_missing_expected: [byte: 16] = [ 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128 ];
+    predict_y4x4_dc(&dst[0] as &byte, 6, &above[0] as &byte, false, &left[0] as &byte, false);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &dc_missing_expected[0] as &byte);
+
+    var tm_expected: [byte: 16] = [ 30, 40, 50, 60, 50, 60, 70, 80, 70, 80, 90, 100, 90, 100, 110, 120 ];
+    predict_y4x4_true_motion(&dst[0] as &byte, 6, &above[0] as &byte, &left[0] as &byte, 90 as byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &tm_expected[0] as &byte);
+
+    var ve_expected: [byte: 16] = [ 100, 110, 120, 130, 100, 110, 120, 130, 100, 110, 120, 130, 100, 110, 120, 130 ];
+    predict_y4x4_vertical_edge(&dst[0] as &byte, 6, &above[0] as &byte, 90 as byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &ve_expected[0] as &byte);
+
+    var he_expected: [byte: 16] = [ 43, 43, 43, 43, 40, 40, 40, 40, 60, 60, 60, 60, 75, 75, 75, 75 ];
+    predict_y4x4_horizontal_edge(&dst[0] as &byte, 6, &left[0] as &byte, 90 as byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &he_expected[0] as &byte);
+
+    var ld_expected: [byte: 16] = [ 110, 120, 130, 140, 120, 130, 140, 150, 130, 140, 150, 160, 140, 150, 160, 168 ];
+    predict_y4x4_down_left(&dst[0] as &byte, 6, &above[0] as &byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &ld_expected[0] as &byte);
+
+    var rd_expected: [byte: 16] = [ 75, 100, 110, 120, 43, 75, 100, 110, 40, 43, 75, 100, 60, 40, 43, 75 ];
+    predict_y4x4_down_right(&dst[0] as &byte, 6, &above[0] as &byte, &left[0] as &byte, 90 as byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &rd_expected[0] as &byte);
+
+    var vr_expected: [byte: 16] = [ 95, 105, 115, 125, 75, 100, 110, 120, 43, 95, 105, 115, 40, 75, 100, 110 ];
+    predict_y4x4_vertical_right(&dst[0] as &byte, 6, &above[0] as &byte, &left[0] as &byte, 90 as byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &vr_expected[0] as &byte);
+
+    var vl_expected: [byte: 16] = [ 105, 115, 125, 135, 110, 120, 130, 140, 115, 125, 135, 150, 120, 130, 140, 160 ];
+    predict_y4x4_vertical_left(&dst[0] as &byte, 6, &above[0] as &byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &vl_expected[0] as &byte);
+
+    var hd_expected: [byte: 16] = [ 55, 75, 100, 110, 30, 43, 55, 75, 50, 40, 30, 43, 70, 60, 50, 40 ];
+    predict_y4x4_horizontal_down(&dst[0] as &byte, 6, &above[0] as &byte, &left[0] as &byte, 90 as byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &hd_expected[0] as &byte);
+
+    var hu_expected: [byte: 16] = [ 30, 40, 50, 60, 50, 60, 70, 75, 70, 75, 80, 80, 80, 80, 80, 80 ];
+    predict_y4x4_horizontal_up(&dst[0] as &byte, 6, &left[0] as &byte);
+    try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &hu_expected[0] as &byte);
 }
