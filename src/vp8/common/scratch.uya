@@ -14,7 +14,9 @@ export struct RowScratchArena {
     capacity: usize,
     offset: usize,
     high_water: usize,
-    alignment: usize
+    alignment: usize,
+    coeff_bytes_read: usize,
+    coeff_bytes_written: usize
 }
 
 export fn empty_row_scratch_arena() RowScratchArena {
@@ -25,7 +27,9 @@ export fn empty_row_scratch_arena() RowScratchArena {
         capacity: 0,
         offset: 0,
         high_water: 0,
-        alignment: 0
+        alignment: 0,
+        coeff_bytes_read: 0,
+        coeff_bytes_written: 0
     };
 }
 
@@ -76,7 +80,9 @@ export fn allocate_row_scratch_arena(capacity: usize, alignment: usize) !RowScra
         capacity: capacity,
         offset: 0,
         high_water: 0,
-        alignment: alignment
+        alignment: alignment,
+        coeff_bytes_read: 0,
+        coeff_bytes_written: 0
     };
 }
 
@@ -91,6 +97,8 @@ export fn free_row_scratch_arena(arena: &RowScratchArena) void {
     arena.offset = 0;
     arena.high_water = 0;
     arena.alignment = 0;
+    arena.coeff_bytes_read = 0;
+    arena.coeff_bytes_written = 0;
 }
 
 export fn row_scratch_reset(arena: &RowScratchArena) !void {
@@ -126,4 +134,20 @@ export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignmen
         arena.high_water = arena.offset;
     }
     return @ptr_from_usize(aligned_addr) as &byte;
+}
+
+export fn coeff_scratch_note_bytes_read(arena: &RowScratchArena, byte_count: usize) !void {
+    const next: usize = arena.coeff_bytes_read + byte_count;
+    if next < arena.coeff_bytes_read {
+        return error.ErrScratchOverflow;
+    }
+    arena.coeff_bytes_read = next;
+}
+
+export fn coeff_scratch_note_bytes_written(arena: &RowScratchArena, byte_count: usize) !void {
+    const next: usize = arena.coeff_bytes_written + byte_count;
+    if next < arena.coeff_bytes_written {
+        return error.ErrScratchOverflow;
+    }
+    arena.coeff_bytes_written = next;
 }
