@@ -51,7 +51,7 @@
 
 - [x] 实现 VP8 boolean arithmetic reader。
 - [x] 实现 read bit with probability。
-- [ ] 实现 literal read helper。
+- [x] 实现 literal read helper。
 - [ ] 实现 signed value helper。
 - [ ] 实现 partition boundary 检查。
 - [ ] 实现 reader trace 模式，记录 bit/prob/offset。

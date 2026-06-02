@@ -89,3 +89,15 @@ export fn bool_reader_read(reader: &BoolReader, probability: byte) !u8 {
 export fn read_bit_with_probability(reader: &BoolReader, probability: byte) !u8 {
     return try bool_reader_read(reader, probability);
 }
+
+export fn read_literal(reader: &BoolReader, bit_count: u8) !u32 {
+    var value: u32 = 0;
+    var index: u8 = 0;
+
+    while index < bit_count {
+        value = (value << 1) | ((try read_bit_with_probability(reader, 128 as byte)) as u32);
+        index = index + 1;
+    }
+
+    return value;
+}
