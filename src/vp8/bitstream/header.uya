@@ -1,0 +1,18 @@
+use bitstream.readers.read_le_u24_at;
+
+export struct Vp8FrameTag {
+    frame_type: u8,
+    version: u8,
+    show_frame: bool,
+    first_partition_size: u32
+}
+
+export fn parse_vp8_frame_tag(data: &byte, len: usize) !Vp8FrameTag {
+    const tag: u32 = try read_le_u24_at(data, len, 0);
+    return Vp8FrameTag{
+        frame_type: (tag & (0x01 as u32)) as u8,
+        version: ((tag >> 1) & (0x07 as u32)) as u8,
+        show_frame: (((tag >> 4) & (0x01 as u32)) != 0),
+        first_partition_size: tag >> 5
+    };
+}

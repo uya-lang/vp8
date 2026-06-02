@@ -5,7 +5,7 @@ BIN := $(BUILD_DIR)/vp8uya
 TOOLCHAIN_HELLO := $(BUILD_DIR)/toolchain_hello
 SRC := src/main.uya
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
-UYA_TESTS := src/vp8/bitstream_readers_test.uya src/vp8/container_ivf_test.uya src/vp8/container_raw_test.uya
+UYA_TESTS := src/vp8/bitstream_readers_test.uya src/vp8/bitstream_header_test.uya src/vp8/container_ivf_test.uya src/vp8/container_raw_test.uya
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 

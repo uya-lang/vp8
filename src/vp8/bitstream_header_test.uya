@@ -1,0 +1,35 @@
+use std.testing.assert_eq_i32;
+
+use bitstream.header.Vp8FrameTag;
+use bitstream.header.parse_vp8_frame_tag;
+
+fn dummy_tag() Vp8FrameTag {
+    return Vp8FrameTag{
+        frame_type: 0,
+        version: 0,
+        show_frame: false,
+        first_partition_size: 0
+    };
+}
+
+test "parse VP8 frame tag" {
+    var data: [byte: 3] = [ 0x90, 0x24, 0x00 ];
+    const tag: Vp8FrameTag = try parse_vp8_frame_tag(&data[0] as &byte, 3);
+
+    try assert_eq_i32(tag.frame_type as i32, 0);
+    try assert_eq_i32(tag.version as i32, 0);
+    try assert_eq_i32(tag.show_frame as i32, true as i32);
+    try assert_eq_i32(tag.first_partition_size as i32, 292);
+}
+
+test "reject short VP8 frame tag" {
+    var data: [byte: 2] = [ 0x90, 0x24 ];
+    var failed: i32 = 0;
+
+    _ = parse_vp8_frame_tag(&data[0] as &byte, 2) catch {
+        failed = 1;
+        dummy_tag();
+    };
+
+    try assert_eq_i32(failed, 1);
+}
