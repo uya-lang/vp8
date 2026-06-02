@@ -5,6 +5,7 @@ use vp8.kernels.scalar.clamp_i32_to_i32;
 use vp8.kernels.scalar.clip_i32_to_u8;
 use vp8.kernels.scalar.clip_i16_to_u8;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
+use vp8.kernels.scalar.inverse_transform_4x4;
 
 test "scalar clamp helpers keep values inside signed bounds" {
     try assert_eq_i32(clamp_i32_to_i32(-300, -128, 127), -128);
@@ -40,6 +41,14 @@ fn assert_all_4x4(values: &i16, expected: i16) !void {
     }
 }
 
+fn assert_eq_4x4(actual: &i16, expected: &i16) !void {
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
+
 test "scalar DC only inverse transform fills deterministic residual block" {
     var out: [i16: 16] = [];
 
@@ -51,4 +60,25 @@ test "scalar DC only inverse transform fills deterministic residual block" {
 
     inverse_transform_dc_only_4x4(-20 as i16, &out[0] as &i16);
     try assert_all_4x4(&out[0] as &i16, -2 as i16);
+}
+
+test "scalar 4x4 inverse DCT matches deterministic VP8 golden blocks" {
+    var out: [i16: 16] = [];
+    var dc_input: [i16: 16] = [ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    var dc_expected: [i16: 16] = [ 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4 ];
+
+    inverse_transform_4x4(&dc_input[0] as &i16, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &dc_expected[0] as &i16);
+
+    var horizontal_input: [i16: 16] = [ 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    var horizontal_expected: [i16: 16] = [ 3, 1, 0, -3, 3, 1, 0, -3, 3, 1, 0, -3, 3, 1, 0, -3 ];
+
+    inverse_transform_4x4(&horizontal_input[0] as &i16, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &horizontal_expected[0] as &i16);
+
+    var mixed_input: [i16: 16] = [ 16, -8, 4, -2, 3, -6, 9, -12, 5, 7, -10, 11, -13, 14, -15, 6 ];
+    var mixed_expected: [i16: 16] = [ 0, 2, 3, -1, -2, -1, -1, 13, -1, 0, 0, 4, 6, 3, 6, 3 ];
+
+    inverse_transform_4x4(&mixed_input[0] as &i16, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &mixed_expected[0] as &i16);
 }

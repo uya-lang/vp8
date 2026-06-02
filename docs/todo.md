@@ -143,7 +143,7 @@
 
 - [x] 实现 clip/clamp helpers。
 - [x] 实现 DC-only inverse transform。
-- [ ] 实现 4x4 inverse DCT。
+- [x] 实现 4x4 inverse DCT。
 - [ ] 实现 inverse Walsh-Hadamard Y2。
 - [ ] 实现 dequant。
 - [ ] 实现 residual add and clamp。
