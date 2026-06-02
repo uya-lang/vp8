@@ -174,7 +174,7 @@
 - [ ] 实现 row-delayed loop filter。
 - [ ] 实现 reference refresh。
 - [ ] 实现 show_frame output。
-- [ ] 实现 visible crop。
+- [x] 实现 visible crop。
 - [ ] 实现 `decode <input.ivf> --yuv out.yuv`。
 - [x] 实现 `info <input.ivf>`。
 - [ ] 实现 `decode-frame --index N`。
