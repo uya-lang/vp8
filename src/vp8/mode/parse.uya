@@ -181,3 +181,7 @@ export fn parse_key_frame_luma_4x4_modes(reader: &BoolReader, above_modes: &byte
         row = row + 1;
     }
 }
+
+export fn parse_inter_intra_flag(reader: &BoolReader, prob_inter: byte) !bool {
+    return (try read_bit_with_probability(reader, prob_inter)) != 0;
+}

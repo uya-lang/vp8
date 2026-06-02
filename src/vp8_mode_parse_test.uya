@@ -9,6 +9,7 @@ use vp8.mode.parse.parse_key_frame_uv_mode;
 use vp8.mode.parse.parse_key_frame_y_mode;
 use vp8.mode.parse.parse_key_frame_luma_4x4_block_mode;
 use vp8.mode.parse.parse_key_frame_luma_4x4_modes;
+use vp8.mode.parse.parse_inter_intra_flag;
 use vp8.mode.parse.vp8_kf_bmode_prob;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.vp8_default_probs;
@@ -60,6 +61,16 @@ fn parse_b_mode_from_bits(bits: &u8, prob_indices: &u8, count: usize, above: byt
 
     var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 16);
     return try parse_key_frame_luma_4x4_block_mode(&reader, above, left);
+}
+
+fn parse_inter_intra_flag_from_bit(bit: u8, prob_inter: byte) !bool {
+    var encoded: [byte: 8] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 8);
+    try bool_writer_write(&writer, bit, prob_inter);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 8);
+    return try parse_inter_intra_flag(&reader, prob_inter);
 }
 
 test "parse key frame macroblock y mode tree" {
@@ -159,4 +170,10 @@ test "parse key frame 4x4 luma modes updates above and left contexts" {
     try assert_eq_i32(above_modes[3] as i32, 0);
     try assert_eq_i32(left_modes[0] as i32, 0);
     try assert_eq_i32(left_modes[3] as i32, 0);
+}
+
+test "parse inter frame intra inter macroblock flag" {
+    const prob_inter: byte = 145 as byte;
+    try expect(!(try parse_inter_intra_flag_from_bit(0, prob_inter)));
+    try expect(try parse_inter_intra_flag_from_bit(1, prob_inter));
 }

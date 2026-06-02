@@ -121,7 +121,7 @@
 - [x] 解析 key frame macroblock y mode。
 - [x] 解析 key frame UV mode。
 - [x] 解析 4x4 luma block mode。
-- [ ] 解析 inter/intra flag。
+- [x] 解析 inter/intra flag。
 - [ ] 解析 inter reference frame。
 - [ ] 解析 nearest/near/zero/new MV。
 - [ ] 实现 MV clamp 和边界检查。
