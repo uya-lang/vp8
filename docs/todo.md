@@ -110,7 +110,7 @@
 验收标准：
 
 - [x] 17x17、16x16、1x1、1920x1080 尺寸分配正确。
-- [ ] Plane stride 对齐符合设计。
+- [x] Plane stride 对齐符合设计。
 - [ ] Guard bytes 检查无越界写。
 - [ ] context 初始化后 decode hot loop heap allocation count 为 0。
 - [ ] 正常 reference refresh 不发生整帧 copy，`bytes_copied_for_ref_refresh == 0`。

@@ -43,6 +43,18 @@ fn check_frame_buffer_dims(width: usize, height: usize, expected_y_stride: usize
     try assert_eq_i32(frame.v.plane.stride as i32, expected_uv_stride as i32);
 }
 
+fn check_frame_buffer_stride_alignment(width: usize, height: usize, border: usize, alignment: usize) !void {
+    var frame: FrameBuffer = try allocate_frame_buffer(width, height, border, alignment);
+    defer free_frame_buffer(&frame);
+
+    try assert_aligned(frame.y.plane.stride, alignment);
+    try assert_aligned(frame.u.plane.stride, alignment);
+    try assert_aligned(frame.v.plane.stride, alignment);
+    try expect(frame.y.plane.stride >= frame.y.plane.width + (frame.y.plane.border * (2 as usize)));
+    try expect(frame.u.plane.stride >= frame.u.plane.width + (frame.u.plane.border * (2 as usize)));
+    try expect(frame.v.plane.stride >= frame.v.plane.width + (frame.v.plane.border * (2 as usize)));
+}
+
 test "FrameBuffer allocates aligned Y U V 420 planes" {
     try assert_eq_i32(frame_buffer_chroma_dim(1) as i32, 1);
     try assert_eq_i32(frame_buffer_chroma_dim(17) as i32, 9);
@@ -75,6 +87,13 @@ test "FrameBuffer allocates required VP8 edge dimensions correctly" {
     try check_frame_buffer_dims(16, 16, 96, 8, 8, 64);
     try check_frame_buffer_dims(17, 17, 96, 9, 9, 64);
     try check_frame_buffer_dims(1920, 1080, 1984, 960, 540, 992);
+}
+
+test "FrameBuffer aligns all plane strides to requested boundary" {
+    try check_frame_buffer_stride_alignment(1, 1, 32, 32);
+    try check_frame_buffer_stride_alignment(16, 16, 32, 32);
+    try check_frame_buffer_stride_alignment(17, 17, 32, 32);
+    try check_frame_buffer_stride_alignment(1920, 1080, 32, 32);
 }
 
 test "FrameBuffer rejects invalid dimensions and clears ownership on free" {
