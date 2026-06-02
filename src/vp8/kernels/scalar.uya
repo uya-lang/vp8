@@ -27,3 +27,12 @@ export fn clip_i32_to_u8(value: i32) byte {
 export fn clip_i16_to_u8(value: i16) byte {
     return clamp_i16_to_i16(value, 0 as i16, 255 as i16) as byte;
 }
+
+export fn inverse_transform_dc_only_4x4(dc: i16, output: &i16) void {
+    const residual: i16 = (((dc as i32) + 4) >> 3) as i16;
+    var index: usize = 0;
+    while index < 16 {
+        output[index] = residual;
+        index = index + 1;
+    }
+}
