@@ -79,3 +79,60 @@ export fn plane_set(plane: &Plane, x: usize, y: usize, value: byte) !void {
     const index: usize = try plane_pixel_index(plane, x, y);
     plane.origin[index] = value;
 }
+
+export fn extend_plane_border(plane: &Plane) void {
+    const border: usize = plane.border;
+    if border == 0 {
+        return;
+    }
+
+    const padded_width: usize = plane.width + (border * (2 as usize));
+
+    var row: usize = 0;
+    while row < plane.height {
+        const data_row: usize = border + row;
+        const row_base: usize = data_row * plane.stride;
+        const visible_base: usize = row_base + border;
+        const left_value: byte = plane.data[visible_base];
+        const right_value: byte = plane.data[visible_base + plane.width - 1];
+
+        var col: usize = 0;
+        while col < border {
+            plane.data[row_base + col] = left_value;
+            col = col + 1;
+        }
+
+        col = 0;
+        const right_base: usize = border + plane.width;
+        while col < border {
+            plane.data[row_base + right_base + col] = right_value;
+            col = col + 1;
+        }
+
+        row = row + 1;
+    }
+
+    const top_source_base: usize = border * plane.stride;
+    var top_row: usize = 0;
+    while top_row < border {
+        const dst_base: usize = top_row * plane.stride;
+        var col: usize = 0;
+        while col < padded_width {
+            plane.data[dst_base + col] = plane.data[top_source_base + col];
+            col = col + 1;
+        }
+        top_row = top_row + 1;
+    }
+
+    const bottom_source_base: usize = (border + plane.height - 1) * plane.stride;
+    var bottom_row: usize = 0;
+    while bottom_row < border {
+        const dst_base: usize = (border + plane.height + bottom_row) * plane.stride;
+        var col: usize = 0;
+        while col < padded_width {
+            plane.data[dst_base + col] = plane.data[bottom_source_base + col];
+            col = col + 1;
+        }
+        bottom_row = bottom_row + 1;
+    }
+}

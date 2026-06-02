@@ -15,12 +15,14 @@ use vp8.common.frame.frame_buffer_chroma_border;
 use vp8.common.frame.frame_buffer_chroma_dim;
 use vp8.common.frame.frame_buffer_border_dirty;
 use vp8.common.frame.frame_buffer_clear_border_dirty;
+use vp8.common.frame.frame_buffer_extend_border;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
 use vp8.common.frame.frame_buffer_visible_view;
 use vp8.common.frame.frame_pool_begin_frame;
 use vp8.common.frame.frame_pool_borrow_current_decoded_frame;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
+use vp8.common.frame_alloc.frame_aligned_plane_guards_intact;
 use vp8.common.plane.plane_get;
 use vp8.common.plane.plane_set;
 
@@ -215,6 +217,60 @@ test "FramePool refresh marks aliased current border dirty" {
 
     const last: &FrameBuffer = try frame_pool_get_slot(&pool, pool.last_slot);
     try expect(frame_buffer_border_dirty(last));
+}
+
+test "FrameBuffer border extension replicates visible edge pixels" {
+    var frame: FrameBuffer = try allocate_frame_buffer(3, 2, 2, 8);
+    defer free_frame_buffer(&frame);
+
+    try plane_set(&frame.y.plane, 0, 0, 10 as byte);
+    try plane_set(&frame.y.plane, 1, 0, 20 as byte);
+    try plane_set(&frame.y.plane, 2, 0, 30 as byte);
+    try plane_set(&frame.y.plane, 0, 1, 40 as byte);
+    try plane_set(&frame.y.plane, 1, 1, 50 as byte);
+    try plane_set(&frame.y.plane, 2, 1, 60 as byte);
+
+    try plane_set(&frame.u.plane, 0, 0, 70 as byte);
+    try plane_set(&frame.u.plane, 1, 0, 90 as byte);
+    try plane_set(&frame.v.plane, 0, 0, 110 as byte);
+    try plane_set(&frame.v.plane, 1, 0, 130 as byte);
+
+    frame_buffer_mark_border_dirty(&frame);
+    frame_buffer_extend_border(&frame);
+
+    const y_stride: usize = frame.y.plane.stride;
+    const y_border: usize = frame.y.plane.border;
+    try assert_eq_i32(frame.y.plane.data[(y_border * y_stride) + 0] as i32, 10);
+    try assert_eq_i32(frame.y.plane.data[(y_border * y_stride) + 1] as i32, 10);
+    try assert_eq_i32(frame.y.plane.data[(y_border * y_stride) + 2] as i32, 10);
+    try assert_eq_i32(frame.y.plane.data[(y_border * y_stride) + 4] as i32, 30);
+    try assert_eq_i32(frame.y.plane.data[(y_border * y_stride) + 5] as i32, 30);
+    try assert_eq_i32(frame.y.plane.data[(y_border * y_stride) + 6] as i32, 30);
+
+    try assert_eq_i32(frame.y.plane.data[0] as i32, 10);
+    try assert_eq_i32(frame.y.plane.data[1] as i32, 10);
+    try assert_eq_i32(frame.y.plane.data[2] as i32, 10);
+    try assert_eq_i32(frame.y.plane.data[3] as i32, 20);
+    try assert_eq_i32(frame.y.plane.data[4] as i32, 30);
+    try assert_eq_i32(frame.y.plane.data[5] as i32, 30);
+    try assert_eq_i32(frame.y.plane.data[6] as i32, 30);
+
+    const y_bottom_row: usize = y_border + frame.y.plane.height + 1;
+    try assert_eq_i32(frame.y.plane.data[(y_bottom_row * y_stride) + 0] as i32, 40);
+    try assert_eq_i32(frame.y.plane.data[(y_bottom_row * y_stride) + 3] as i32, 50);
+    try assert_eq_i32(frame.y.plane.data[(y_bottom_row * y_stride) + 6] as i32, 60);
+
+    const uv_stride: usize = frame.u.plane.stride;
+    const uv_border: usize = frame.u.plane.border;
+    try assert_eq_i32(frame.u.plane.data[(uv_border * uv_stride) + 0] as i32, 70);
+    try assert_eq_i32(frame.u.plane.data[(uv_border * uv_stride) + 3] as i32, 90);
+    try assert_eq_i32(frame.v.plane.data[0] as i32, 110);
+    try assert_eq_i32(frame.v.plane.data[3] as i32, 130);
+
+    try expect(!frame_buffer_border_dirty(&frame));
+    try expect(frame_aligned_plane_guards_intact(&frame.y));
+    try expect(frame_aligned_plane_guards_intact(&frame.u));
+    try expect(frame_aligned_plane_guards_intact(&frame.v));
 }
 
 test "FrameBuffer visible view exposes Y U V origins without border" {

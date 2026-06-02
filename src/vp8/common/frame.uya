@@ -2,6 +2,7 @@ use vp8.common.frame_alloc.AlignedFramePlane;
 use vp8.common.frame_alloc.allocate_aligned_frame_plane_with_border;
 use vp8.common.frame_alloc.free_aligned_frame_plane;
 use vp8.common.plane.Plane;
+use vp8.common.plane.extend_plane_border;
 
 error ErrFrameBufferInvalidGeometry;
 error ErrFramePoolInvalidSlot;
@@ -254,6 +255,21 @@ export fn frame_buffer_clear_border_dirty(frame: &FrameBuffer) void {
 
 export fn frame_buffer_border_dirty(frame: &FrameBuffer) bool {
     return frame.y_border_dirty || frame.u_border_dirty || frame.v_border_dirty;
+}
+
+export fn frame_buffer_extend_border(frame: &FrameBuffer) void {
+    if frame.y_border_dirty {
+        extend_plane_border(&frame.y.plane);
+        frame.y_border_dirty = false;
+    }
+    if frame.u_border_dirty {
+        extend_plane_border(&frame.u.plane);
+        frame.u_border_dirty = false;
+    }
+    if frame.v_border_dirty {
+        extend_plane_border(&frame.v.plane);
+        frame.v_border_dirty = false;
+    }
 }
 
 fn frame_pool_get_ref_count(pool: &FramePool, slot: usize) !usize {
