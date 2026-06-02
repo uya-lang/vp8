@@ -22,7 +22,9 @@ export struct BoolReader {
     range: u32,
     value: u32,
     bits_left: u8,
-    bit_offset: usize
+    bit_offset: usize,
+    error_partition_id: i32,
+    error_byte_offset: usize
 }
 
 export fn make_bool_reader(data: &byte, len: usize) !BoolReader {
@@ -42,7 +44,9 @@ export fn make_bool_reader_for_partition(data: &byte, len: usize, partition_id: 
         range: 255,
         value: ((data[0] as u32) << 8) | (data[1] as u32),
         bits_left: 8,
-        bit_offset: 0
+        bit_offset: 0,
+        error_partition_id: -1,
+        error_byte_offset: 0
     };
 }
 
@@ -68,6 +72,14 @@ export fn bool_reader_bit_offset(reader: &BoolReader) usize {
 
 export fn bool_reader_byte_offset(reader: &BoolReader) usize {
     return reader.byte_pos;
+}
+
+export fn bool_reader_error_partition_id(reader: &BoolReader) i32 {
+    return reader.error_partition_id;
+}
+
+export fn bool_reader_error_byte_offset(reader: &BoolReader) usize {
+    return reader.error_byte_offset;
 }
 
 export fn bool_reader_range(reader: &BoolReader) u32 {
@@ -102,6 +114,8 @@ export fn bool_reader_read(reader: &BoolReader, probability: byte) !u8 {
 
         if next_bits_left == 0 {
             if next_byte_pos >= reader.len {
+                reader.error_partition_id = reader.partition_id;
+                reader.error_byte_offset = next_byte_pos;
                 return error.ErrBoolReaderOverread;
             }
 
