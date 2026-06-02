@@ -9,8 +9,10 @@ use vp8.common.decode_context.allocate_decoder_context;
 use vp8.common.decode_context.free_decoder_context;
 use vp8.decoder.scalar.Decoder;
 use vp8.decoder.scalar.DecoderFrameResult;
+use vp8.decoder.scalar.decoder_decode_dequant_reconstruct_4x4;
 use vp8.decoder.scalar.make_decoder;
 use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.token.parse.CoefficientBlockSummary;
 
 fn write_literal(writer: &BoolWriter, value: u32, bit_count: u8) !void {
     var index: i8 = (bit_count as i8) - 1;
@@ -92,4 +94,42 @@ test "Decoder.decode_frame wires header mode token readers and scalar kernel sta
     try assert_eq_i32(result.scalar_kernel_border_extended as i32, 1);
     try assert_eq_i32(context.mb_info.y_mode[0] as i32, 0);
     try assert_eq_i32(context.mb_info.uv_mode[0] as i32, 0);
+}
+
+test "single-thread token dequant transform reconstruct path updates one 4x4 block" {
+    var encoded: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
+    var probs: [byte: 11] = [ 10, 20, 30, 128, 10, 10, 10, 10, 10, 10, 10 ];
+
+    try bool_writer_write(&writer, 1 as u8, probs[0]);
+    try bool_writer_write(&writer, 1 as u8, probs[1]);
+    try bool_writer_write(&writer, 0 as u8, probs[2]);
+    try bool_writer_write(&writer, 0 as u8, probs[3]);
+    try bool_writer_write(&writer, 0 as u8, probs[0]);
+    try bool_writer_flush(&writer);
+
+    var dst: [byte: 24] = [
+        100, 100, 100, 100, 77, 77,
+        100, 100, 100, 100, 77, 77,
+        100, 100, 100, 100, 77, 77,
+        100, 100, 100, 100, 77, 77
+    ];
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
+
+    const summary: CoefficientBlockSummary = try decoder_decode_dequant_reconstruct_4x4(
+        &reader,
+        &probs[0] as &byte,
+        32 as i16,
+        7 as i16,
+        &dst[0] as &byte,
+        6
+    );
+
+    try assert_eq_i32(summary.has_coeff as i32, 1);
+    try assert_eq_i32(summary.dc_only as i32, 1);
+    try assert_eq_i32(summary.coefficient_count as i32, 1);
+    try assert_eq_i32(dst[0] as i32, 104);
+    try assert_eq_i32(dst[3] as i32, 104);
+    try assert_eq_i32(dst[18] as i32, 104);
+    try assert_eq_i32(dst[4] as i32, 77);
 }

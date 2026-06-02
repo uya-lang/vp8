@@ -167,7 +167,7 @@
 ## Phase 7: Scalar Decoder 完整闭环
 
 - [x] 将 header/mode/token/kernel 串成 `Decoder.decode_frame`。
-- [ ] 实现单线程 token decode -> dequant/transform -> reconstruct 融合路径。
+- [x] 实现单线程 token decode -> dequant/transform -> reconstruct 融合路径。
 - [ ] 实现 key frame decode。
 - [ ] 实现 inter frame decode。
 - [ ] 实现 current frame reconstruction。
