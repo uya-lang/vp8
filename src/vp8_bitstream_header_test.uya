@@ -11,6 +11,7 @@ use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
 use vp8.bitstream.header.parse_vp8_frame_tag;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
+use vp8.bitstream.header.vp8_default_probs;
 
 fn dummy_tag() Vp8FrameTag {
     return Vp8FrameTag{
@@ -138,6 +139,29 @@ test "define VP8 probability state fields" {
     try assert_eq_i32(probs.coeff_probs[2] as i32, 3);
     try assert_eq_i32(probs.mv_prob_count as i32, 3);
     try assert_eq_i32(probs.mv_probs[1] as i32, 6);
+}
+
+test "VP8 default probability state matches spec tables" {
+    const probs: Vp8Probs = vp8_default_probs();
+
+    try assert_eq_i32(probs.y_mode_probs[0] as i32, 112);
+    try assert_eq_i32(probs.y_mode_probs[1] as i32, 86);
+    try assert_eq_i32(probs.y_mode_probs[2] as i32, 140);
+    try assert_eq_i32(probs.y_mode_probs[3] as i32, 37);
+    try assert_eq_i32(probs.uv_mode_probs[0] as i32, 162);
+    try assert_eq_i32(probs.uv_mode_probs[1] as i32, 101);
+    try assert_eq_i32(probs.uv_mode_probs[2] as i32, 204);
+    try assert_eq_i32(probs.coeff_prob_count as i32, 1056);
+    try assert_eq_i32(probs.coeff_probs[0] as i32, 128);
+    try assert_eq_i32(probs.coeff_probs[33] as i32, 253);
+    try assert_eq_i32(probs.coeff_probs[264] as i32, 198);
+    try assert_eq_i32(probs.coeff_probs[527] as i32, 128);
+    try assert_eq_i32(probs.coeff_probs[1055] as i32, 128);
+    try assert_eq_i32(probs.mv_prob_count as i32, 38);
+    try assert_eq_i32(probs.mv_probs[0] as i32, 162);
+    try assert_eq_i32(probs.mv_probs[18] as i32, 254);
+    try assert_eq_i32(probs.mv_probs[19] as i32, 164);
+    try assert_eq_i32(probs.mv_probs[37] as i32, 254);
 }
 
 test "parse VP8 frame tag" {
