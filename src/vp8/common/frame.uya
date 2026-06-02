@@ -4,6 +4,7 @@ use vp8.common.frame_alloc.free_aligned_frame_plane;
 use vp8.common.plane.Plane;
 
 error ErrFrameBufferInvalidGeometry;
+error ErrFramePoolInvalidSlot;
 
 export struct FrameBuffer {
     width: usize,
@@ -11,6 +12,19 @@ export struct FrameBuffer {
     y: AlignedFramePlane,
     u: AlignedFramePlane,
     v: AlignedFramePlane
+}
+
+export struct FramePool {
+    width: usize,
+    height: usize,
+    current_slot: usize,
+    last_slot: usize,
+    golden_slot: usize,
+    altref_slot: usize,
+    slot0: FrameBuffer,
+    slot1: FrameBuffer,
+    slot2: FrameBuffer,
+    slot3: FrameBuffer
 }
 
 fn empty_aligned_frame_plane() AlignedFramePlane {
@@ -37,6 +51,21 @@ export fn empty_frame_buffer() FrameBuffer {
         y: empty_aligned_frame_plane(),
         u: empty_aligned_frame_plane(),
         v: empty_aligned_frame_plane()
+    };
+}
+
+export fn empty_frame_pool() FramePool {
+    return FramePool{
+        width: 0,
+        height: 0,
+        current_slot: 0,
+        last_slot: 1,
+        golden_slot: 2,
+        altref_slot: 3,
+        slot0: empty_frame_buffer(),
+        slot1: empty_frame_buffer(),
+        slot2: empty_frame_buffer(),
+        slot3: empty_frame_buffer()
     };
 }
 
@@ -85,4 +114,60 @@ export fn free_frame_buffer(frame: &FrameBuffer) void {
     free_aligned_frame_plane(&frame.y);
     frame.width = 0;
     frame.height = 0;
+}
+
+export fn allocate_frame_pool(width: usize, height: usize, border: usize, alignment: usize) !FramePool {
+    if width == 0 || height == 0 {
+        return error.ErrFrameBufferInvalidGeometry;
+    }
+
+    var pool: FramePool = empty_frame_pool();
+    pool.width = width;
+    pool.height = height;
+
+    pool.slot0 = allocate_frame_buffer(width, height, border, alignment) catch {
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+    pool.slot1 = allocate_frame_buffer(width, height, border, alignment) catch {
+        free_frame_buffer(&pool.slot0);
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+    pool.slot2 = allocate_frame_buffer(width, height, border, alignment) catch {
+        free_frame_buffer(&pool.slot1);
+        free_frame_buffer(&pool.slot0);
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+    pool.slot3 = allocate_frame_buffer(width, height, border, alignment) catch {
+        free_frame_buffer(&pool.slot2);
+        free_frame_buffer(&pool.slot1);
+        free_frame_buffer(&pool.slot0);
+        return error.ErrFrameBufferInvalidGeometry;
+    };
+
+    return pool;
+}
+
+export fn free_frame_pool(pool: &FramePool) void {
+    free_frame_buffer(&pool.slot3);
+    free_frame_buffer(&pool.slot2);
+    free_frame_buffer(&pool.slot1);
+    free_frame_buffer(&pool.slot0);
+    pool.width = 0;
+    pool.height = 0;
+}
+
+export fn frame_pool_get_slot(pool: &FramePool, slot: usize) !&FrameBuffer {
+    if slot == 0 {
+        return &pool.slot0;
+    }
+    if slot == 1 {
+        return &pool.slot1;
+    }
+    if slot == 2 {
+        return &pool.slot2;
+    }
+    if slot == 3 {
+        return &pool.slot3;
+    }
+    return error.ErrFramePoolInvalidSlot;
 }

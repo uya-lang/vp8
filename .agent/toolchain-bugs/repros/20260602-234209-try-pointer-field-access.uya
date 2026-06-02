@@ -1,0 +1,16 @@
+use std.testing.assert_eq_i32;
+
+struct Holder {
+    value: i32
+}
+
+error ErrBadSlot;
+
+fn get_holder(holder: &Holder) !&Holder {
+    return holder;
+}
+
+test "try pointer field access codegen" {
+    var holder: Holder = Holder{ value: 7 };
+    try assert_eq_i32((try get_holder(&holder)).value, 7);
+}
