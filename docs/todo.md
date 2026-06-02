@@ -92,7 +92,7 @@
 
 - [x] 实现 `Plane`。
 - [x] 实现 aligned frame allocation。
-- [ ] 实现 border allocation 和 origin offset。
+- [x] 实现 border allocation 和 origin offset。
 - [ ] 实现 `FrameBuffer`。
 - [ ] 实现 `FramePool`：current/last/golden/altref。
 - [ ] 实现 logical reference 到 physical frame slot 的 alias/ref-count 映射。

@@ -48,14 +48,41 @@ export fn frame_aligned_stride(width: usize, alignment: usize) !usize {
     return try align_up(width, alignment);
 }
 
-export fn allocate_aligned_frame_plane(width: usize, height: usize, alignment: usize) !AlignedFramePlane {
+export fn frame_aligned_stride_with_border(width: usize, border: usize, alignment: usize) !usize {
+    if width == 0 {
+        return error.ErrFrameAllocationInvalidGeometry;
+    }
+
+    const border_twice: usize = border * (2 as usize);
+    if border != 0 && (border_twice / border) != (2 as usize) {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const padded_width: usize = width + border_twice;
+    if padded_width < width {
+        return error.ErrFrameAllocationOverflow;
+    }
+    return try align_up(padded_width, alignment);
+}
+
+export fn allocate_aligned_frame_plane_with_border(width: usize, height: usize, border: usize, alignment: usize) !AlignedFramePlane {
     if width == 0 || height == 0 || !is_power_of_two(alignment) {
         return error.ErrFrameAllocationInvalidGeometry;
     }
 
-    const stride: usize = try frame_aligned_stride(width, alignment);
-    const storage_len: usize = stride * height;
-    if (storage_len / height) != stride {
+    const border_twice: usize = border * (2 as usize);
+    if border != 0 && (border_twice / border) != (2 as usize) {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const stride: usize = try frame_aligned_stride_with_border(width, border, alignment);
+    const padded_height: usize = height + border_twice;
+    if padded_height < height {
+        return error.ErrFrameAllocationOverflow;
+    }
+
+    const storage_len: usize = stride * padded_height;
+    if (storage_len / padded_height) != stride {
         return error.ErrFrameAllocationOverflow;
     }
 
@@ -74,7 +101,7 @@ export fn allocate_aligned_frame_plane(width: usize, height: usize, alignment: u
     const aligned_addr: usize = try align_up(raw_addr, alignment);
     const aligned_data: &byte = @ptr_from_usize(aligned_addr) as &byte;
 
-    const plane: Plane = make_plane_view(aligned_data, storage_len, width, height, stride, 0) catch {
+    const plane: Plane = make_plane_view(aligned_data, storage_len, width, height, stride, border) catch {
         free(raw as &void);
         return error.ErrFrameAllocationInvalidGeometry;
     };
@@ -85,6 +112,10 @@ export fn allocate_aligned_frame_plane(width: usize, height: usize, alignment: u
         alignment: alignment,
         plane: plane
     };
+}
+
+export fn allocate_aligned_frame_plane(width: usize, height: usize, alignment: usize) !AlignedFramePlane {
+    return try allocate_aligned_frame_plane_with_border(width, height, 0, alignment);
 }
 
 export fn free_aligned_frame_plane(frame: &AlignedFramePlane) void {
