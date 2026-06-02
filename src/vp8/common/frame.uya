@@ -37,11 +37,22 @@ export struct FramePool {
     slot_ref_count1: usize,
     slot_ref_count2: usize,
     slot_ref_count3: usize,
+    slot_lease_count0: usize,
+    slot_lease_count1: usize,
+    slot_lease_count2: usize,
+    slot_lease_count3: usize,
     bytes_copied_for_ref_refresh: usize,
     slot0: FrameBuffer,
     slot1: FrameBuffer,
     slot2: FrameBuffer,
     slot3: FrameBuffer
+}
+
+export struct DecodedFrame {
+    pool: &FramePool,
+    slot: usize,
+    view: FrameVisibleView,
+    released: bool
 }
 
 fn empty_aligned_frame_plane() AlignedFramePlane {
@@ -86,6 +97,10 @@ export fn empty_frame_pool() FramePool {
         slot_ref_count1: 1,
         slot_ref_count2: 1,
         slot_ref_count3: 1,
+        slot_lease_count0: 0,
+        slot_lease_count1: 0,
+        slot_lease_count2: 0,
+        slot_lease_count3: 0,
         bytes_copied_for_ref_refresh: 0,
         slot0: empty_frame_buffer(),
         slot1: empty_frame_buffer(),
@@ -254,6 +269,22 @@ fn frame_pool_get_ref_count(pool: &FramePool, slot: usize) !usize {
     return error.ErrFramePoolInvalidSlot;
 }
 
+fn frame_pool_get_lease_count(pool: &FramePool, slot: usize) !usize {
+    if slot == 0 {
+        return pool.slot_lease_count0;
+    }
+    if slot == 1 {
+        return pool.slot_lease_count1;
+    }
+    if slot == 2 {
+        return pool.slot_lease_count2;
+    }
+    if slot == 3 {
+        return pool.slot_lease_count3;
+    }
+    return error.ErrFramePoolInvalidSlot;
+}
+
 fn frame_pool_set_ref_count(pool: &FramePool, slot: usize, value: usize) !void {
     if slot == 0 {
         pool.slot_ref_count0 = value;
@@ -274,9 +305,34 @@ fn frame_pool_set_ref_count(pool: &FramePool, slot: usize, value: usize) !void {
     return error.ErrFramePoolInvalidSlot;
 }
 
+fn frame_pool_set_lease_count(pool: &FramePool, slot: usize, value: usize) !void {
+    if slot == 0 {
+        pool.slot_lease_count0 = value;
+        return;
+    }
+    if slot == 1 {
+        pool.slot_lease_count1 = value;
+        return;
+    }
+    if slot == 2 {
+        pool.slot_lease_count2 = value;
+        return;
+    }
+    if slot == 3 {
+        pool.slot_lease_count3 = value;
+        return;
+    }
+    return error.ErrFramePoolInvalidSlot;
+}
+
 fn frame_pool_inc_ref_count(pool: &FramePool, slot: usize) !void {
     const count: usize = try frame_pool_get_ref_count(pool, slot);
     try frame_pool_set_ref_count(pool, slot, count + 1);
+}
+
+fn frame_pool_inc_lease_count(pool: &FramePool, slot: usize) !void {
+    const count: usize = try frame_pool_get_lease_count(pool, slot);
+    try frame_pool_set_lease_count(pool, slot, count + 1);
 }
 
 fn frame_pool_dec_ref_count(pool: &FramePool, slot: usize) !void {
@@ -287,11 +343,22 @@ fn frame_pool_dec_ref_count(pool: &FramePool, slot: usize) !void {
     try frame_pool_set_ref_count(pool, slot, count - 1);
 }
 
+fn frame_pool_dec_lease_count(pool: &FramePool, slot: usize) !void {
+    const count: usize = try frame_pool_get_lease_count(pool, slot);
+    if count == 0 {
+        return;
+    }
+    try frame_pool_set_lease_count(pool, slot, count - 1);
+}
+
 fn frame_pool_slot_is_free_for_current(pool: &FramePool, slot: usize) !bool {
     if slot == pool.last_slot || slot == pool.golden_slot || slot == pool.altref_slot {
         return false;
     }
-    return (try frame_pool_get_ref_count(pool, slot)) == 0;
+    if (try frame_pool_get_ref_count(pool, slot)) != 0 {
+        return false;
+    }
+    return (try frame_pool_get_lease_count(pool, slot)) == 0;
 }
 
 export fn frame_pool_begin_frame(pool: &FramePool) !void {
@@ -341,4 +408,24 @@ export fn frame_pool_refresh_references(pool: &FramePool, refresh_last: bool, re
         pool.altref_slot = current;
         try frame_pool_inc_ref_count(pool, current);
     }
+}
+
+export fn frame_pool_borrow_current_decoded_frame(pool: &FramePool) !DecodedFrame {
+    const slot: usize = pool.current_slot;
+    try frame_pool_inc_lease_count(pool, slot);
+    const frame: &FrameBuffer = try frame_pool_get_slot(pool, slot);
+    return DecodedFrame{
+        pool: pool,
+        slot: slot,
+        view: frame_buffer_visible_view(frame),
+        released: false
+    };
+}
+
+export fn decoded_frame_release(frame: &DecodedFrame) !void {
+    if frame.released {
+        return;
+    }
+    try frame_pool_dec_lease_count(frame.pool, frame.slot);
+    frame.released = true;
 }

@@ -4,8 +4,10 @@ use std.testing.expect;
 use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.FramePool;
 use vp8.common.frame.FrameVisibleView;
+use vp8.common.frame.DecodedFrame;
 use vp8.common.frame.allocate_frame_buffer;
 use vp8.common.frame.allocate_frame_pool;
+use vp8.common.frame.decoded_frame_release;
 use vp8.common.frame.empty_frame_buffer;
 use vp8.common.frame.free_frame_pool;
 use vp8.common.frame.free_frame_buffer;
@@ -16,6 +18,7 @@ use vp8.common.frame.frame_buffer_clear_border_dirty;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
 use vp8.common.frame.frame_buffer_visible_view;
 use vp8.common.frame.frame_pool_begin_frame;
+use vp8.common.frame.frame_pool_borrow_current_decoded_frame;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
 
@@ -172,4 +175,27 @@ test "FrameBuffer visible view exposes Y U V origins without border" {
     try expect(view.y.origin == frame.y.plane.origin);
     try expect(view.u.origin == frame.u.plane.origin);
     try expect(view.v.origin == frame.v.plane.origin);
+}
+
+test "DecodedFrame borrows current visible view and releases slot lease" {
+    var pool: FramePool = try allocate_frame_pool(16, 16, 32, 32);
+    defer free_frame_pool(&pool);
+
+    try frame_pool_refresh_references(&pool, true, false, false);
+    var decoded: DecodedFrame = try frame_pool_borrow_current_decoded_frame(&pool);
+
+    try assert_eq_i32(decoded.slot as i32, 0);
+    try expect(!decoded.released);
+    try assert_eq_i32(pool.slot_lease_count0 as i32, 1);
+    try expect(decoded.view.y.origin == pool.slot0.y.plane.origin);
+
+    try frame_pool_begin_frame(&pool);
+    try assert_eq_i32(pool.current_slot as i32, 1);
+
+    try decoded_frame_release(&decoded);
+    try expect(decoded.released);
+    try assert_eq_i32(pool.slot_lease_count0 as i32, 0);
+
+    try decoded_frame_release(&decoded);
+    try assert_eq_i32(pool.slot_lease_count0 as i32, 0);
 }

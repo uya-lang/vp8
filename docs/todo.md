@@ -98,7 +98,7 @@
 - [x] 实现 logical reference 到 physical frame slot 的 alias/ref-count 映射。
 - [x] 实现 reference border dirty flag。
 - [x] 实现 Y/U/V visible view。
-- [ ] 定义 `DecodedFrame` borrowed view 生命周期和 release/lease 语义。
+- [x] 定义 `DecodedFrame` borrowed view 生命周期和 release/lease 语义。
 - [ ] 实现 macroblock grid helper。
 - [ ] 实现 SoA macroblock info arrays。
 - [ ] 实现 above/left mode context。
