@@ -149,7 +149,7 @@
 - [x] 实现 residual add and clamp。
 - [x] 实现 Y 16x16 intra predictors。
 - [x] 实现 Y 4x4 intra predictors。
-- [ ] 实现 UV 8x8 intra predictors。
+- [x] 实现 UV 8x8 intra predictors。
 - [ ] 实现 inter copy predictor。
 - [ ] 实现 luma sub-pixel filter。
 - [ ] 实现 chroma sub-pixel filter。

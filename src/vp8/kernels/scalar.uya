@@ -123,6 +123,19 @@ fn fill_4x4(dst: &byte, dst_stride: usize, value: byte) void {
     }
 }
 
+fn fill_8x8(dst: &byte, dst_stride: usize, value: byte) void {
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * dst_stride;
+        var col: usize = 0;
+        while col < 8 {
+            dst[base + col] = value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
 fn write_4x4(dst: &byte, dst_stride: usize, values: &byte) void {
     var row: usize = 0;
     while row < 4 {
@@ -330,6 +343,75 @@ export fn predict_y4x4_horizontal_up(dst: &byte, dst_stride: usize, left: &byte)
         p6, p6, p6, p6
     ];
     write_4x4(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_uv8x8_dc(dst: &byte, dst_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) void {
+    var sum: i32 = 0;
+    var value: byte = 128 as byte;
+
+    if has_above {
+        var col: usize = 0;
+        while col < 8 {
+            sum = sum + (above[col] as i32);
+            col = col + 1;
+        }
+    }
+    if has_left {
+        var row: usize = 0;
+        while row < 8 {
+            sum = sum + (left[row] as i32);
+            row = row + 1;
+        }
+    }
+
+    if has_above && has_left {
+        value = ((sum + 8) >> 4) as byte;
+    } else if has_above || has_left {
+        value = ((sum + 4) >> 3) as byte;
+    }
+
+    fill_8x8(dst, dst_stride, value);
+}
+
+export fn predict_uv8x8_vertical(dst: &byte, dst_stride: usize, above: &byte) void {
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * dst_stride;
+        var col: usize = 0;
+        while col < 8 {
+            dst[base + col] = above[col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+export fn predict_uv8x8_horizontal(dst: &byte, dst_stride: usize, left: &byte) void {
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * dst_stride;
+        const value: byte = left[row];
+        var col: usize = 0;
+        while col < 8 {
+            dst[base + col] = value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+export fn predict_uv8x8_true_motion(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * dst_stride;
+        const left_value: i32 = left[row] as i32;
+        var col: usize = 0;
+        while col < 8 {
+            dst[base + col] = clip_i32_to_u8(left_value + (above[col] as i32) - (above_left as i32));
+            col = col + 1;
+        }
+        row = row + 1;
+    }
 }
 
 export fn predict_y16x16_dc(dst: &byte, dst_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) void {

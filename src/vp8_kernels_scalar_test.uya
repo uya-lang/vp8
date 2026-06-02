@@ -12,6 +12,10 @@ use vp8.kernels.scalar.predict_y16x16_dc;
 use vp8.kernels.scalar.predict_y16x16_vertical;
 use vp8.kernels.scalar.predict_y16x16_horizontal;
 use vp8.kernels.scalar.predict_y16x16_true_motion;
+use vp8.kernels.scalar.predict_uv8x8_dc;
+use vp8.kernels.scalar.predict_uv8x8_vertical;
+use vp8.kernels.scalar.predict_uv8x8_horizontal;
+use vp8.kernels.scalar.predict_uv8x8_true_motion;
 use vp8.kernels.scalar.predict_y4x4_dc;
 use vp8.kernels.scalar.predict_y4x4_true_motion;
 use vp8.kernels.scalar.predict_y4x4_vertical_edge;
@@ -75,6 +79,18 @@ fn assert_eq_u8_4x4_stride(actual: &byte, stride: usize, expected: &byte) !void 
         var col: usize = 0;
         while col < 4 {
             try assert_eq_i32(actual[(row * stride) + col] as i32, expected[(row * 4) + col] as i32);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn assert_eq_u8_8x8_stride(actual: &byte, stride: usize, expected: &byte) !void {
+    var row: usize = 0;
+    while row < 8 {
+        var col: usize = 0;
+        while col < 8 {
+            try assert_eq_i32(actual[(row * stride) + col] as i32, expected[(row * 8) + col] as i32);
             col = col + 1;
         }
         row = row + 1;
@@ -298,4 +314,78 @@ test "scalar Y 4x4 intra predictors match VP8 boundary golden blocks" {
     var hu_expected: [byte: 16] = [ 30, 40, 50, 60, 50, 60, 70, 75, 70, 75, 80, 80, 80, 80, 80, 80 ];
     predict_y4x4_horizontal_up(&dst[0] as &byte, 6, &left[0] as &byte);
     try assert_eq_u8_4x4_stride(&dst[0] as &byte, 6, &hu_expected[0] as &byte);
+}
+
+test "scalar UV 8x8 intra predictors match VP8 boundary golden blocks" {
+    var dst: [byte: 80] = [];
+    var above: [byte: 8] = [ 10, 20, 30, 40, 50, 60, 70, 80 ];
+    var left: [byte: 8] = [ 200, 180, 160, 140, 120, 100, 80, 60 ];
+
+    var dc_expected: [byte: 64] = [
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88,
+        88, 88, 88, 88, 88, 88, 88, 88
+    ];
+    predict_uv8x8_dc(&dst[0] as &byte, 10, &above[0] as &byte, true, &left[0] as &byte, true);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 10, &dc_expected[0] as &byte);
+
+    var dc_above_expected: [byte: 64] = [
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45,
+        45, 45, 45, 45, 45, 45, 45, 45
+    ];
+    predict_uv8x8_dc(&dst[0] as &byte, 10, &above[0] as &byte, true, &left[0] as &byte, false);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 10, &dc_above_expected[0] as &byte);
+
+    var dc_left_expected: [byte: 64] = [
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130,
+        130, 130, 130, 130, 130, 130, 130, 130
+    ];
+    predict_uv8x8_dc(&dst[0] as &byte, 10, &above[0] as &byte, false, &left[0] as &byte, true);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 10, &dc_left_expected[0] as &byte);
+
+    var dc_missing_expected: [byte: 64] = [
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128
+    ];
+    predict_uv8x8_dc(&dst[0] as &byte, 10, &above[0] as &byte, false, &left[0] as &byte, false);
+    try assert_eq_u8_8x8_stride(&dst[0] as &byte, 10, &dc_missing_expected[0] as &byte);
+
+    predict_uv8x8_vertical(&dst[0] as &byte, 10, &above[0] as &byte);
+    try assert_eq_i32(dst[0] as i32, 10);
+    try assert_eq_i32(dst[7] as i32, 80);
+    try assert_eq_i32(dst[(7 * 10) + 3] as i32, 40);
+
+    predict_uv8x8_horizontal(&dst[0] as &byte, 10, &left[0] as &byte);
+    try assert_eq_i32(dst[0] as i32, 200);
+    try assert_eq_i32(dst[7] as i32, 200);
+    try assert_eq_i32(dst[(7 * 10) + 4] as i32, 60);
+
+    predict_uv8x8_true_motion(&dst[0] as &byte, 10, &above[0] as &byte, &left[0] as &byte, 100 as byte);
+    try assert_eq_i32(dst[0] as i32, 110);
+    try assert_eq_i32(dst[7] as i32, 180);
+    try assert_eq_i32(dst[(7 * 10)] as i32, 0);
+    try assert_eq_i32(dst[(7 * 10) + 7] as i32, 40);
 }
