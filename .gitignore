@@ -1,0 +1,31 @@
+.agent/logs/*
+.agent/state*.json
+__pycache__/
+
+# Build outputs and compiler scratch space.
+build/
+.uyacache/
+
+# Large local media fixtures stay outside git; track manifests instead.
+fixtures/**/*.ivf
+fixtures/**/*.vp8
+fixtures/**/*.webm
+fixtures/**/*.yuv
+fixtures/**/*.raw
+fixtures/**/*.bin
+!fixtures/**/README.md
+!fixtures/**/manifest.json
+
+# Decoder and encoder output dumps.
+*.yuv
+*.yuva
+*.y4m
+
+# Coverage reports.
+.coverage
+.coverage.*
+coverage/
+htmlcov/
+*.gcda
+*.gcno
+*.lcov
