@@ -1,4 +1,18 @@
 error ErrBoolReaderOverread;
+error ErrBoolReaderTraceFull;
+
+export struct BoolReaderTraceEntry {
+    bit: u8,
+    probability: byte,
+    byte_offset: usize,
+    bit_offset: usize
+}
+
+export struct BoolReaderTrace {
+    entries: &BoolReaderTraceEntry,
+    capacity: usize,
+    count: usize
+}
 
 export struct BoolReader {
     data: &byte,
@@ -34,6 +48,18 @@ export fn make_bool_reader_for_partition(data: &byte, len: usize, partition_id: 
 
 export fn bool_reader_partition_id(reader: &BoolReader) i32 {
     return reader.partition_id;
+}
+
+export fn make_bool_reader_trace(entries: &BoolReaderTraceEntry, capacity: usize) BoolReaderTrace {
+    return BoolReaderTrace{
+        entries: entries,
+        capacity: capacity,
+        count: 0
+    };
+}
+
+export fn bool_reader_trace_count(trace: &BoolReaderTrace) usize {
+    return trace.count;
 }
 
 export fn bool_reader_bit_offset(reader: &BoolReader) usize {
@@ -120,4 +146,23 @@ export fn read_signed_value(reader: &BoolReader, bit_count: u8) !i32 {
     }
 
     return magnitude;
+}
+
+export fn bool_reader_read_traced(reader: &BoolReader, probability: byte, trace: &BoolReaderTrace) !u8 {
+    if trace.count >= trace.capacity {
+        return error.ErrBoolReaderTraceFull;
+    }
+
+    const byte_offset_before: usize = bool_reader_byte_offset(reader);
+    const bit_offset_before: usize = bool_reader_bit_offset(reader);
+    const bit: u8 = try read_bit_with_probability(reader, probability);
+    const trace_index: usize = trace.count;
+
+    trace.entries[trace_index].bit = bit;
+    trace.entries[trace_index].probability = probability;
+    trace.entries[trace_index].byte_offset = byte_offset_before;
+    trace.entries[trace_index].bit_offset = bit_offset_before;
+    trace.count = trace.count + 1;
+
+    return bit;
 }

@@ -1,11 +1,16 @@
 use std.testing.assert_eq_i32;
 
 use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.BoolReaderTrace;
+use vp8.bitstream.bool_reader.BoolReaderTraceEntry;
 use vp8.bitstream.bool_reader.make_bool_reader;
 use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
+use vp8.bitstream.bool_reader.make_bool_reader_trace;
 use vp8.bitstream.bool_reader.bool_reader_bit_offset;
 use vp8.bitstream.bool_reader.bool_reader_byte_offset;
 use vp8.bitstream.bool_reader.bool_reader_partition_id;
+use vp8.bitstream.bool_reader.bool_reader_read_traced;
+use vp8.bitstream.bool_reader.bool_reader_trace_count;
 use vp8.bitstream.bool_reader.bool_reader_read;
 use vp8.bitstream.bool_reader.read_bit_with_probability;
 use vp8.bitstream.bool_reader.read_literal;
@@ -86,4 +91,26 @@ test "partition boundary overread keeps reader offsets stable" {
     try assert_eq_i32(bool_reader_partition_id(&reader), 4);
     try assert_eq_i32(bool_reader_bit_offset(&reader) as i32, bit_offset_before as i32);
     try assert_eq_i32(bool_reader_byte_offset(&reader) as i32, byte_offset_before as i32);
+}
+
+test "reader trace records bit probability and offsets" {
+    var data: [byte: 3] = [ 0x80, 0x00, 0x00 ];
+    var entries: [BoolReaderTraceEntry: 2] = [
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 }
+    ];
+    var reader: BoolReader = try make_bool_reader(&data[0] as &byte, 3);
+    var trace: BoolReaderTrace = make_bool_reader_trace(&entries[0] as &BoolReaderTraceEntry, 2);
+
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 128 as byte, &trace)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 200 as byte, &trace)) as i32, 0);
+
+    try assert_eq_i32(bool_reader_trace_count(&trace) as i32, 2);
+    try assert_eq_i32(entries[0].bit as i32, 1);
+    try assert_eq_i32(entries[0].probability as i32, 128);
+    try assert_eq_i32(entries[0].byte_offset as i32, 2);
+    try assert_eq_i32(entries[0].bit_offset as i32, 0);
+    try assert_eq_i32(entries[1].bit as i32, 0);
+    try assert_eq_i32(entries[1].probability as i32, 200);
+    try assert_eq_i32(entries[1].bit_offset as i32, 1);
 }
