@@ -1,0 +1,44 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_bit_count;
+use vp8.bitstream.bool_writer.bool_writer_byte_count;
+use vp8.bitstream.bool_writer.bool_writer_low_value;
+use vp8.bitstream.bool_writer.bool_writer_range;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.bool_writer.make_bool_writer;
+
+test "VP8 boolean writer initializes and updates arithmetic state" {
+    var out: [byte: 4] = [ 0, 0, 0, 0 ];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 4);
+
+    try assert_eq_i32(bool_writer_range(&writer) as i32, 255);
+    try assert_eq_i32(bool_writer_low_value(&writer) as i32, 0);
+    try assert_eq_i32(bool_writer_byte_count(&writer) as i32, 0);
+
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try assert_eq_i32(bool_writer_range(&writer) as i32, 254);
+    try assert_eq_i32(bool_writer_low_value(&writer) as i32, 256);
+    try assert_eq_i32(bool_writer_bit_count(&writer) as i32, 1);
+
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try assert_eq_i32(bool_writer_range(&writer) as i32, 254);
+    try assert_eq_i32(bool_writer_low_value(&writer) as i32, 512);
+    try assert_eq_i32(bool_writer_bit_count(&writer) as i32, 2);
+}
+
+test "VP8 boolean writer reports output capacity errors" {
+    var out: [byte: 0] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 0);
+    var failed: i32 = 0;
+    var index: i32 = 0;
+
+    while index < 40 {
+        _ = bool_writer_write(&writer, 0 as u8, 128 as byte) catch {
+            failed = 1;
+        };
+        index = index + 1;
+    }
+
+    try assert_eq_i32(failed, 1);
+}

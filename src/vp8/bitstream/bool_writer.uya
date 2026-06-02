@@ -1,0 +1,65 @@
+error ErrBoolWriterOutOfBounds;
+
+export struct BoolWriter {
+    out: &byte,
+    len: usize,
+    byte_pos: usize,
+    range: u32,
+    low_value: u32,
+    pending_bits: u8,
+    bit_count: usize
+}
+
+export fn make_bool_writer(out: &byte, len: usize) BoolWriter {
+    return BoolWriter{
+        out: out,
+        len: len,
+        byte_pos: 0,
+        range: 255,
+        low_value: 0,
+        pending_bits: 0,
+        bit_count: 0
+    };
+}
+
+export fn bool_writer_byte_count(writer: &BoolWriter) usize {
+    return writer.byte_pos;
+}
+
+export fn bool_writer_bit_count(writer: &BoolWriter) usize {
+    return writer.bit_count;
+}
+
+export fn bool_writer_range(writer: &BoolWriter) u32 {
+    return writer.range;
+}
+
+export fn bool_writer_low_value(writer: &BoolWriter) u32 {
+    return writer.low_value;
+}
+
+fn ensure_output_available(writer: &BoolWriter) !void {
+    if writer.byte_pos >= writer.len {
+        return error.ErrBoolWriterOutOfBounds;
+    }
+}
+
+export fn bool_writer_write(writer: &BoolWriter, bit: u8, probability: byte) !void {
+    try ensure_output_available(writer);
+
+    const split: u32 = 1 + (((writer.range - 1) * (probability as u32)) >> 8);
+    if bit != 0 {
+        writer.low_value = writer.low_value + split;
+        writer.range = writer.range - split;
+    } else {
+        writer.range = split;
+    }
+
+    while writer.range < 128 {
+        writer.range = writer.range << 1;
+        writer.low_value = writer.low_value << 1;
+        writer.pending_bits = writer.pending_bits + 1;
+    }
+
+    writer.bit_count = writer.bit_count + 1;
+}

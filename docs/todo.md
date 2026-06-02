@@ -55,7 +55,7 @@
 - [x] 实现 signed value helper。
 - [x] 实现 partition boundary 检查。
 - [x] 实现 reader trace 模式，记录 bit/prob/offset。
-- [ ] 实现 boolean writer。
+- [x] 实现 boolean writer。
 - [ ] 实现 writer flush 和 carry handling。
 - [ ] 增加 reader/writer roundtrip tests。
 - [ ] 增加与 libvpx 小样本 trace 对照。
