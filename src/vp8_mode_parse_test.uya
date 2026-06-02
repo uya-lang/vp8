@@ -7,6 +7,9 @@ use vp8.bitstream.bool_writer.bool_writer_flush;
 use vp8.bitstream.bool_writer.bool_writer_write;
 use vp8.mode.parse.parse_key_frame_uv_mode;
 use vp8.mode.parse.parse_key_frame_y_mode;
+use vp8.mode.parse.parse_key_frame_luma_4x4_block_mode;
+use vp8.mode.parse.parse_key_frame_luma_4x4_modes;
+use vp8.mode.parse.vp8_kf_bmode_prob;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.vp8_default_probs;
 
@@ -40,6 +43,25 @@ fn parse_uv_mode_from_bits(bits: &u8, count: usize) !byte {
     return try parse_key_frame_uv_mode(&reader, &probs);
 }
 
+fn write_b_mode_bits(writer: &BoolWriter, bits: &u8, prob_indices: &u8, count: usize, above: byte, left: byte) !void {
+    var index: usize = 0;
+    while index < count {
+        const prob: byte = try vp8_kf_bmode_prob(above, left, prob_indices[index] as usize);
+        try bool_writer_write(writer, bits[index], prob);
+        index = index + 1;
+    }
+}
+
+fn parse_b_mode_from_bits(bits: &u8, prob_indices: &u8, count: usize, above: byte, left: byte) !byte {
+    var encoded: [byte: 16] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 16);
+    try write_b_mode_bits(&writer, bits, prob_indices, count, above, left);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 16);
+    return try parse_key_frame_luma_4x4_block_mode(&reader, above, left);
+}
+
 test "parse key frame macroblock y mode tree" {
     var dc_bits: [u8: 1] = [ 0 ];
     var v_bits: [u8: 2] = [ 1, 0 ];
@@ -64,4 +86,77 @@ test "parse key frame macroblock uv mode tree" {
     try assert_eq_i32((try parse_uv_mode_from_bits(&v_bits[0] as &u8, 2)) as i32, 1);
     try assert_eq_i32((try parse_uv_mode_from_bits(&h_bits[0] as &u8, 3)) as i32, 2);
     try assert_eq_i32((try parse_uv_mode_from_bits(&tm_bits[0] as &u8, 3)) as i32, 3);
+}
+
+test "parse key frame 4x4 luma block mode tree" {
+    var dc_bits: [u8: 1] = [ 0 ];
+    var dc_probs: [u8: 1] = [ 0 ];
+    var tm_bits: [u8: 2] = [ 1, 0 ];
+    var tm_probs: [u8: 2] = [ 0, 1 ];
+    var ve_bits: [u8: 3] = [ 1, 1, 0 ];
+    var ve_probs: [u8: 3] = [ 0, 1, 2 ];
+    var he_bits: [u8: 5] = [ 1, 1, 1, 0, 0 ];
+    var he_probs: [u8: 5] = [ 0, 1, 2, 3, 4 ];
+    var rd_bits: [u8: 6] = [ 1, 1, 1, 0, 1, 0 ];
+    var rd_probs: [u8: 6] = [ 0, 1, 2, 3, 4, 5 ];
+    var vr_bits: [u8: 6] = [ 1, 1, 1, 0, 1, 1 ];
+    var vr_probs: [u8: 6] = [ 0, 1, 2, 3, 4, 5 ];
+    var ld_bits: [u8: 5] = [ 1, 1, 1, 1, 0 ];
+    var ld_probs: [u8: 5] = [ 0, 1, 2, 3, 6 ];
+    var vl_bits: [u8: 6] = [ 1, 1, 1, 1, 1, 0 ];
+    var vl_probs: [u8: 6] = [ 0, 1, 2, 3, 6, 7 ];
+    var hd_bits: [u8: 7] = [ 1, 1, 1, 1, 1, 1, 0 ];
+    var hd_probs: [u8: 7] = [ 0, 1, 2, 3, 6, 7, 8 ];
+    var hu_bits: [u8: 7] = [ 1, 1, 1, 1, 1, 1, 1 ];
+    var hu_probs: [u8: 7] = [ 0, 1, 2, 3, 6, 7, 8 ];
+
+    try assert_eq_i32((try parse_b_mode_from_bits(&dc_bits[0] as &u8, &dc_probs[0] as &u8, 1, 0 as byte, 0 as byte)) as i32, 0);
+    try assert_eq_i32((try parse_b_mode_from_bits(&tm_bits[0] as &u8, &tm_probs[0] as &u8, 2, 0 as byte, 0 as byte)) as i32, 1);
+    try assert_eq_i32((try parse_b_mode_from_bits(&ve_bits[0] as &u8, &ve_probs[0] as &u8, 3, 0 as byte, 0 as byte)) as i32, 2);
+    try assert_eq_i32((try parse_b_mode_from_bits(&he_bits[0] as &u8, &he_probs[0] as &u8, 5, 0 as byte, 0 as byte)) as i32, 3);
+    try assert_eq_i32((try parse_b_mode_from_bits(&rd_bits[0] as &u8, &rd_probs[0] as &u8, 6, 0 as byte, 0 as byte)) as i32, 5);
+    try assert_eq_i32((try parse_b_mode_from_bits(&vr_bits[0] as &u8, &vr_probs[0] as &u8, 6, 0 as byte, 0 as byte)) as i32, 6);
+    try assert_eq_i32((try parse_b_mode_from_bits(&ld_bits[0] as &u8, &ld_probs[0] as &u8, 5, 0 as byte, 0 as byte)) as i32, 4);
+    try assert_eq_i32((try parse_b_mode_from_bits(&vl_bits[0] as &u8, &vl_probs[0] as &u8, 6, 0 as byte, 0 as byte)) as i32, 7);
+    try assert_eq_i32((try parse_b_mode_from_bits(&hd_bits[0] as &u8, &hd_probs[0] as &u8, 7, 0 as byte, 0 as byte)) as i32, 8);
+    try assert_eq_i32((try parse_b_mode_from_bits(&hu_bits[0] as &u8, &hu_probs[0] as &u8, 7, 0 as byte, 0 as byte)) as i32, 9);
+}
+
+test "parse key frame 4x4 luma modes updates above and left contexts" {
+    var encoded: [byte: 64] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 64);
+    var all_dc_bits: [u8: 1] = [ 0 ];
+    var all_dc_probs: [u8: 1] = [ 0 ];
+    var above_modes: [byte: 4] = [ 1, 2, 3, 4 ];
+    var left_modes: [byte: 4] = [ 5, 6, 7, 8 ];
+    var block: usize = 0;
+    while block < 16 {
+        const by: usize = block / 4;
+        const bx: usize = block % (4 as usize);
+        var above: byte = 0 as byte;
+        var left: byte = 0 as byte;
+        if by == 0 {
+            above = above_modes[bx];
+        }
+        if bx == 0 {
+            left = left_modes[by];
+        }
+        try write_b_mode_bits(&writer, &all_dc_bits[0] as &u8, &all_dc_probs[0] as &u8, 1, above, left);
+        block = block + 1;
+    }
+    try bool_writer_flush(&writer);
+
+    var output_modes: [byte: 16] = [];
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 64);
+    try parse_key_frame_luma_4x4_modes(&reader, &above_modes[0] as &byte, &left_modes[0] as &byte, &output_modes[0] as &byte);
+
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(output_modes[index] as i32, 0);
+        index = index + 1;
+    }
+    try assert_eq_i32(above_modes[0] as i32, 0);
+    try assert_eq_i32(above_modes[3] as i32, 0);
+    try assert_eq_i32(left_modes[0] as i32, 0);
+    try assert_eq_i32(left_modes[3] as i32, 0);
 }
