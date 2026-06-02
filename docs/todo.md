@@ -70,7 +70,7 @@
 
 - [x] 定义 `Vp8FrameHeader`。
 - [x] 定义 `Vp8Segmentation`。
-- [ ] 定义 `Vp8LoopFilterHeader`。
+- [x] 定义 `Vp8LoopFilterHeader`。
 - [ ] 定义 `Vp8QuantHeader`。
 - [ ] 定义 `Vp8Probs`。
 - [ ] 填入 VP8 默认概率表。

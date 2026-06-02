@@ -3,6 +3,7 @@ use std.testing.assert_eq_i32;
 use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
+use vp8.bitstream.header.Vp8LoopFilterHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
@@ -71,6 +72,30 @@ test "define VP8 segmentation fields" {
     try assert_eq_i32(segmentation.segment_prob[0] as i32, 255);
     try assert_eq_i32(segmentation.segment_prob[1] as i32, 128);
     try assert_eq_i32(segmentation.segment_prob[2] as i32, 0);
+}
+
+test "define VP8 loop filter header fields" {
+    const loop_filter: Vp8LoopFilterHeader = Vp8LoopFilterHeader{
+        filter_type: 1,
+        level: 16,
+        sharpness: 3,
+        delta_enabled: true,
+        delta_update: true,
+        ref_delta: [ 2, -1, 0, 1 ],
+        mode_delta: [ 0, -2, 2, 4 ]
+    };
+
+    try assert_eq_i32(loop_filter.filter_type as i32, 1);
+    try assert_eq_i32(loop_filter.level as i32, 16);
+    try assert_eq_i32(loop_filter.sharpness as i32, 3);
+    try assert_eq_i32(loop_filter.delta_enabled as i32, true as i32);
+    try assert_eq_i32(loop_filter.delta_update as i32, true as i32);
+    try assert_eq_i32(loop_filter.ref_delta[0] as i32, 2);
+    try assert_eq_i32(loop_filter.ref_delta[1] as i32, -1);
+    try assert_eq_i32(loop_filter.ref_delta[3] as i32, 1);
+    try assert_eq_i32(loop_filter.mode_delta[1] as i32, -2);
+    try assert_eq_i32(loop_filter.mode_delta[2] as i32, 2);
+    try assert_eq_i32(loop_filter.mode_delta[3] as i32, 4);
 }
 
 test "parse VP8 frame tag" {

@@ -27,6 +27,16 @@ export struct Vp8Segmentation {
     segment_prob: [byte: 3]
 }
 
+export struct Vp8LoopFilterHeader {
+    filter_type: u8,
+    level: u8,
+    sharpness: u8,
+    delta_enabled: bool,
+    delta_update: bool,
+    ref_delta: [i8: 4],
+    mode_delta: [i8: 4]
+}
+
 export struct Vp8FrameTag {
     frame_type: u8,
     version: u8,
