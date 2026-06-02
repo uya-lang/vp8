@@ -58,7 +58,7 @@
 - [x] 实现 boolean writer。
 - [x] 实现 writer flush 和 carry handling。
 - [x] 增加 reader/writer roundtrip tests。
-- [ ] 增加与 libvpx 小样本 trace 对照。
+- [x] 增加与 libvpx 小样本 trace 对照。
 
 验收标准：
 

@@ -114,3 +114,56 @@ test "reader trace records bit probability and offsets" {
     try assert_eq_i32(entries[1].probability as i32, 200);
     try assert_eq_i32(entries[1].bit_offset as i32, 1);
 }
+
+test "reader trace matches libvpx boolhuff small sample" {
+    var data: [byte: 2] = [ 0xb3, 0xe0 ];
+    var entries: [BoolReaderTraceEntry: 8] = [
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 },
+        BoolReaderTraceEntry{ bit: 0, probability: 0, byte_offset: 0, bit_offset: 0 }
+    ];
+    var reader: BoolReader = try make_bool_reader(&data[0] as &byte, 2);
+    var trace: BoolReaderTrace = make_bool_reader_trace(&entries[0] as &BoolReaderTraceEntry, 8);
+
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 128 as byte, &trace)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 128 as byte, &trace)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 200 as byte, &trace)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 32 as byte, &trace)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 128 as byte, &trace)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 200 as byte, &trace)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 32 as byte, &trace)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read_traced(&reader, 128 as byte, &trace)) as i32, 0);
+
+    try assert_eq_i32(bool_reader_trace_count(&trace) as i32, 8);
+    try assert_eq_i32(entries[0].bit as i32, 1);
+    try assert_eq_i32(entries[0].probability as i32, 128);
+    try assert_eq_i32(entries[0].byte_offset as i32, 2);
+    try assert_eq_i32(entries[0].bit_offset as i32, 0);
+    try assert_eq_i32(entries[1].bit as i32, 0);
+    try assert_eq_i32(entries[1].probability as i32, 128);
+    try assert_eq_i32(entries[1].bit_offset as i32, 1);
+    try assert_eq_i32(entries[2].bit as i32, 1);
+    try assert_eq_i32(entries[2].probability as i32, 200);
+    try assert_eq_i32(entries[2].bit_offset as i32, 2);
+    try assert_eq_i32(entries[3].bit as i32, 1);
+    try assert_eq_i32(entries[3].probability as i32, 32);
+    try assert_eq_i32(entries[3].bit_offset as i32, 3);
+    try assert_eq_i32(entries[4].bit as i32, 0);
+    try assert_eq_i32(entries[4].probability as i32, 128);
+    try assert_eq_i32(entries[4].bit_offset as i32, 4);
+    try assert_eq_i32(entries[5].bit as i32, 0);
+    try assert_eq_i32(entries[5].probability as i32, 200);
+    try assert_eq_i32(entries[5].bit_offset as i32, 5);
+    try assert_eq_i32(entries[6].bit as i32, 1);
+    try assert_eq_i32(entries[6].probability as i32, 32);
+    try assert_eq_i32(entries[6].bit_offset as i32, 6);
+    try assert_eq_i32(entries[7].bit as i32, 0);
+    try assert_eq_i32(entries[7].probability as i32, 128);
+    try assert_eq_i32(entries[7].byte_offset as i32, 2);
+    try assert_eq_i32(entries[7].bit_offset as i32, 7);
+}
