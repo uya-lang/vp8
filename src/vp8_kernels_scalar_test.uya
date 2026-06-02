@@ -26,6 +26,7 @@ use vp8.kernels.scalar.predict_y4x4_vertical_right;
 use vp8.kernels.scalar.predict_y4x4_vertical_left;
 use vp8.kernels.scalar.predict_y4x4_horizontal_down;
 use vp8.kernels.scalar.predict_y4x4_horizontal_up;
+use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -388,4 +389,51 @@ test "scalar UV 8x8 intra predictors match VP8 boundary golden blocks" {
     try assert_eq_i32(dst[7] as i32, 180);
     try assert_eq_i32(dst[(7 * 10)] as i32, 0);
     try assert_eq_i32(dst[(7 * 10) + 7] as i32, 40);
+}
+
+test "scalar inter copy predictor copies integer reference pixels across strides" {
+    var src: [byte: 320] = [];
+    var dst: [byte: 320] = [];
+
+    var index: usize = 0;
+    while index < 320 {
+        src[index] = ((index * 7) % (256 as usize)) as byte;
+        dst[index] = 219 as byte;
+        index = index + 1;
+    }
+
+    predict_inter_copy(&dst[0] as &byte, 20, &src[3] as &byte, 20, 16, 16);
+
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            try assert_eq_i32(dst[(row * 20) + col] as i32, src[(row * 20) + 3 + col] as i32);
+            col = col + 1;
+        }
+        try assert_eq_i32(dst[(row * 20) + 16] as i32, 219);
+        row = row + 1;
+    }
+
+    var chroma_src: [byte: 96] = [];
+    var chroma_dst: [byte: 96] = [];
+    index = 0;
+    while index < 96 {
+        chroma_src[index] = (((200 as usize) - index) % (256 as usize)) as byte;
+        chroma_dst[index] = 17 as byte;
+        index = index + 1;
+    }
+
+    predict_inter_copy(&chroma_dst[0] as &byte, 12, &chroma_src[0] as &byte, 12, 8, 8);
+
+    row = 0;
+    while row < 8 {
+        var col: usize = 0;
+        while col < 8 {
+            try assert_eq_i32(chroma_dst[(row * 12) + col] as i32, chroma_src[(row * 12) + col] as i32);
+            col = col + 1;
+        }
+        try assert_eq_i32(chroma_dst[(row * 12) + 8] as i32, 17);
+        row = row + 1;
+    }
 }

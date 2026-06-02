@@ -97,6 +97,20 @@ export fn add_residual_4x4_clamped(dst: &byte, dst_stride: usize, residual: &i16
     }
 }
 
+export fn predict_inter_copy(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize, width: usize, height: usize) void {
+    var row: usize = 0;
+    while row < height {
+        const dst_base: usize = row * dst_stride;
+        const src_base: usize = row * src_stride;
+        var col: usize = 0;
+        while col < width {
+            dst[dst_base + col] = src[src_base + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
 fn fill_16x16(dst: &byte, dst_stride: usize, value: byte) void {
     var row: usize = 0;
     while row < 16 {
