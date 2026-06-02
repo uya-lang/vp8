@@ -1,11 +1,11 @@
 use std.testing.assert_eq_i32;
 
-use bitstream.header.Vp8FrameTag;
-use bitstream.header.Vp8KeyFrameSize;
-use bitstream.header.parse_key_frame_start_code;
-use bitstream.header.parse_key_frame_size;
-use bitstream.header.parse_vp8_frame_tag;
-use bitstream.header.parse_vp8_frame_tag_checked;
+use vp8.bitstream.header.Vp8FrameTag;
+use vp8.bitstream.header.Vp8KeyFrameSize;
+use vp8.bitstream.header.parse_key_frame_start_code;
+use vp8.bitstream.header.parse_key_frame_size;
+use vp8.bitstream.header.parse_vp8_frame_tag;
+use vp8.bitstream.header.parse_vp8_frame_tag_checked;
 
 fn dummy_tag() Vp8FrameTag {
     return Vp8FrameTag{

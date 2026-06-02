@@ -7,16 +7,16 @@ decoder is correct.
 
 ## Current Status
 
-This repository is currently a project scaffold. It does not yet decode,
-encode, parse, or write real VP8 bitstreams. The CLI only exposes placeholder
-commands so the build and command surface can be validated while the codec
-modules are implemented.
+This repository is still an early scaffold. It can parse basic IVF container
+metadata and VP8 uncompressed frame tags, but it does not yet decode, encode,
+or write real VP8 pictures.
 
 Current command surface:
 
 - `vp8uya --help`
 - `vp8uya version`
-- `vp8uya info <input.ivf>` reports that IVF parsing is not implemented yet.
+- `vp8uya info <input.ivf>` prints IVF width, height, frame count, timebase,
+  fps, and the number of bounded frame payloads found.
 - `vp8uya decode <input.ivf> --yuv <out.yuv>` reports that decoding is not
   implemented yet.
 

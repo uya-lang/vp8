@@ -1,5 +1,5 @@
-use bitstream.readers.BoundedSlice;
-use bitstream.readers.read_slice_at;
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.bitstream.readers.read_slice_at;
 
 error ErrEmptyRawVp8Payload;
 

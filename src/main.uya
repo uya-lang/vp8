@@ -1,5 +1,30 @@
 use libc.printf;
 use libc.strcmp;
+use libc.FILE;
+use libc.fclose;
+use libc.fopen;
+use libc.fread;
+use libc.free;
+use libc.fseek;
+use libc.ftell;
+use libc.malloc;
+
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.ivf_frame_iterator_has_next;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
+
+error ErrOpenFile;
+error ErrInvalidFileSize;
+error ErrOutOfMemory;
+error ErrReadFile;
+
+struct FileBuffer {
+    data: &byte,
+    len: usize
+}
 
 fn print_help() void {
     _ = printf("vp8uya scaffold CLI\n");
@@ -16,6 +41,80 @@ fn print_version() void {
 
 fn print_not_implemented(command: &byte) void {
     _ = printf("%s is not implemented yet; VP8 parsing and decoding are not available in this scaffold.\n", command);
+}
+
+fn read_file(path: &byte) !FileBuffer {
+    const fp: &FILE = fopen(path as *byte, "rb\0" as &byte);
+    if fp == null {
+        return error.ErrOpenFile;
+    }
+
+    if fseek(fp, 0, 2) != 1 {
+        _ = fclose(fp);
+        return error.ErrInvalidFileSize;
+    }
+
+    const file_size: i64 = ftell(fp);
+    if file_size <= 0 {
+        _ = fclose(fp);
+        return error.ErrInvalidFileSize;
+    }
+
+    if fseek(fp, 0, 0) != 1 {
+        _ = fclose(fp);
+        return error.ErrInvalidFileSize;
+    }
+
+    const len: usize = file_size as usize;
+    const data: &byte = malloc(len) as &byte;
+    if data == null {
+        _ = fclose(fp);
+        return error.ErrOutOfMemory;
+    }
+
+    const read_count: usize = fread(data, 1, len, fp);
+    _ = fclose(fp);
+    if read_count != len {
+        free(data as &void);
+        return error.ErrReadFile;
+    }
+
+    return FileBuffer{ data: data, len: len };
+}
+
+fn run_info(path: &byte) i32 {
+    const file: FileBuffer = read_file(path) catch {
+        _ = printf("error: failed to read input file\n");
+        return 2;
+    };
+    defer free(file.data as &void);
+
+    const header: IvfHeader = parse_ivf_header(file.data, file.len) catch {
+        _ = printf("error: invalid IVF header\n");
+        return 2;
+    };
+
+    var iterator: IvfFrameIterator = make_ivf_frame_iterator(file.data, file.len, &header) catch {
+        _ = printf("error: invalid IVF frame data\n");
+        return 2;
+    };
+
+    var payload_count: u32 = 0;
+    while ivf_frame_iterator_has_next(&iterator) {
+        _ = ivf_frame_iterator_next(&iterator) catch {
+            _ = printf("error: invalid IVF frame data\n");
+            return 2;
+        };
+        payload_count = payload_count + 1;
+    }
+
+    _ = printf("ivf.width=%u\n", header.width as u32);
+    _ = printf("ivf.height=%u\n", header.height as u32);
+    _ = printf("ivf.frame_count=%u\n", header.frame_count);
+    _ = printf("ivf.timebase=%u/%u\n", header.timebase_numerator, header.timebase_denominator);
+    _ = printf("ivf.fps=%u/%u\n", header.timebase_denominator, header.timebase_numerator);
+    _ = printf("ivf.payloads=%u\n", payload_count);
+    return 0;
 }
 
 export extern fn main(argc: i32, argv: & &byte) i32 {
@@ -38,8 +137,11 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
         return 0;
     }
     if strcmp(cmd as *const byte, "info\0" as *const byte) == 0 {
-        print_not_implemented(cmd);
-        return 2;
+        if argc < 3 {
+            _ = printf("error: info requires <input.ivf>\n");
+            return 2;
+        }
+        return run_info(argv[2]);
     }
     if strcmp(cmd as *const byte, "decode\0" as *const byte) == 0 {
         print_not_implemented(cmd);

@@ -1,15 +1,15 @@
 use std.testing.assert_eq_i32;
 
-use bitstream.readers.BoundedSlice;
-use container.ivf.IvfHeader;
-use container.ivf.IvfFrame;
-use container.ivf.IvfFrameIterator;
-use container.ivf.ivf_frame_iterator_has_next;
-use container.ivf.ivf_frame_iterator_next;
-use container.ivf.make_ivf_frame_iterator;
-use container.ivf.parse_ivf_header;
-use container.ivf.write_ivf_frame_header;
-use container.ivf.write_ivf_header;
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.IvfFrame;
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.ivf_frame_iterator_has_next;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
+use vp8.container.ivf.write_ivf_frame_header;
+use vp8.container.ivf.write_ivf_header;
 
 fn dummy_header() IvfHeader {
     return IvfHeader{

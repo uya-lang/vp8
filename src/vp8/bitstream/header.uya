@@ -1,7 +1,7 @@
-use bitstream.readers.read_le_u24_at;
-use bitstream.readers.BoundedSlice;
-use bitstream.readers.read_le_u16_at;
-use bitstream.readers.read_slice_at;
+use vp8.bitstream.readers.read_le_u24_at;
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.bitstream.readers.read_le_u16_at;
+use vp8.bitstream.readers.read_slice_at;
 
 error ErrInvalidKeyFrameStartCode;
 error ErrFirstPartitionOutOfBounds;

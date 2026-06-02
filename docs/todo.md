@@ -43,9 +43,9 @@
 
 验收标准：
 
-- [ ] 能打印 IVF frame count、width、height、fps。
-- [ ] 能对短 IVF/header/frame 返回明确错误，不崩溃。
-- [ ] 能从 IVF 抽出每个 VP8 frame payload。
+- [x] 能打印 IVF frame count、width、height、fps。
+- [x] 能对短 IVF/header/frame 返回明确错误，不崩溃。
+- [x] 能从 IVF 抽出每个 VP8 frame payload。
 
 ## Phase 2: Boolean Reader/Writer
 

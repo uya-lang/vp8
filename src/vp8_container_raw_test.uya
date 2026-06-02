@@ -1,8 +1,8 @@
 use std.testing.assert_eq_i32;
 
-use bitstream.readers.BoundedSlice;
-use container.raw.RawVp8Frame;
-use container.raw.read_raw_vp8_frame;
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.container.raw.RawVp8Frame;
+use vp8.container.raw.read_raw_vp8_frame;
 
 test "read raw VP8 payload as bounded slice" {
     var data: [byte: 5] = [ 0x9d, 0x01, 0x2a, 0xaa, 0xbb ];

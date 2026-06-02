@@ -1,8 +1,8 @@
-use bitstream.readers.read_le_u16_at;
-use bitstream.readers.read_le_u32_at;
-use bitstream.readers.read_le_u64_at;
-use bitstream.readers.read_slice_at;
-use bitstream.readers.BoundedSlice;
+use vp8.bitstream.readers.read_le_u16_at;
+use vp8.bitstream.readers.read_le_u32_at;
+use vp8.bitstream.readers.read_le_u64_at;
+use vp8.bitstream.readers.read_slice_at;
+use vp8.bitstream.readers.BoundedSlice;
 
 error ErrInvalidIvfSignature;
 error ErrInvalidIvfHeaderSize;

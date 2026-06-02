@@ -1,22 +1,22 @@
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 
-use bitstream.readers.read_le_u16_at;
-use bitstream.readers.read_le_u24_at;
-use bitstream.readers.read_le_u32_at;
-use bitstream.readers.read_le_u64_at;
-use bitstream.readers.read_slice_at;
-use bitstream.readers.BoundedSlice;
-use bitstream.readers.SliceReader;
-use bitstream.readers.make_slice_reader;
-use bitstream.readers.reader_position;
-use bitstream.readers.reader_remaining;
-use bitstream.readers.reader_read_u8;
-use bitstream.readers.reader_read_le_u16;
-use bitstream.readers.reader_read_le_u24;
-use bitstream.readers.reader_read_le_u32;
-use bitstream.readers.reader_read_slice;
-use bitstream.readers.reader_skip;
+use vp8.bitstream.readers.read_le_u16_at;
+use vp8.bitstream.readers.read_le_u24_at;
+use vp8.bitstream.readers.read_le_u32_at;
+use vp8.bitstream.readers.read_le_u64_at;
+use vp8.bitstream.readers.read_slice_at;
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.bitstream.readers.SliceReader;
+use vp8.bitstream.readers.make_slice_reader;
+use vp8.bitstream.readers.reader_position;
+use vp8.bitstream.readers.reader_remaining;
+use vp8.bitstream.readers.reader_read_u8;
+use vp8.bitstream.readers.reader_read_le_u16;
+use vp8.bitstream.readers.reader_read_le_u24;
+use vp8.bitstream.readers.reader_read_le_u32;
+use vp8.bitstream.readers.reader_read_slice;
+use vp8.bitstream.readers.reader_skip;
 
 test "little endian fixed width reads" {
     var data: [byte: 9] = [ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x10 ];
