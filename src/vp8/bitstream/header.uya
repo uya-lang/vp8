@@ -235,6 +235,15 @@ export fn parse_vp8_mv_probability_updates(reader: &BoolReader, probs: &Vp8Probs
     }
 }
 
+export fn parse_vp8_frame_probability_updates(reader: &BoolReader, probs: &Vp8Probs, key_frame: bool) !void {
+    if key_frame {
+        reset_vp8_key_frame_probs(probs);
+    }
+
+    try parse_vp8_coeff_probability_updates(reader, probs);
+    try parse_vp8_mv_probability_updates(reader, probs);
+}
+
 export fn parse_vp8_segmentation(reader: &BoolReader) !Vp8Segmentation {
     var segmentation: Vp8Segmentation = Vp8Segmentation{
         enabled: false,

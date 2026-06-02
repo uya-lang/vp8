@@ -12,6 +12,7 @@ use vp8.bitstream.header.parse_key_frame_size;
 use vp8.bitstream.header.parse_vp8_key_frame_header;
 use vp8.bitstream.header.parse_vp8_loop_filter;
 use vp8.bitstream.header.parse_vp8_coeff_probability_updates;
+use vp8.bitstream.header.parse_vp8_frame_probability_updates;
 use vp8.bitstream.header.parse_vp8_mv_probability_updates;
 use vp8.bitstream.header.parse_vp8_quant;
 use vp8.bitstream.header.parse_vp8_segmentation;
@@ -338,6 +339,59 @@ test "key frame reset restores caller probability state to VP8 defaults" {
     try assert_eq_i32(probs.coeff_probs[1055] as i32, 128);
     try assert_eq_i32(probs.mv_probs[0] as i32, 162);
     try assert_eq_i32(probs.mv_probs[37] as i32, 254);
+}
+
+test "inter frame probability updates inherit existing state and apply deltas" {
+    var out: [byte: 256] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 256);
+    var index: usize = 0;
+
+    while index < 1056 {
+        if index == 33 {
+            try bool_writer_write(&writer, 1 as u8, vp8_coeff_update_probability(index));
+            try write_literal_for_header(&writer, 88, 8 as u8);
+        } else {
+            try bool_writer_write(&writer, 0 as u8, vp8_coeff_update_probability(index));
+        }
+        index = index + 1;
+    }
+    index = 0;
+    while index < 38 {
+        try bool_writer_write(&writer, 0 as u8, vp8_mv_update_probability(index));
+        index = index + 1;
+    }
+    try bool_writer_flush(&writer);
+
+    const defaults: Vp8Probs = vp8_default_probs();
+    var coeff_probs: [byte: 1056] = [];
+    var mv_probs: [byte: 38] = [];
+    var copy_index: usize = 0;
+    while copy_index < 1056 {
+        coeff_probs[copy_index] = defaults.coeff_probs[copy_index];
+        copy_index = copy_index + 1;
+    }
+    copy_index = 0;
+    while copy_index < 38 {
+        mv_probs[copy_index] = defaults.mv_probs[copy_index];
+        copy_index = copy_index + 1;
+    }
+    coeff_probs[33] = 77 as byte;
+    coeff_probs[34] = 66 as byte;
+
+    var probs: Vp8Probs = Vp8Probs{
+        y_mode_probs: [ 112, 86, 140, 37 ],
+        uv_mode_probs: [ 162, 101, 204 ],
+        coeff_probs: &coeff_probs[0] as &byte,
+        coeff_prob_count: 1056,
+        mv_probs: &mv_probs[0] as &byte,
+        mv_prob_count: 38
+    };
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, 256);
+    try parse_vp8_frame_probability_updates(&reader, &probs, false);
+
+    try assert_eq_i32(probs.coeff_probs[33] as i32, 88);
+    try assert_eq_i32(probs.coeff_probs[34] as i32, 66);
+    try assert_eq_i32(probs.mv_probs[2] as i32, 225);
 }
 
 test "parse VP8 segmentation enabled update data and map probabilities" {
