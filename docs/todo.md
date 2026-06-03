@@ -241,7 +241,7 @@
 - [x] SIMD intra 4x4 高频 predictors。
 - [x] SIMD UV predictors。
 - [x] SIMD inter copy 16x16/8x8/4x4。
-- [ ] SIMD sub-pixel horizontal filter。
+- [x] SIMD sub-pixel horizontal filter。
 - [ ] SIMD sub-pixel vertical filter。
 - [ ] SIMD simple loop filter。
 - [ ] SIMD normal loop filter。

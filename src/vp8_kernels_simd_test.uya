@@ -8,6 +8,7 @@ use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.predict_inter_copy;
+use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.predict_y16x16_dc;
 use vp8.kernels.scalar.predict_y16x16_horizontal;
 use vp8.kernels.scalar.predict_y16x16_true_motion;
@@ -38,6 +39,7 @@ use vp8.kernels.simd.plane_fill_u8x16;
 use vp8.kernels.simd.predict_inter_copy_16x16_u8x16;
 use vp8.kernels.simd.predict_inter_copy_8x8_u8x16;
 use vp8.kernels.simd.predict_inter_copy_4x4_u8x16;
+use vp8.kernels.simd.predict_luma_subpixel_horizontal_u8x16;
 use vp8.kernels.simd.predict_y16x16_dc_u8x16;
 use vp8.kernels.simd.predict_y16x16_horizontal_u8x16;
 use vp8.kernels.simd.predict_y16x16_true_motion_u8x16;
@@ -626,4 +628,42 @@ test "SIMD inter copy fixed block predictors match scalar byte exact" {
     predict_inter_copy(&scalar4[1] as &byte, 7, &src4[3] as &byte, 9, 4, 4);
     predict_inter_copy_4x4_u8x16(&simd4[1] as &byte, 7, &src4[3] as &byte, 9);
     try assert_y16_buffers_equal(&scalar4[0] as &byte, &simd4[0] as &byte, 64);
+}
+
+test "SIMD luma sub-pixel horizontal filter matches scalar byte exact" {
+    var src: [byte: 260] = [];
+    var scalar_dst: [byte: 144] = [];
+    var simd_dst: [byte: 144] = [];
+
+    var row: usize = 0;
+    while row < 13 {
+        var col: usize = 0;
+        while col < 20 {
+            src[(row * 20) + col] = (((23 as usize) + (row * 19) + (col * 7) + ((row * col) % (11 as usize))) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var index: usize = 0;
+    while index < 144 {
+        scalar_dst[index] = 231 as byte;
+        simd_dst[index] = 231 as byte;
+        index = index + 1;
+    }
+
+    predict_luma_subpixel(&scalar_dst[0] as &byte, 18, &src[0] as &byte, 20, 16, 8, 4 as u8, 0 as u8);
+    predict_luma_subpixel_horizontal_u8x16(&simd_dst[0] as &byte, 18, &src[0] as &byte, 20, 16, 8, 4 as u8);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 144);
+
+    index = 0;
+    while index < 144 {
+        scalar_dst[index] = 41 as byte;
+        simd_dst[index] = 41 as byte;
+        index = index + 1;
+    }
+
+    predict_luma_subpixel(&scalar_dst[2] as &byte, 18, &src[3] as &byte, 20, 8, 8, 7 as u8, 0 as u8);
+    predict_luma_subpixel_horizontal_u8x16(&simd_dst[2] as &byte, 18, &src[3] as &byte, 20, 8, 8, 7 as u8);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 144);
 }
