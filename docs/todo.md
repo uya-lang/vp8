@@ -217,7 +217,7 @@
 - [x] 实现 `--force-simd`。
 - [x] 实现 scalar-vs-simd test harness。
 - [x] 实现 benchmark harness。
-- [ ] 实现 vector load/store helper。
+- [x] 实现 vector load/store helper。
 - [ ] 增加 SIMD kernel 生成 C/汇编检查记录。
 - [ ] 为 kernel benchmark 定义默认启用阈值。
 - [ ] 验证 UYA `@vector(u8,16/32/64)`、`@vector(i16,8/16)`、`@vector(i32,4/8)` 编译能力。

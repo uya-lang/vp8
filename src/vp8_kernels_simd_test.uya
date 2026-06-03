@@ -1,0 +1,69 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.kernels.simd.load_i16x8;
+use vp8.kernels.simd.load_i32x4;
+use vp8.kernels.simd.load_u8x16;
+use vp8.kernels.simd.store_i16x8;
+use vp8.kernels.simd.store_i32x4;
+use vp8.kernels.simd.store_u8x16;
+
+type TestU8x16 = @vector(u8, 16);
+type TestI16x8 = @vector(i16, 8);
+type TestI32x4 = @vector(i32, 4);
+
+test "SIMD helper loads and stores u8x16 blocks" {
+    var src: [u8: 18] = [
+        99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8,
+        9u8, 10u8, 11u8, 12u8, 13u8, 14u8, 15u8, 16u8, 77u8
+    ];
+    var dst: [u8: 18] = [
+        55u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+        0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 66u8
+    ];
+
+    const values: TestU8x16 = load_u8x16(&src[1] as &u8);
+    store_u8x16(&dst[1] as &u8, values);
+
+    try assert_eq_i32(dst[0] as i32, 55);
+    try assert_eq_i32(dst[17] as i32, 66);
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(dst[index + 1] as i32, src[index + 1] as i32);
+        index = index + 1;
+    }
+
+    try expect(@vector.all(values >= @vector.splat(1u8)));
+}
+
+test "SIMD helper loads and stores i16x8 blocks" {
+    var src: [i16: 10] = [ -99, -1, 2, -3, 4, -5, 6, -7, 8, 77 ];
+    var dst: [i16: 10] = [ -55, 0, 0, 0, 0, 0, 0, 0, 0, 66 ];
+
+    const values: TestI16x8 = load_i16x8(&src[1] as &i16);
+    store_i16x8(&dst[1] as &i16, values);
+
+    try assert_eq_i32(dst[0] as i32, -55);
+    try assert_eq_i32(dst[9] as i32, 66);
+    var index: usize = 0;
+    while index < 8 {
+        try assert_eq_i32(dst[index + 1] as i32, src[index + 1] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD helper loads and stores i32x4 blocks" {
+    var src: [i32: 6] = [ -99, 1000, -2000, 3000, -4000, 77 ];
+    var dst: [i32: 6] = [ -55, 0, 0, 0, 0, 66 ];
+
+    const values: TestI32x4 = load_i32x4(&src[1] as &i32);
+    store_i32x4(&dst[1] as &i32, values);
+
+    try assert_eq_i32(dst[0], -55);
+    try assert_eq_i32(dst[5], 66);
+    var index: usize = 0;
+    while index < 4 {
+        try assert_eq_i32(dst[index + 1], src[index + 1]);
+        index = index + 1;
+    }
+}
