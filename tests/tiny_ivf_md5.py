@@ -187,7 +187,7 @@ def write_one_then_eob(writer: BoolWriter, block_type: int, position: int, conte
 
 
 def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
-    writer = BoolWriter(256)
+    writer = BoolWriter(max(256, 1024 + mb_count * 4))
     writer.write(0, 128)
     writer.write(0, 128)
     write_segmentation_header(writer, sample)
@@ -212,13 +212,11 @@ def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
 
     writer.flush()
     encoded = writer.bytes()
-    if len(encoded) > 256:
-        raise RuntimeError(f"first partition too large for {sample.name}: {len(encoded)}")
-    return encoded + bytes(256 - len(encoded))
+    return encoded + bytes(max(0, 256 - len(encoded)))
 
 
 def write_uncompressed_inter_partition(sample: Sample, mb_count: int) -> bytes:
-    writer = BoolWriter(256)
+    writer = BoolWriter(max(256, 1024 + mb_count * 4))
     writer.write(0, 128)
     write_literal(writer, 0, 1)
     write_literal(writer, 0, 6)
@@ -243,14 +241,12 @@ def write_uncompressed_inter_partition(sample: Sample, mb_count: int) -> bytes:
 
     writer.flush()
     encoded = writer.bytes()
-    if len(encoded) > 256:
-        raise RuntimeError(f"first partition too large for {sample.name}: {len(encoded)}")
     if sample.variant == "inter-copy":
         # Minimal reference-reader encoding for is_inter=1, ref=LAST, mv=ZERO after update flags.
-        patched = bytearray(encoded + bytes(256 - len(encoded)))
+        patched = bytearray(encoded + bytes(max(0, 256 - len(encoded))))
         patched[5] = 0x65
         return bytes(patched)
-    return encoded + bytes(256 - len(encoded))
+    return encoded + bytes(max(0, 256 - len(encoded)))
 
 
 def write_gray_mb_tokens(writer: BoolWriter) -> None:
@@ -300,7 +296,7 @@ def write_key_mb_tokens(writer: BoolWriter, sample: Sample, mb_index: int) -> No
 
 
 def write_token_partition(sample: Sample, mb_count: int) -> bytes:
-    writer = BoolWriter(4096)
+    writer = BoolWriter(max(4096, 1024 + mb_count * 8))
     for mb_index in range(mb_count):
         write_key_mb_tokens(writer, sample, mb_index)
     writer.flush()
@@ -314,7 +310,7 @@ def write_token_partitions(sample: Sample, mb_cols: int, mb_rows: int) -> list[b
 
     partitions = []
     for partition_index in range(count):
-        writer = BoolWriter(4096)
+        writer = BoolWriter(max(4096, 1024 + mb_cols * mb_rows * 8))
         for mb_y in range(mb_rows):
             if mb_y % count != partition_index:
                 continue
@@ -326,7 +322,7 @@ def write_token_partitions(sample: Sample, mb_cols: int, mb_rows: int) -> list[b
 
 
 def write_inter_token_partition(mb_count: int) -> bytes:
-    writer = BoolWriter(4096)
+    writer = BoolWriter(max(4096, 1024 + mb_count * 8))
     for _ in range(mb_count):
         for _ in range(16):
             write_eob(writer, 0, 0, 0)

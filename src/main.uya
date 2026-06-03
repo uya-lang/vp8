@@ -3,6 +3,7 @@ use libc.printf;
 use libc.strcmp;
 use libc.FILE;
 use libc.fclose;
+use libc.fprintf;
 use libc.fopen;
 use libc.fread;
 use libc.free;
@@ -18,6 +19,8 @@ use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.allocate_decoder_context_with_thread_scratch;
 use vp8.common.decode_context.free_decoder_context;
 use vp8.common.frame.decoded_frame_release;
+use vp8.common.scratch.token_decode_row_output_bytes;
+use vp8.common.scratch.token_decode_row_scratch_bytes;
 use vp8.container.ivf.IvfFrameIterator;
 use vp8.container.ivf.IvfFrame;
 use vp8.container.ivf.IvfHeader;
@@ -41,6 +44,9 @@ error ErrInvalidFileSize;
 error ErrOutOfMemory;
 error ErrReadFile;
 error ErrWriteFile;
+error ErrCliScratchCapacityOverflow;
+
+const CLI_MIN_ROW_SCRATCH_CAPACITY: usize = 65536;
 
 struct FileBuffer {
     data: &byte,
@@ -54,7 +60,7 @@ fn print_help() void {
     _ = printf("  vp8uya [--force-scalar|--force-simd] [--threads N] <command> [args]\n");
     _ = printf("  vp8uya version\n");
     _ = printf("  vp8uya info <input.ivf>\n");
-    _ = printf("  vp8uya decode <input.ivf> --yuv <out.yuv>\n");
+    _ = printf("  vp8uya decode <input.ivf> --yuv <out.yuv> [--stats <out.jsonl>]\n");
     _ = printf("  vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>\n");
 }
 
@@ -155,12 +161,63 @@ fn write_result_yuv(result: &DecoderFrameResult, fp: &FILE) !void {
     }
 }
 
+fn write_result_stats(result: &DecoderFrameResult, frame_index: u32, fp: &FILE) !void {
+    if fp == null {
+        return;
+    }
+
+    const output_flag: u32 = result.has_output as u32;
+    const written: i32 = fprintf(
+        fp,
+        "{\"frame_index\":%u,\"has_output\":%u,\"macroblock_count\":%u,\"thread_count\":%u,\"hot_loop_heap_allocation_count\":%u,\"bytes_copied_for_ref_refresh\":%u,\"coeff_scratch_bytes_written\":%u,\"coeff_scratch_bytes_read\":%u,\"coeff_scratch_high_water\":%u,\"border_extension_count\":%u}\n",
+        frame_index,
+        output_flag,
+        result.performance.macroblock_count as u32,
+        result.performance.thread_count as u32,
+        result.performance.hot_loop_heap_allocation_count as u32,
+        result.performance.bytes_copied_for_ref_refresh as u32,
+        result.performance.coeff_scratch_bytes_written as u32,
+        result.performance.coeff_scratch_bytes_read as u32,
+        result.performance.coeff_scratch_high_water as u32,
+        result.performance.border_extension_count as u32
+    );
+    if written < 0 {
+        return error.ErrWriteFile;
+    }
+}
+
 fn env_flag_enabled(name: &const byte) bool {
     const value: &byte = getenv(name);
     if value == null {
         return false;
     }
     return strcmp(value as *const byte, "1\0" as *const byte) == 0;
+}
+
+fn cli_row_scratch_capacity(width: usize) !usize {
+    if width == 0 {
+        return error.ErrCliScratchCapacityOverflow;
+    }
+
+    const mb_cols: usize = (width + 15) / 16;
+    if mb_cols == 0 {
+        return error.ErrCliScratchCapacityOverflow;
+    }
+
+    const row_output_bytes: usize = try token_decode_row_output_bytes(mb_cols);
+    const temp_bytes: usize = token_decode_row_scratch_bytes();
+    var needed: usize = row_output_bytes + temp_bytes;
+    if needed < row_output_bytes {
+        return error.ErrCliScratchCapacityOverflow;
+    }
+    needed = needed + 64;
+    if needed < row_output_bytes {
+        return error.ErrCliScratchCapacityOverflow;
+    }
+    if needed < CLI_MIN_ROW_SCRATCH_CAPACITY {
+        return CLI_MIN_ROW_SCRATCH_CAPACITY;
+    }
+    return needed;
 }
 
 fn make_cli_decoder(context: &DecoderContext, force_scalar: bool, force_simd: bool) Decoder {
@@ -176,7 +233,7 @@ fn make_cli_decoder(context: &DecoderContext, force_scalar: bool, force_simd: bo
     return make_decoder(context);
 }
 
-fn run_decode(input_path: &byte, output_path: &byte, force_scalar: bool, force_simd: bool, thread_count: usize) i32 {
+fn run_decode(input_path: &byte, output_path: &byte, stats_path: &byte, force_scalar: bool, force_simd: bool, thread_count: usize) i32 {
     const file: FileBuffer = read_file(input_path) catch {
         _ = printf("error: failed to read input file\n");
         return 2;
@@ -193,7 +250,12 @@ fn run_decode(input_path: &byte, output_path: &byte, force_scalar: bool, force_s
         return 2;
     };
 
-    var context: DecoderContext = allocate_decoder_context_with_thread_scratch(header.width as usize, header.height as usize, 32, 32, 65536, thread_count) catch {
+    const row_scratch_capacity: usize = cli_row_scratch_capacity(header.width as usize) catch {
+        _ = printf("error: invalid decode scratch geometry\n");
+        return 2;
+    };
+
+    var context: DecoderContext = allocate_decoder_context_with_thread_scratch(header.width as usize, header.height as usize, 32, 32, row_scratch_capacity, thread_count) catch {
         _ = printf("error: failed to allocate decoder context\n");
         return 2;
     };
@@ -206,15 +268,31 @@ fn run_decode(input_path: &byte, output_path: &byte, force_scalar: bool, force_s
         return 2;
     }
 
+    var stats: &FILE = null as &FILE;
+    if stats_path != null {
+        stats = fopen(stats_path as *byte, "wb\0" as &byte);
+        if stats == null {
+            _ = fclose(out);
+            _ = printf("error: failed to open stats file\n");
+            return 2;
+        }
+    }
+
     while ivf_frame_iterator_has_next(&iterator) {
         const frame: IvfFrame = ivf_frame_iterator_next(&iterator) catch {
             _ = fclose(out);
+            if stats != null {
+                _ = fclose(stats);
+            }
             _ = printf("error: invalid IVF frame data\n");
             return 2;
         };
 
         var result: DecoderFrameResult = decoder_decode_frame(&decoder, frame.payload.data, frame.payload.len) catch {
             _ = fclose(out);
+            if stats != null {
+                _ = fclose(stats);
+            }
             _ = printf("error: failed to decode VP8 frame\n");
             return 2;
         };
@@ -222,17 +300,36 @@ fn run_decode(input_path: &byte, output_path: &byte, force_scalar: bool, force_s
         write_result_yuv(&result, out) catch {
             _ = decoded_frame_release(&result.output) catch {};
             _ = fclose(out);
+            if stats != null {
+                _ = fclose(stats);
+            }
             _ = printf("error: failed to write YUV output\n");
+            return 2;
+        };
+
+        write_result_stats(&result, frame.index, stats) catch {
+            _ = decoded_frame_release(&result.output) catch {};
+            _ = fclose(out);
+            if stats != null {
+                _ = fclose(stats);
+            }
+            _ = printf("error: failed to write decode stats\n");
             return 2;
         };
 
         _ = decoded_frame_release(&result.output) catch {
             _ = fclose(out);
+            if stats != null {
+                _ = fclose(stats);
+            }
             _ = printf("error: failed to release decoded frame\n");
             return 2;
         };
     }
 
+    if stats != null {
+        _ = fclose(stats);
+    }
     _ = fclose(out);
     return 0;
 }
@@ -254,7 +351,12 @@ fn run_decode_frame(input_path: &byte, frame_index: u32, output_path: &byte, for
         return 2;
     };
 
-    var context: DecoderContext = allocate_decoder_context_with_thread_scratch(header.width as usize, header.height as usize, 32, 32, 65536, thread_count) catch {
+    const row_scratch_capacity: usize = cli_row_scratch_capacity(header.width as usize) catch {
+        _ = printf("error: invalid decode scratch geometry\n");
+        return 2;
+    };
+
+    var context: DecoderContext = allocate_decoder_context_with_thread_scratch(header.width as usize, header.height as usize, 32, 32, row_scratch_capacity, thread_count) catch {
         _ = printf("error: failed to allocate decoder context\n");
         return 2;
     };
@@ -370,14 +472,29 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
     }
     if strcmp(cmd as *const byte, "decode\0" as *const byte) == 0 {
         if (argc as usize) < command_index + 4 {
-            _ = printf("error: decode requires <input.ivf> --yuv <out.yuv>\n");
+            _ = printf("error: decode requires <input.ivf> --yuv <out.yuv> [--stats <out.jsonl>]\n");
             return 2;
         }
         if strcmp(argv[command_index + 2] as *const byte, "--yuv\0" as *const byte) != 0 {
             _ = printf("error: decode currently requires --yuv <out.yuv>\n");
             return 2;
         }
-        return run_decode(argv[command_index + 1], argv[command_index + 3], force_scalar, force_simd, thread_count);
+        var stats_path: &byte = null as &byte;
+        var decode_arg_index: usize = command_index + 4;
+        while (argc as usize) > decode_arg_index {
+            if strcmp(argv[decode_arg_index] as *const byte, "--stats\0" as *const byte) == 0 {
+                if (argc as usize) <= decode_arg_index + 1 {
+                    _ = printf("error: --stats requires <out.jsonl>\n");
+                    return 2;
+                }
+                stats_path = argv[decode_arg_index + 1];
+                decode_arg_index = decode_arg_index + 2;
+            } else {
+                _ = printf("error: unknown decode option: %s\n", argv[decode_arg_index]);
+                return 2;
+            }
+        }
+        return run_decode(argv[command_index + 1], argv[command_index + 3], stats_path, force_scalar, force_simd, thread_count);
     }
     if strcmp(cmd as *const byte, "decode-frame\0" as *const byte) == 0 {
         if (argc as usize) < command_index + 6 {
