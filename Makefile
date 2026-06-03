@@ -56,7 +56,10 @@ test: build check-toolchain $(SAMPLE_IVF)
 	test -x $(BIN)
 	$(BIN) --help >/dev/null
 	$(BIN) version >/dev/null
+	$(BIN) --force-scalar version >/dev/null
+	VP8UYA_FORCE_SCALAR=1 $(BIN) version >/dev/null
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.frame_count=1'
+	$(BIN) --force-scalar info $(SAMPLE_IVF) | grep -q 'ivf.frame_count=1'
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.width=640'
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.height=480'
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.fps=30/1'

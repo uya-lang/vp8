@@ -1,4 +1,5 @@
 use std.testing.assert_eq_i32;
+use std.testing.expect;
 
 use vp8.bitstream.bool_writer.BoolWriter;
 use vp8.bitstream.bool_writer.bool_writer_byte_count;
@@ -17,12 +18,16 @@ use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.decoded_frame_release;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
+use vp8.common.cpu.SimdLevel;
 use vp8.decoder.scalar.Decoder;
 use vp8.decoder.scalar.DecoderFrameResult;
 use vp8.decoder.scalar.decoder_decode_dequant_reconstruct_4x4;
 use vp8.decoder.scalar.decoder_apply_row_delayed_loop_filter;
 use vp8.decoder.scalar.make_decoder;
+use vp8.decoder.scalar.make_decoder_with_kernel_table;
 use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.token.parse.CoefficientBlockSummary;
 use vp8.token.parse.coefficient_band;
 
@@ -66,6 +71,18 @@ fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
 fn test_coeff_prob_offset(block_type: usize, position: usize, context: byte) !usize {
     const band: byte = try coefficient_band(position);
     return ((((block_type * (8 as usize)) + (band as usize)) * (3 as usize)) + (context as usize)) * (11 as usize);
+}
+
+test "Decoder can be constructed with a forced scalar kernel table" {
+    var context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&context);
+
+    const kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var decoder: Decoder = make_decoder_with_kernel_table(&context, &kernels);
+
+    try expect(decoder.kernels.active_level == SimdLevel.scalar);
+    try expect(decoder.kernels.predict_inter_copy_fn != null);
+    try expect(decoder.kernels.add_residual_4x4_clamped_fn != null);
 }
 
 fn write_eob_token(writer: &BoolWriter, coeff_probs: &byte, block_type: usize, position: usize, context: byte) !void {

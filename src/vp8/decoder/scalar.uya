@@ -21,6 +21,8 @@ use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_token_partition_count;
 use vp8.bitstream.header.parse_vp8_token_partition_readers;
 use vp8.bitstream.header.vp8_default_probs;
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.simd_detect_capabilities;
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.decoder_context_begin_frame;
 use vp8.common.coeff_context.AboveLeftCoeffContext;
@@ -45,7 +47,6 @@ use vp8.common.frame.frame_pool_borrow_current_decoded_frame;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
 use vp8.common.mb_info.make_macroblock_coeff_summary;
-use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.DequantFactors;
@@ -58,7 +59,6 @@ use vp8.kernels.scalar.loop_filter_normal_macroblock_edges_yuv;
 use vp8.kernels.scalar.loop_filter_normal_subblock_edges_yuv;
 use vp8.kernels.scalar.loop_filter_simple_macroblock_edges_y;
 use vp8.kernels.scalar.loop_filter_simple_subblock_edges_y;
-use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_uv8x8_dc;
 use vp8.kernels.scalar.predict_uv8x8_horizontal;
 use vp8.kernels.scalar.predict_uv8x8_true_motion;
@@ -77,6 +77,11 @@ use vp8.kernels.scalar.predict_y4x4_true_motion;
 use vp8.kernels.scalar.predict_y4x4_vertical_edge;
 use vp8.kernels.scalar.predict_y4x4_vertical_left;
 use vp8.kernels.scalar.predict_y4x4_vertical_right;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.kernel_table_add_residual_4x4_clamped;
+use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
+use vp8.kernels.dispatch.make_default_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.mode.parse.clamp_inter_motion_vector;
 use vp8.mode.parse.parse_inter_intra_flag;
 use vp8.mode.parse.parse_inter_motion_vector;
@@ -129,6 +134,7 @@ error ErrDecoderUnsupportedSubpixelInterFrame;
 
 export struct Decoder {
     context: &DecoderContext,
+    kernels: KernelFunctionTable,
     coeff_probs: [byte: 1056],
     mv_probs: [byte: 38],
     y_mode_probs: [byte: 4],
@@ -419,7 +425,7 @@ fn coeff_context_store_macroblock_zero(coeff_ctx: &AboveLeftCoeffContext, mb_x: 
     }
 }
 
-fn reconstruct_dequantized_block(coefficients: &i16, dc_factor: i16, ac_factor: i16, dst: &byte, dst_stride: usize, dc_only: bool) void {
+fn reconstruct_dequantized_block(kernels: &KernelFunctionTable, coefficients: &i16, dc_factor: i16, ac_factor: i16, dst: &byte, dst_stride: usize, dc_only: bool) !void {
     var dequantized: [i16: 16] = [];
     var residual: [i16: 16] = [];
 
@@ -429,10 +435,10 @@ fn reconstruct_dequantized_block(coefficients: &i16, dc_factor: i16, ac_factor: 
     } else {
         inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
     }
-    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+    try kernel_table_add_residual_4x4_clamped(kernels, dst, dst_stride, &residual[0] as &i16);
 }
 
-fn reconstruct_y_block_with_optional_y2_dc(coefficients: &i16, y2_dc: i16, ac_factor: i16, dst: &byte, dst_stride: usize, has_ac: bool) void {
+fn reconstruct_y_block_with_optional_y2_dc(kernels: &KernelFunctionTable, coefficients: &i16, y2_dc: i16, ac_factor: i16, dst: &byte, dst_stride: usize, has_ac: bool) !void {
     var dequantized: [i16: 16] = [];
     var residual: [i16: 16] = [];
 
@@ -447,7 +453,7 @@ fn reconstruct_y_block_with_optional_y2_dc(coefficients: &i16, y2_dc: i16, ac_fa
     } else {
         inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
     }
-    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+    try kernel_table_add_residual_4x4_clamped(kernels, dst, dst_stride, &residual[0] as &i16);
 }
 
 fn load_above_edge(src: &byte, out: &byte, width: usize) void {
@@ -660,10 +666,10 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
                         const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
                         if y_mode == VP8_Y_MODE_B {
                             if y_summary.has_coeff {
-                                reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                                try reconstruct_dequantized_block(&decoder.kernels, &coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
                             }
                         } else if y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16) {
-                            reconstruct_y_block_with_optional_y2_dc(&coefficients[0] as &i16, y2_dc[(y_block_y * (4 as usize)) + y_block_x], factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.has_coeff);
+                            try reconstruct_y_block_with_optional_y2_dc(&decoder.kernels, &coefficients[0] as &i16, y2_dc[(y_block_y * (4 as usize)) + y_block_x], factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.has_coeff);
                         }
                     }
 
@@ -686,7 +692,7 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
                         try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
                         if u_summary.has_coeff {
                             const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
-                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                            try reconstruct_dequantized_block(&decoder.kernels, &coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
                         }
                     }
 
@@ -708,7 +714,7 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
                         try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y, v_summary.has_coeff as byte);
                         if v_summary.has_coeff {
                             const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x_v * (4 as usize));
-                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                            try reconstruct_dequantized_block(&decoder.kernels, &coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
                         }
                     }
 
@@ -795,7 +801,7 @@ fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, m
     const src_y_y: usize = ((y_y as i32) + ((mv_y as i32) / 8)) as usize;
     const dst_y_offset: usize = (y_y * dst.y.plane.stride) + y_x;
     const src_y_offset: usize = (src_y_y * reference.y.plane.stride) + src_y_x;
-    predict_inter_copy(&dst.y.plane.origin[dst_y_offset] as &byte, dst.y.plane.stride, &reference.y.plane.origin[src_y_offset] as &byte, reference.y.plane.stride, 16, 16);
+    try kernel_table_predict_inter_copy(&decoder.kernels, &dst.y.plane.origin[dst_y_offset] as &byte, dst.y.plane.stride, &reference.y.plane.origin[src_y_offset] as &byte, reference.y.plane.stride, 16, 16);
 
     const uv_x: usize = mb_x * (8 as usize);
     const uv_y: usize = mb_y * (8 as usize);
@@ -805,8 +811,8 @@ fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, m
     const dst_v_offset: usize = (uv_y * dst.v.plane.stride) + uv_x;
     const src_u_offset: usize = (src_uv_y * reference.u.plane.stride) + src_uv_x;
     const src_v_offset: usize = (src_uv_y * reference.v.plane.stride) + src_uv_x;
-    predict_inter_copy(&dst.u.plane.origin[dst_u_offset] as &byte, dst.u.plane.stride, &reference.u.plane.origin[src_u_offset] as &byte, reference.u.plane.stride, 8, 8);
-    predict_inter_copy(&dst.v.plane.origin[dst_v_offset] as &byte, dst.v.plane.stride, &reference.v.plane.origin[src_v_offset] as &byte, reference.v.plane.stride, 8, 8);
+    try kernel_table_predict_inter_copy(&decoder.kernels, &dst.u.plane.origin[dst_u_offset] as &byte, dst.u.plane.stride, &reference.u.plane.origin[src_u_offset] as &byte, reference.u.plane.stride, 8, 8);
+    try kernel_table_predict_inter_copy(&decoder.kernels, &dst.v.plane.origin[dst_v_offset] as &byte, dst.v.plane.stride, &reference.v.plane.origin[src_v_offset] as &byte, reference.v.plane.stride, 8, 8);
 }
 
 fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8, loop_filter: &Vp8LoopFilterHeader) !void {
@@ -853,7 +859,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
                         try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, y_summary.has_coeff as byte);
                         if y_summary.has_coeff {
                             const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
-                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                            try reconstruct_dequantized_block(&decoder.kernels, &coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
                         }
                     }
                     y_block_x = y_block_x + 1;
@@ -872,7 +878,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
                         try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
                         if u_summary.has_coeff {
                             const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
-                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                            try reconstruct_dequantized_block(&decoder.kernels, &coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
                         }
 
                         const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
@@ -881,7 +887,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
                         try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, v_summary.has_coeff as byte);
                         if v_summary.has_coeff {
                             const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
-                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                            try reconstruct_dequantized_block(&decoder.kernels, &coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
                         }
                     }
                     uv_block_x = uv_block_x + 1;
@@ -903,8 +909,15 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
 }
 
 export fn make_decoder(context: &DecoderContext) Decoder {
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+    const kernels: KernelFunctionTable = make_default_kernel_table(&capabilities);
+    return make_decoder_with_kernel_table(context, &kernels);
+}
+
+export fn make_decoder_with_kernel_table(context: &DecoderContext, kernels: &KernelFunctionTable) Decoder {
     var decoder: Decoder = Decoder{
         context: context,
+        kernels: *kernels,
         coeff_probs: [],
         mv_probs: [],
         y_mode_probs: [ 0, 0, 0, 0 ],
@@ -1011,6 +1024,7 @@ export fn decoder_decode_dequant_reconstruct_4x4(reader: &BoolReader, token_prob
     } else {
         inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
     }
-    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+    const kernels: KernelFunctionTable = make_scalar_kernel_table();
+    try kernel_table_add_residual_4x4_clamped(&kernels, dst, dst_stride, &residual[0] as &i16);
     return summary;
 }
