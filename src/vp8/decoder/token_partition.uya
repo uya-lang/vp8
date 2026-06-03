@@ -1,4 +1,9 @@
 use vp8.bitstream.header.vp8_token_partition_for_row;
+use vp8.decoder.error_merge.DECODER_ERROR_STAGE_TOKEN;
+use vp8.decoder.error_merge.DecoderWorkerError;
+use vp8.decoder.error_merge.decoder_worker_error_before;
+use vp8.decoder.error_merge.empty_decoder_worker_error;
+use vp8.decoder.error_merge.make_decoder_worker_error;
 
 error ErrTokenPartitionWorkerInvalidRows;
 
@@ -104,36 +109,24 @@ export fn make_token_partition_worker_error(worker_index: usize, mb_row: usize, 
     };
 }
 
+fn token_partition_worker_error_as_decoder_error(worker_error: &TokenPartitionWorkerError) DecoderWorkerError {
+    if !worker_error.has_error {
+        return empty_decoder_worker_error();
+    }
+    return make_decoder_worker_error(
+        DECODER_ERROR_STAGE_TOKEN,
+        worker_error.worker_index,
+        worker_error.mb_row,
+        worker_error.partition_id,
+        worker_error.error_id,
+        worker_error.byte_offset
+    );
+}
+
 fn token_partition_worker_error_before(candidate: &TokenPartitionWorkerError, current: &TokenPartitionWorkerError) bool {
-    if !candidate.has_error {
-        return false;
-    }
-    if !current.has_error {
-        return true;
-    }
-
-    if candidate.mb_row < current.mb_row {
-        return true;
-    }
-    if candidate.mb_row > current.mb_row {
-        return false;
-    }
-
-    if candidate.partition_id < current.partition_id {
-        return true;
-    }
-    if candidate.partition_id > current.partition_id {
-        return false;
-    }
-
-    if candidate.worker_index < current.worker_index {
-        return true;
-    }
-    if candidate.worker_index > current.worker_index {
-        return false;
-    }
-
-    return candidate.byte_offset < current.byte_offset;
+    const candidate_error: DecoderWorkerError = token_partition_worker_error_as_decoder_error(candidate);
+    const current_error: DecoderWorkerError = token_partition_worker_error_as_decoder_error(current);
+    return decoder_worker_error_before(&candidate_error, &current_error);
 }
 
 export fn merge_token_partition_worker_errors(errors: &TokenPartitionWorkerError, count: usize) TokenPartitionWorkerError {

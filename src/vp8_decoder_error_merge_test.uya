@@ -1,0 +1,51 @@
+use std.testing.assert_eq_i32;
+
+use vp8.decoder.error_merge.DECODER_ERROR_STAGE_LOOP_FILTER;
+use vp8.decoder.error_merge.DECODER_ERROR_STAGE_RECONSTRUCT;
+use vp8.decoder.error_merge.DECODER_ERROR_STAGE_TOKEN;
+use vp8.decoder.error_merge.DecoderWorkerError;
+use vp8.decoder.error_merge.empty_decoder_worker_error;
+use vp8.decoder.error_merge.make_decoder_worker_error;
+use vp8.decoder.error_merge.merge_decoder_worker_errors;
+
+test "decoder worker errors merge deterministically by row stage and source" {
+    var completion_order: [DecoderWorkerError: 4] = [
+        make_decoder_worker_error(DECODER_ERROR_STAGE_LOOP_FILTER, 0, 1, 0 as u8, 500 as u32, 5),
+        make_decoder_worker_error(DECODER_ERROR_STAGE_TOKEN, 3, 0, 2 as u8, 300 as u32, 90),
+        make_decoder_worker_error(DECODER_ERROR_STAGE_RECONSTRUCT, 1, 0, 0 as u8, 200 as u32, 10),
+        make_decoder_worker_error(DECODER_ERROR_STAGE_TOKEN, 2, 0, 1 as u8, 100 as u32, 80)
+    ];
+
+    const merged: DecoderWorkerError = merge_decoder_worker_errors(&completion_order[0] as &DecoderWorkerError, 4);
+    try assert_eq_i32(merged.has_error as i32, true as i32);
+    try assert_eq_i32(merged.stage as i32, DECODER_ERROR_STAGE_TOKEN as i32);
+    try assert_eq_i32(merged.mb_row as i32, 0);
+    try assert_eq_i32(merged.partition_id as i32, 1);
+    try assert_eq_i32(merged.worker_index as i32, 2);
+    try assert_eq_i32(merged.error_id as i32, 100);
+
+    var shuffled: [DecoderWorkerError: 4] = [
+        completion_order[2],
+        completion_order[0],
+        completion_order[3],
+        completion_order[1]
+    ];
+    const shuffled_merged: DecoderWorkerError = merge_decoder_worker_errors(&shuffled[0] as &DecoderWorkerError, 4);
+    try assert_eq_i32(shuffled_merged.stage as i32, merged.stage as i32);
+    try assert_eq_i32(shuffled_merged.mb_row as i32, merged.mb_row as i32);
+    try assert_eq_i32(shuffled_merged.partition_id as i32, merged.partition_id as i32);
+    try assert_eq_i32(shuffled_merged.worker_index as i32, merged.worker_index as i32);
+    try assert_eq_i32(shuffled_merged.error_id as i32, merged.error_id as i32);
+}
+
+test "decoder worker error merge ignores empty entries and ties by error id" {
+    var errors: [DecoderWorkerError: 3] = [
+        empty_decoder_worker_error(),
+        make_decoder_worker_error(DECODER_ERROR_STAGE_TOKEN, 0, 4, 0 as u8, 22 as u32, 7),
+        make_decoder_worker_error(DECODER_ERROR_STAGE_TOKEN, 0, 4, 0 as u8, 11 as u32, 7)
+    ];
+
+    const merged: DecoderWorkerError = merge_decoder_worker_errors(&errors[0] as &DecoderWorkerError, 3);
+    try assert_eq_i32(merged.has_error as i32, true as i32);
+    try assert_eq_i32(merged.error_id as i32, 11);
+}

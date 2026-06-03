@@ -1,0 +1,97 @@
+export const DECODER_ERROR_STAGE_TOKEN: u8 = 1 as u8;
+export const DECODER_ERROR_STAGE_RECONSTRUCT: u8 = 2 as u8;
+export const DECODER_ERROR_STAGE_LOOP_FILTER: u8 = 3 as u8;
+
+export struct DecoderWorkerError {
+    has_error: bool,
+    stage: u8,
+    worker_index: usize,
+    mb_row: usize,
+    partition_id: u8,
+    error_id: u32,
+    byte_offset: usize
+}
+
+export fn empty_decoder_worker_error() DecoderWorkerError {
+    return DecoderWorkerError{
+        has_error: false,
+        stage: 0 as u8,
+        worker_index: 0,
+        mb_row: 0,
+        partition_id: 0 as u8,
+        error_id: 0 as u32,
+        byte_offset: 0
+    };
+}
+
+export fn make_decoder_worker_error(stage: u8, worker_index: usize, mb_row: usize, partition_id: u8, error_id: u32, byte_offset: usize) DecoderWorkerError {
+    return DecoderWorkerError{
+        has_error: true,
+        stage: stage,
+        worker_index: worker_index,
+        mb_row: mb_row,
+        partition_id: partition_id,
+        error_id: error_id,
+        byte_offset: byte_offset
+    };
+}
+
+export fn decoder_worker_error_before(candidate: &DecoderWorkerError, current: &DecoderWorkerError) bool {
+    if !candidate.has_error {
+        return false;
+    }
+    if !current.has_error {
+        return true;
+    }
+
+    if candidate.mb_row < current.mb_row {
+        return true;
+    }
+    if candidate.mb_row > current.mb_row {
+        return false;
+    }
+
+    if candidate.stage < current.stage {
+        return true;
+    }
+    if candidate.stage > current.stage {
+        return false;
+    }
+
+    if candidate.partition_id < current.partition_id {
+        return true;
+    }
+    if candidate.partition_id > current.partition_id {
+        return false;
+    }
+
+    if candidate.worker_index < current.worker_index {
+        return true;
+    }
+    if candidate.worker_index > current.worker_index {
+        return false;
+    }
+
+    if candidate.byte_offset < current.byte_offset {
+        return true;
+    }
+    if candidate.byte_offset > current.byte_offset {
+        return false;
+    }
+
+    return candidate.error_id < current.error_id;
+}
+
+export fn merge_decoder_worker_errors(errors: &DecoderWorkerError, count: usize) DecoderWorkerError {
+    var best: DecoderWorkerError = empty_decoder_worker_error();
+
+    var index: usize = 0;
+    while index < count {
+        if decoder_worker_error_before(&errors[index] as &DecoderWorkerError, &best) {
+            best = errors[index];
+        }
+        index = index + 1;
+    }
+
+    return best;
+}
