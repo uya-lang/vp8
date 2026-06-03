@@ -1,0 +1,130 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.vp8_default_probs;
+use vp8.common.frame.FrameBuffer;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.mode_decision.ENCODER_MODE_DECISION_INTER_LAST;
+use vp8.encoder.mode_decision.ENCODER_MODE_DECISION_INTRA;
+use vp8.encoder.mode_decision.EncoderMacroblockModeDecision;
+use vp8.encoder.mode_decision.decide_last_frame_inter_or_intra;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_begin_frame;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
+use vp8.mode.parse.VP8_REF_CURRENT;
+use vp8.mode.parse.VP8_REF_LAST;
+use vp8.mode.parse.VP8_UV_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_DC;
+
+fn dummy_mode_decision() EncoderMacroblockModeDecision {
+    return EncoderMacroblockModeDecision{
+        mode_kind: 255 as byte,
+        y_mode: 255 as byte,
+        uv_mode: 255 as byte,
+        ref_frame: 255 as byte,
+        inter_mv_mode: 255 as byte,
+        mv_x: 0 as i16,
+        mv_y: 0 as i16,
+        intra_luma_distortion: 4294967295 as u32,
+        intra_chroma_distortion: 4294967295 as u32,
+        inter_luma_distortion: 4294967295 as u32,
+        inter_rate_cost_q8: 4294967295 as u32,
+        intra_score_q8: 4294967295 as u32,
+        inter_score_q8: 4294967295 as u32,
+        candidates_evaluated: 0,
+        border_extension_count: 0
+    };
+}
+
+fn fill_reference_pattern(frame: &FrameBuffer) void {
+    var row: usize = 0;
+    while row < frame.height {
+        var col: usize = 0;
+        while col < frame.width {
+            frame.y.plane.origin[(row * frame.y.plane.stride) + col] = (((row * 5) + (col * 7) + 13) % (251 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+test "mode decision chooses last-frame inter when motion match beats intra" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 6144] = [];
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[((16 + row) * 64) + 16 + col] = seed.y.plane.origin[((14 + row) * seed.y.plane.stride) + 19 + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6144, 64, 64);
+    const probs: Vp8Probs = vp8_default_probs();
+    const decision: EncoderMacroblockModeDecision = try decide_last_frame_inter_or_intra(&refs, &frame, &probs, 1, 1, 4, 256 as u32);
+
+    try assert_eq_i32(decision.mode_kind as i32, ENCODER_MODE_DECISION_INTER_LAST as i32);
+    try assert_eq_i32(decision.ref_frame as i32, VP8_REF_LAST as i32);
+    try assert_eq_i32(decision.inter_mv_mode as i32, VP8_INTER_MV_MODE_NEW as i32);
+    try assert_eq_i32(decision.mv_x as i32, 24);
+    try assert_eq_i32(decision.mv_y as i32, -16);
+    try assert_eq_i32(decision.inter_luma_distortion as i32, 0);
+    try assert_eq_i32((decision.candidates_evaluated > 0) as i32, true as i32);
+    try assert_eq_i32((decision.border_extension_count > 0) as i32, true as i32);
+    try assert_eq_i32((decision.inter_score_q8 < decision.intra_score_q8) as i32, true as i32);
+}
+
+test "mode decision chooses intra when DC prediction beats last frame" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(32, 32, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 1536] = [];
+    var index: usize = 0;
+    while index < 1536 {
+        input[index] = 128 as byte;
+        index = index + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 1536, 32, 32);
+    const probs: Vp8Probs = vp8_default_probs();
+    const decision: EncoderMacroblockModeDecision = try decide_last_frame_inter_or_intra(&refs, &frame, &probs, 0, 0, 2, 256 as u32);
+
+    try assert_eq_i32(decision.mode_kind as i32, ENCODER_MODE_DECISION_INTRA as i32);
+    try assert_eq_i32(decision.ref_frame as i32, VP8_REF_CURRENT as i32);
+    try assert_eq_i32(decision.y_mode as i32, VP8_Y_MODE_DC as i32);
+    try assert_eq_i32(decision.uv_mode as i32, VP8_UV_MODE_DC as i32);
+    try assert_eq_i32(decision.intra_luma_distortion as i32, 0);
+    try assert_eq_i32(decision.intra_chroma_distortion as i32, 0);
+    try assert_eq_i32((decision.intra_score_q8 <= decision.inter_score_q8) as i32, true as i32);
+}
+
+test "mode decision rejects macroblocks outside the visible frame" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var input: [byte: 384] = [];
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const probs: Vp8Probs = vp8_default_probs();
+
+    var failed: i32 = 0;
+    _ = decide_last_frame_inter_or_intra(&refs, &frame, &probs, 1, 0, 1, 256 as u32) catch {
+        failed = 1;
+        dummy_mode_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}

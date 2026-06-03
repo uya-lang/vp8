@@ -301,7 +301,7 @@
 验收标准：
 
 - [x] UYA decoder 能 decode 自己编码的 keyframe IVF。
-- [~] vpxdec 能 decode UYA encoder 输出。
+- [f] vpxdec 能 decode UYA encoder 输出。
   - blocked: 2026-06-04 本机 PATH 中没有 `vpxdec`，`command -v vpxdec` 返回 1；无法执行真实 libvpx 解码验收。
 - [x] 固定输入输出 deterministic。
 
@@ -312,7 +312,7 @@
 - [x] 实现 integer-pel motion search。
 - [x] 实现 half/quarter-pel refinement。
 - [x] 实现 MV cost。
-- [ ] 实现 inter/intra mode decision。
+- [x] 实现 inter/intra mode decision。
 - [ ] 实现 skip decision。
 - [ ] 实现 golden frame refresh policy。
 - [ ] 实现 altref frame refresh policy。

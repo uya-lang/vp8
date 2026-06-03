@@ -1,0 +1,261 @@
+use vp8.bitstream.header.Vp8Probs;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.YuvPlaneView;
+use vp8.encoder.context.validate_yuv_frame_view;
+use vp8.encoder.mode_search.Intra16x16ModeSearchResult;
+use vp8.encoder.mode_search.UvModeSearchResult;
+use vp8.encoder.mode_search.search_intra16x16_mode;
+use vp8.encoder.mode_search.search_uv_mode;
+use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
+use vp8.encoder.motion_search.SubpixelMotionRefinementResult;
+use vp8.encoder.motion_search.refine_last_frame_half_quarter_pel;
+use vp8.encoder.motion_search.search_last_frame_integer_pel;
+use vp8.encoder.mv_cost.inter_mv_mode_cost_q8;
+use vp8.encoder.mv_cost.mv_delta_cost_q8;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
+use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
+use vp8.mode.parse.VP8_REF_CURRENT;
+use vp8.mode.parse.VP8_REF_LAST;
+
+error ErrEncoderModeDecisionInvalidGeometry;
+error ErrEncoderModeDecisionScoreOverflow;
+
+export const ENCODER_MODE_DECISION_INTRA: byte = 0 as byte;
+export const ENCODER_MODE_DECISION_INTER_LAST: byte = 1 as byte;
+
+const MODE_DECISION_U32_MAX: u64 = 4294967295 as u64;
+
+export struct EncoderMacroblockModeDecision {
+    mode_kind: byte,
+    y_mode: byte,
+    uv_mode: byte,
+    ref_frame: byte,
+    inter_mv_mode: byte,
+    mv_x: i16,
+    mv_y: i16,
+    intra_luma_distortion: u32,
+    intra_chroma_distortion: u32,
+    inter_luma_distortion: u32,
+    inter_rate_cost_q8: u32,
+    intra_score_q8: u32,
+    inter_score_q8: u32,
+    candidates_evaluated: usize,
+    border_extension_count: usize
+}
+
+fn mode_decision_checked_mul_usize(left: usize, right: usize) !usize {
+    const value: usize = left * right;
+    if left != 0 && (value / left) != right {
+        return error.ErrEncoderModeDecisionInvalidGeometry;
+    }
+    return value;
+}
+
+fn mode_decision_checked_add_usize(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrEncoderModeDecisionInvalidGeometry;
+    }
+    return value;
+}
+
+fn mode_decision_plane_block_ptr(plane: &YuvPlaneView, x: usize, y: usize, width: usize, height: usize) !&byte {
+    if plane.data == null || width == 0 || height == 0 {
+        return error.ErrEncoderModeDecisionInvalidGeometry;
+    }
+
+    const end_x: usize = try mode_decision_checked_add_usize(x, width);
+    const end_y: usize = try mode_decision_checked_add_usize(y, height);
+    if end_x > plane.width || end_y > plane.height {
+        return error.ErrEncoderModeDecisionInvalidGeometry;
+    }
+
+    const row_offset: usize = try mode_decision_checked_mul_usize(y, plane.stride);
+    const index: usize = try mode_decision_checked_add_usize(row_offset, x);
+    const last_row_offset: usize = try mode_decision_checked_mul_usize(end_y - 1, plane.stride);
+    const last_index: usize = try mode_decision_checked_add_usize(last_row_offset, end_x - 1);
+    if last_index >= plane.len || index > last_index {
+        return error.ErrEncoderModeDecisionInvalidGeometry;
+    }
+    return &plane.data[index] as &byte;
+}
+
+fn mode_decision_load_left_edge(src: &byte, stride: usize, height: usize, out: &byte) void {
+    var row: usize = 0;
+    while row < height {
+        out[row] = src[row * stride];
+        row = row + 1;
+    }
+}
+
+fn mode_decision_luma_intra(frame: &YuvFrameView, mb_x: usize, mb_y: usize) !Intra16x16ModeSearchResult {
+    const x: usize = mb_x * (16 as usize);
+    const y: usize = mb_y * (16 as usize);
+    const src: &byte = try mode_decision_plane_block_ptr(&frame.y, x, y, 16, 16);
+
+    var above: &byte = null as &byte;
+    const has_above: bool = y != 0;
+    if has_above {
+        above = try mode_decision_plane_block_ptr(&frame.y, x, y - 1, 16, 1);
+    }
+
+    var left: [byte: 16] = [];
+    const has_left: bool = x != 0;
+    if has_left {
+        const left_src: &byte = try mode_decision_plane_block_ptr(&frame.y, x - 1, y, 1, 16);
+        mode_decision_load_left_edge(left_src, frame.y.stride, 16, &left[0] as &byte);
+    }
+
+    var above_left: byte = 0 as byte;
+    if has_above && has_left {
+        above_left = frame.y.data[((y - 1) * frame.y.stride) + x - 1];
+    }
+
+    return try search_intra16x16_mode(src, frame.y.stride, above, has_above, &left[0] as &byte, has_left, above_left);
+}
+
+fn mode_decision_uv_intra(frame: &YuvFrameView, mb_x: usize, mb_y: usize) !UvModeSearchResult {
+    const x: usize = mb_x * (8 as usize);
+    const y: usize = mb_y * (8 as usize);
+    const u_src: &byte = try mode_decision_plane_block_ptr(&frame.u, x, y, 8, 8);
+    const v_src: &byte = try mode_decision_plane_block_ptr(&frame.v, x, y, 8, 8);
+
+    var u_above: &byte = null as &byte;
+    var v_above: &byte = null as &byte;
+    const has_above: bool = y != 0;
+    if has_above {
+        u_above = try mode_decision_plane_block_ptr(&frame.u, x, y - 1, 8, 1);
+        v_above = try mode_decision_plane_block_ptr(&frame.v, x, y - 1, 8, 1);
+    }
+
+    var u_left: [byte: 8] = [];
+    var v_left: [byte: 8] = [];
+    const has_left: bool = x != 0;
+    if has_left {
+        const u_left_src: &byte = try mode_decision_plane_block_ptr(&frame.u, x - 1, y, 1, 8);
+        const v_left_src: &byte = try mode_decision_plane_block_ptr(&frame.v, x - 1, y, 1, 8);
+        mode_decision_load_left_edge(u_left_src, frame.u.stride, 8, &u_left[0] as &byte);
+        mode_decision_load_left_edge(v_left_src, frame.v.stride, 8, &v_left[0] as &byte);
+    }
+
+    var u_above_left: byte = 0 as byte;
+    var v_above_left: byte = 0 as byte;
+    if has_above && has_left {
+        u_above_left = frame.u.data[((y - 1) * frame.u.stride) + x - 1];
+        v_above_left = frame.v.data[((y - 1) * frame.v.stride) + x - 1];
+    }
+
+    return try search_uv_mode(
+        u_src,
+        frame.u.stride,
+        v_src,
+        frame.v.stride,
+        u_above,
+        v_above,
+        has_above,
+        &u_left[0] as &byte,
+        &v_left[0] as &byte,
+        has_left,
+        u_above_left,
+        v_above_left
+    );
+}
+
+fn mode_decision_distortion_score_q8(distortion: u32) !u32 {
+    const value: u64 = (distortion as u64) * (256 as u64);
+    if value > MODE_DECISION_U32_MAX {
+        return error.ErrEncoderModeDecisionScoreOverflow;
+    }
+    return value as u32;
+}
+
+fn mode_decision_scaled_rate_q8(rate_cost_q8: u32, lambda_q8: u32) !u32 {
+    const value: u64 = (rate_cost_q8 as u64) * (lambda_q8 as u64);
+    const scaled: u64 = (value + (128 as u64)) / (256 as u64);
+    if scaled > MODE_DECISION_U32_MAX {
+        return error.ErrEncoderModeDecisionScoreOverflow;
+    }
+    return scaled as u32;
+}
+
+fn mode_decision_add_score(left: u32, right: u32) !u32 {
+    const value: u64 = (left as u64) + (right as u64);
+    if value > MODE_DECISION_U32_MAX {
+        return error.ErrEncoderModeDecisionScoreOverflow;
+    }
+    return value as u32;
+}
+
+fn mode_decision_inter_mode_for_mv(mv_x: i16, mv_y: i16) byte {
+    if mv_x == (0 as i16) && mv_y == (0 as i16) {
+        return VP8_INTER_MV_MODE_ZERO;
+    }
+    return VP8_INTER_MV_MODE_NEW;
+}
+
+fn mode_decision_inter_rate_cost_q8(probs: &Vp8Probs, mv_x: i16, mv_y: i16, inter_mv_mode: byte) !u32 {
+    var cost: u32 = try inter_mv_mode_cost_q8(inter_mv_mode);
+    if inter_mv_mode == VP8_INTER_MV_MODE_NEW {
+        cost = try mode_decision_add_score(cost, try mv_delta_cost_q8(probs, mv_y, mv_x, 0 as i16, 0 as i16));
+    }
+    return cost;
+}
+
+export fn decide_last_frame_inter_or_intra(
+    refs: &EncoderReferenceFramePool,
+    frame: &YuvFrameView,
+    probs: &Vp8Probs,
+    mb_x: usize,
+    mb_y: usize,
+    search_radius: usize,
+    lambda_q8: u32
+) !EncoderMacroblockModeDecision {
+    if refs == null || probs == null {
+        return error.ErrEncoderModeDecisionInvalidGeometry;
+    }
+    try validate_yuv_frame_view(frame);
+
+    const intra_y: Intra16x16ModeSearchResult = try mode_decision_luma_intra(frame, mb_x, mb_y);
+    const intra_uv: UvModeSearchResult = try mode_decision_uv_intra(frame, mb_x, mb_y);
+    const integer: IntegerPelMotionSearchResult = try search_last_frame_integer_pel(refs, frame, mb_x, mb_y, search_radius);
+    const refined: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel(refs, frame, mb_x, mb_y, integer.mv_x, integer.mv_y);
+
+    const inter_mv_mode: byte = mode_decision_inter_mode_for_mv(refined.mv_x, refined.mv_y);
+    const inter_rate_cost_q8: u32 = try mode_decision_inter_rate_cost_q8(probs, refined.mv_x, refined.mv_y, inter_mv_mode);
+    const intra_score_q8: u32 = try mode_decision_distortion_score_q8(intra_y.distortion);
+    const inter_distortion_score_q8: u32 = try mode_decision_distortion_score_q8(refined.distortion);
+    const inter_rate_score_q8: u32 = try mode_decision_scaled_rate_q8(inter_rate_cost_q8, lambda_q8);
+    const inter_score_q8: u32 = try mode_decision_add_score(inter_distortion_score_q8, inter_rate_score_q8);
+
+    var mode_kind: byte = ENCODER_MODE_DECISION_INTRA;
+    var ref_frame: byte = VP8_REF_CURRENT;
+    var mv_x: i16 = 0 as i16;
+    var mv_y: i16 = 0 as i16;
+    var chosen_inter_mode: byte = VP8_INTER_MV_MODE_ZERO;
+    if inter_score_q8 < intra_score_q8 {
+        mode_kind = ENCODER_MODE_DECISION_INTER_LAST;
+        ref_frame = VP8_REF_LAST;
+        mv_x = refined.mv_x;
+        mv_y = refined.mv_y;
+        chosen_inter_mode = inter_mv_mode;
+    }
+
+    return EncoderMacroblockModeDecision{
+        mode_kind: mode_kind,
+        y_mode: intra_y.mode,
+        uv_mode: intra_uv.mode,
+        ref_frame: ref_frame,
+        inter_mv_mode: chosen_inter_mode,
+        mv_x: mv_x,
+        mv_y: mv_y,
+        intra_luma_distortion: intra_y.distortion,
+        intra_chroma_distortion: intra_uv.distortion,
+        inter_luma_distortion: refined.distortion,
+        inter_rate_cost_q8: inter_rate_cost_q8,
+        intra_score_q8: intra_score_q8,
+        inter_score_q8: inter_score_q8,
+        candidates_evaluated: integer.candidates_evaluated + refined.candidates_evaluated,
+        border_extension_count: integer.border_extension_count + refined.border_extension_count
+    };
+}
