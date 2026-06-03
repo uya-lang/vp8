@@ -311,7 +311,7 @@
 - [x] 实现 last frame inter prediction。
 - [x] 实现 integer-pel motion search。
 - [x] 实现 half/quarter-pel refinement。
-- [ ] 实现 MV cost。
+- [x] 实现 MV cost。
 - [ ] 实现 inter/intra mode decision。
 - [ ] 实现 skip decision。
 - [ ] 实现 golden frame refresh policy。

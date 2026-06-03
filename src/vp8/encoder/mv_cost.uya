@@ -1,0 +1,163 @@
+use libc.log2;
+
+use vp8.bitstream.header.Vp8Probs;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEAR;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEAREST;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
+use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
+
+error ErrEncoderMvCostInvalidBit;
+error ErrEncoderMvCostInvalidMode;
+error ErrEncoderMvCostInvalidMagnitude;
+error ErrEncoderMvCostInvalidProbabilityTable;
+
+const MV_COMPONENT_MAX_MAGNITUDE: u32 = 255;
+
+export fn prob_bit_cost_q8(probability: byte, bit: u8) !u32 {
+    var branch_count: u32 = 0;
+    if bit == (0 as u8) {
+        branch_count = probability as u32;
+    } else if bit == (1 as u8) {
+        branch_count = 256 - (probability as u32);
+    } else {
+        return error.ErrEncoderMvCostInvalidBit;
+    }
+
+    if branch_count == 0 {
+        branch_count = 1;
+    }
+    if branch_count == 256 {
+        return 0 as u32;
+    }
+    if branch_count == 128 {
+        return 256 as u32;
+    }
+
+    const probability_value: f64 = (branch_count as f64) / 256.0;
+    return (((0.0 - log2(probability_value)) * 256.0) + 0.5) as u32;
+}
+
+export fn inter_mv_mode_cost_q8(mode: byte) !u32 {
+    if mode == VP8_INTER_MV_MODE_ZERO {
+        return try prob_bit_cost_q8(2 as byte, 0 as u8);
+    }
+    if mode == VP8_INTER_MV_MODE_NEW {
+        return (try prob_bit_cost_q8(2 as byte, 1 as u8)) +
+            (try prob_bit_cost_q8(173 as byte, 1 as u8));
+    }
+    if mode == VP8_INTER_MV_MODE_NEAR {
+        return (try prob_bit_cost_q8(2 as byte, 1 as u8)) +
+            (try prob_bit_cost_q8(173 as byte, 0 as u8)) +
+            (try prob_bit_cost_q8(34 as byte, 0 as u8)) +
+            (try prob_bit_cost_q8(173 as byte, 1 as u8));
+    }
+    if mode == VP8_INTER_MV_MODE_NEAREST {
+        return (try prob_bit_cost_q8(2 as byte, 1 as u8)) +
+            (try prob_bit_cost_q8(173 as byte, 0 as u8)) +
+            (try prob_bit_cost_q8(34 as byte, 0 as u8)) +
+            (try prob_bit_cost_q8(173 as byte, 0 as u8));
+    }
+    return error.ErrEncoderMvCostInvalidMode;
+}
+
+fn mv_cost_abs_i32(value: i32) u32 {
+    if value < 0 {
+        return (0 - value) as u32;
+    }
+    return value as u32;
+}
+
+fn mv_cost_bit_from_bool(value: bool) u8 {
+    if value {
+        return 1 as u8;
+    }
+    return 0 as u8;
+}
+
+fn small_mv_component_cost_q8(probs: &byte, magnitude: u32) !u32 {
+    var cost: u32 = try prob_bit_cost_q8(probs[0], 0 as u8);
+
+    if magnitude <= 1 {
+        cost = cost + (try prob_bit_cost_q8(probs[2], 0 as u8));
+        cost = cost + (try prob_bit_cost_q8(probs[3], 0 as u8));
+        cost = cost + (try prob_bit_cost_q8(probs[4], magnitude as u8));
+        return cost;
+    }
+
+    if magnitude <= 3 {
+        cost = cost + (try prob_bit_cost_q8(probs[2], 0 as u8));
+        cost = cost + (try prob_bit_cost_q8(probs[3], 1 as u8));
+        cost = cost + (try prob_bit_cost_q8(probs[5], (magnitude - 2) as u8));
+        return cost;
+    }
+
+    if magnitude <= 5 {
+        cost = cost + (try prob_bit_cost_q8(probs[2], 1 as u8));
+        cost = cost + (try prob_bit_cost_q8(probs[6], 0 as u8));
+        cost = cost + (try prob_bit_cost_q8(probs[7], (magnitude - 4) as u8));
+        return cost;
+    }
+
+    cost = cost + (try prob_bit_cost_q8(probs[2], 1 as u8));
+    cost = cost + (try prob_bit_cost_q8(probs[6], 1 as u8));
+    cost = cost + (try prob_bit_cost_q8(probs[8], (magnitude - 6) as u8));
+    return cost;
+}
+
+fn large_mv_component_cost_q8(probs: &byte, magnitude: u32) !u32 {
+    var cost: u32 = try prob_bit_cost_q8(probs[0], 1 as u8);
+
+    var literal_index: usize = 0;
+    while literal_index < 4 {
+        const shift: i32 = (3 - literal_index) as i32;
+        const bit: u8 = ((magnitude >> shift) & (1 as u32)) as u8;
+        cost = cost + (try prob_bit_cost_q8(128 as byte, bit));
+        literal_index = literal_index + 1;
+    }
+
+    var bit_index: usize = 0;
+    while bit_index < 4 {
+        const high_bit: u32 = (16 as u32) << (bit_index as i32);
+        cost = cost + (try prob_bit_cost_q8(probs[9 + bit_index], mv_cost_bit_from_bool((magnitude & high_bit) != 0)));
+        bit_index = bit_index + 1;
+    }
+    return cost;
+}
+
+fn mv_component_i32_cost_q8(probs: &byte, component: i32) !u32 {
+    if probs == null {
+        return error.ErrEncoderMvCostInvalidProbabilityTable;
+    }
+
+    const magnitude: u32 = mv_cost_abs_i32(component);
+    if magnitude > MV_COMPONENT_MAX_MAGNITUDE {
+        return error.ErrEncoderMvCostInvalidMagnitude;
+    }
+
+    var cost: u32 = 0;
+    if magnitude <= 7 {
+        cost = try small_mv_component_cost_q8(probs, magnitude);
+    } else {
+        cost = try large_mv_component_cost_q8(probs, magnitude);
+    }
+
+    if magnitude != 0 {
+        cost = cost + (try prob_bit_cost_q8(probs[1], mv_cost_bit_from_bool(component < 0)));
+    }
+    return cost;
+}
+
+export fn mv_component_cost_q8(probs: &byte, component: i16) !u32 {
+    return try mv_component_i32_cost_q8(probs, component as i32);
+}
+
+export fn mv_delta_cost_q8(probs: &Vp8Probs, mv_y: i16, mv_x: i16, base_y: i16, base_x: i16) !u32 {
+    if probs.mv_probs == null || probs.mv_prob_count < 38 {
+        return error.ErrEncoderMvCostInvalidProbabilityTable;
+    }
+
+    const delta_y: i32 = (mv_y as i32) - (base_y as i32);
+    const delta_x: i32 = (mv_x as i32) - (base_x as i32);
+    return (try mv_component_i32_cost_q8(&probs.mv_probs[0] as &byte, delta_y)) +
+        (try mv_component_i32_cost_q8(&probs.mv_probs[19] as &byte, delta_x));
+}

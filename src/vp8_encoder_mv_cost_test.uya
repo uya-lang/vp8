@@ -1,0 +1,65 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.vp8_default_probs;
+use vp8.encoder.mv_cost.inter_mv_mode_cost_q8;
+use vp8.encoder.mv_cost.mv_component_cost_q8;
+use vp8.encoder.mv_cost.mv_delta_cost_q8;
+use vp8.encoder.mv_cost.prob_bit_cost_q8;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
+use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
+
+test "probability bit cost is symmetric at 128 and monotonic" {
+    try assert_eq_i32((try prob_bit_cost_q8(128 as byte, 0 as u8)) as i32, 256);
+    try assert_eq_i32((try prob_bit_cost_q8(128 as byte, 1 as u8)) as i32, 256);
+
+    const likely_zero: u32 = try prob_bit_cost_q8(224 as byte, 0 as u8);
+    const unlikely_one: u32 = try prob_bit_cost_q8(224 as byte, 1 as u8);
+    try assert_eq_i32((likely_zero < unlikely_one) as i32, true as i32);
+}
+
+test "inter mv mode cost follows decoder mode tree branches" {
+    const zero_cost: u32 = try inter_mv_mode_cost_q8(VP8_INTER_MV_MODE_ZERO);
+    const new_cost: u32 = try inter_mv_mode_cost_q8(VP8_INTER_MV_MODE_NEW);
+
+    try assert_eq_i32(zero_cost as i32, (try prob_bit_cost_q8(2 as byte, 0 as u8)) as i32);
+    try assert_eq_i32(new_cost as i32, ((try prob_bit_cost_q8(2 as byte, 1 as u8)) + (try prob_bit_cost_q8(173 as byte, 1 as u8))) as i32);
+}
+
+test "mv component cost charges magnitude tree and sign bit" {
+    const probs: Vp8Probs = vp8_default_probs();
+    const zero_cost: u32 = try mv_component_cost_q8(&probs.mv_probs[0] as &byte, 0 as i16);
+    const large_cost: u32 = try mv_component_cost_q8(&probs.mv_probs[0] as &byte, 16 as i16);
+    var custom_probs: [byte: 19] = [
+        162, 200, 225, 146, 172, 147, 214, 39, 156, 128, 129, 132, 75, 145, 178, 206, 239, 254, 254
+    ];
+    const positive_cost: u32 = try mv_component_cost_q8(&custom_probs[0] as &byte, 3 as i16);
+    const negative_cost: u32 = try mv_component_cost_q8(&custom_probs[0] as &byte, -3 as i16);
+
+    try assert_eq_i32((zero_cost < large_cost) as i32, true as i32);
+    try assert_eq_i32((negative_cost > positive_cost) as i32, true as i32);
+    try assert_eq_i32((negative_cost - positive_cost) as i32, ((try prob_bit_cost_q8(custom_probs[1], 1 as u8)) - (try prob_bit_cost_q8(custom_probs[1], 0 as u8))) as i32);
+}
+
+test "mv delta cost is additive across x and y components" {
+    const probs: Vp8Probs = vp8_default_probs();
+    const y_delta: i16 = 4 as i16;
+    const x_delta: i16 = 4 as i16;
+    const expected: u32 = (try mv_component_cost_q8(&probs.mv_probs[0] as &byte, y_delta)) +
+        (try mv_component_cost_q8(&probs.mv_probs[19] as &byte, x_delta));
+
+    const got: u32 = try mv_delta_cost_q8(&probs, 12 as i16, -4 as i16, 8 as i16, -8 as i16);
+    try assert_eq_i32(got as i32, expected as i32);
+}
+
+test "mv delta cost rejects incomplete mv probability tables" {
+    var probs: Vp8Probs = vp8_default_probs();
+    probs.mv_prob_count = 37;
+
+    var failed: i32 = 0;
+    _ = mv_delta_cost_q8(&probs, 0 as i16, 0 as i16, 0 as i16, 0 as i16) catch {
+        failed = 1;
+        0 as u32;
+    };
+    try assert_eq_i32(failed, 1);
+}
