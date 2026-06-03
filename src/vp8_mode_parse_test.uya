@@ -44,7 +44,8 @@ fn parse_y_mode_from_bits(bits: &u8, count: usize) !byte {
     var encoded: [byte: 16] = [];
     var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 16);
     const probs: Vp8Probs = vp8_default_probs();
-    try write_bits(&writer, bits, count, &probs.y_mode_probs[0] as &byte);
+    var key_probs: [byte: 4] = [ 145, 156, 163, 128 ];
+    try write_bits(&writer, bits, count, &key_probs[0] as &byte);
     try bool_writer_flush(&writer);
 
     var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 16);
@@ -55,7 +56,8 @@ fn parse_uv_mode_from_bits(bits: &u8, count: usize) !byte {
     var encoded: [byte: 16] = [];
     var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 16);
     const probs: Vp8Probs = vp8_default_probs();
-    try write_bits(&writer, bits, count, &probs.uv_mode_probs[0] as &byte);
+    var key_probs: [byte: 3] = [ 142, 114, 183 ];
+    try write_bits(&writer, bits, count, &key_probs[0] as &byte);
     try bool_writer_flush(&writer);
 
     var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 16);
@@ -207,17 +209,17 @@ fn parse_mv_from_script(mode_bits: &u8, mode_count: usize, new_y: i16, new_x: i1
 }
 
 test "parse key frame macroblock y mode tree" {
-    var dc_bits: [u8: 1] = [ 0 ];
-    var v_bits: [u8: 2] = [ 1, 0 ];
+    var b_bits: [u8: 1] = [ 0 ];
+    var dc_bits: [u8: 3] = [ 1, 0, 0 ];
+    var v_bits: [u8: 3] = [ 1, 0, 1 ];
     var h_bits: [u8: 3] = [ 1, 1, 0 ];
-    var tm_bits: [u8: 4] = [ 1, 1, 1, 0 ];
-    var b_bits: [u8: 4] = [ 1, 1, 1, 1 ];
+    var tm_bits: [u8: 3] = [ 1, 1, 1 ];
 
-    try assert_eq_i32((try parse_y_mode_from_bits(&dc_bits[0] as &u8, 1)) as i32, 0);
-    try assert_eq_i32((try parse_y_mode_from_bits(&v_bits[0] as &u8, 2)) as i32, 1);
+    try assert_eq_i32((try parse_y_mode_from_bits(&b_bits[0] as &u8, 1)) as i32, 4);
+    try assert_eq_i32((try parse_y_mode_from_bits(&dc_bits[0] as &u8, 3)) as i32, 0);
+    try assert_eq_i32((try parse_y_mode_from_bits(&v_bits[0] as &u8, 3)) as i32, 1);
     try assert_eq_i32((try parse_y_mode_from_bits(&h_bits[0] as &u8, 3)) as i32, 2);
-    try assert_eq_i32((try parse_y_mode_from_bits(&tm_bits[0] as &u8, 4)) as i32, 3);
-    try assert_eq_i32((try parse_y_mode_from_bits(&b_bits[0] as &u8, 4)) as i32, 4);
+    try assert_eq_i32((try parse_y_mode_from_bits(&tm_bits[0] as &u8, 3)) as i32, 3);
 }
 
 test "parse key frame macroblock uv mode tree" {
@@ -310,15 +312,17 @@ test "small key frame mode map matches golden macroblock order" {
     var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
     const probs: Vp8Probs = vp8_default_probs();
 
-    var dc_y_bits: [u8: 1] = [ 0 ];
-    var v_y_bits: [u8: 2] = [ 1, 0 ];
+    var key_y_probs: [byte: 4] = [ 145, 156, 163, 128 ];
+    var key_uv_probs: [byte: 3] = [ 142, 114, 183 ];
+    var dc_y_bits: [u8: 3] = [ 1, 0, 0 ];
+    var v_y_bits: [u8: 3] = [ 1, 0, 1 ];
     var dc_uv_bits: [u8: 1] = [ 0 ];
     var v_uv_bits: [u8: 2] = [ 1, 0 ];
 
-    try write_bits(&writer, &dc_y_bits[0] as &u8, 1, &probs.y_mode_probs[0] as &byte);
-    try write_bits(&writer, &dc_uv_bits[0] as &u8, 1, &probs.uv_mode_probs[0] as &byte);
-    try write_bits(&writer, &v_y_bits[0] as &u8, 2, &probs.y_mode_probs[0] as &byte);
-    try write_bits(&writer, &v_uv_bits[0] as &u8, 2, &probs.uv_mode_probs[0] as &byte);
+    try write_bits(&writer, &dc_y_bits[0] as &u8, 3, &key_y_probs[0] as &byte);
+    try write_bits(&writer, &dc_uv_bits[0] as &u8, 1, &key_uv_probs[0] as &byte);
+    try write_bits(&writer, &v_y_bits[0] as &u8, 3, &key_y_probs[0] as &byte);
+    try write_bits(&writer, &v_uv_bits[0] as &u8, 2, &key_uv_probs[0] as &byte);
     try bool_writer_flush(&writer);
 
     var grid: MacroblockGrid = try macroblock_grid_for_frame(32, 16);
@@ -344,10 +348,12 @@ test "key frame mode map reads skip coefficient flag before macroblock modes" {
     const prob_skip_false: byte = 120 as byte;
 
     try bool_writer_write(&writer, 1 as u8, prob_skip_false);
-    var dc_y_bits: [u8: 1] = [ 0 ];
+    var key_y_probs: [byte: 4] = [ 145, 156, 163, 128 ];
+    var key_uv_probs: [byte: 3] = [ 142, 114, 183 ];
+    var dc_y_bits: [u8: 3] = [ 1, 0, 0 ];
     var dc_uv_bits: [u8: 1] = [ 0 ];
-    try write_bits(&writer, &dc_y_bits[0] as &u8, 1, &probs.y_mode_probs[0] as &byte);
-    try write_bits(&writer, &dc_uv_bits[0] as &u8, 1, &probs.uv_mode_probs[0] as &byte);
+    try write_bits(&writer, &dc_y_bits[0] as &u8, 3, &key_y_probs[0] as &byte);
+    try write_bits(&writer, &dc_uv_bits[0] as &u8, 1, &key_uv_probs[0] as &byte);
     try bool_writer_flush(&writer);
 
     var grid: MacroblockGrid = try macroblock_grid_for_frame(16, 16);

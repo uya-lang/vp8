@@ -26,7 +26,7 @@
       "frame_count": 1,
       "output_frames": 1,
       "yuv_bytes": 384,
-      "yuv_md5": "5b811f8dcf01249891776066e0f3e7e2"
+      "yuv_md5": "02b5d5d5ba2a5de00017b31c40c527bc"
     },
     {
       "name": "v-dc-16x16",
@@ -39,7 +39,7 @@
       "frame_count": 1,
       "output_frames": 1,
       "yuv_bytes": 384,
-      "yuv_md5": "ebcdf5dd1274dc0e22582f169df6137f"
+      "yuv_md5": "02b5d5d5ba2a5de00017b31c40c527bc"
     },
     {
       "name": "gray-32x16",
@@ -78,7 +78,7 @@
       "frame_count": 2,
       "output_frames": 2,
       "yuv_bytes": 768,
-      "yuv_md5": "c620b3f0df394a7509cb2a26dde5a3d5"
+      "yuv_md5": "e979abdb2b582b325de6f5bb97b0e643"
     },
     {
       "name": "segmentation-zero-16x16",
@@ -105,7 +105,7 @@
       "output_frames": 1,
       "token_partitions": 4,
       "yuv_bytes": 1536,
-      "yuv_md5": "b8a24b9e33b5b90ed627a72133cb9d74"
+      "yuv_md5": "fe9733a1ef21e979fbd8b00080423cf3"
     }
   ]
 }

@@ -68,10 +68,12 @@ fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
         index = index + 1;
     }
     try bool_writer_write(writer, 0 as u8, 128 as byte);
-    const y_mode_probs: [byte: 4] = [ 112, 86, 140, 37 ];
-    const uv_mode_probs: [byte: 3] = [ 162, 101, 204 ];
-    try bool_writer_write(writer, 0 as u8, y_mode_probs[0]);
-    try bool_writer_write(writer, 0 as u8, uv_mode_probs[0]);
+    const key_y_mode_probs: [byte: 4] = [ 145, 156, 163, 128 ];
+    const key_uv_mode_probs: [byte: 3] = [ 142, 114, 183 ];
+    try bool_writer_write(writer, 1 as u8, key_y_mode_probs[0]);
+    try bool_writer_write(writer, 0 as u8, key_y_mode_probs[1]);
+    try bool_writer_write(writer, 0 as u8, key_y_mode_probs[2]);
+    try bool_writer_write(writer, 0 as u8, key_uv_mode_probs[0]);
     try bool_writer_flush(writer);
 }
 
@@ -242,7 +244,7 @@ fn write_minimal_inter_first_partition(writer: &BoolWriter) !void {
 
     try bool_writer_write(writer, 1 as u8, 145 as byte);
     try bool_writer_write(writer, 0 as u8, 156 as byte);
-    try bool_writer_write(writer, 0 as u8, 2 as byte);
+    try bool_writer_write(writer, 0 as u8, 163 as byte);
     try bool_writer_flush(writer);
 }
 
@@ -332,7 +334,7 @@ test "Decoder.decode_frame wires header mode token readers and scalar kernel sta
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
 }
 
-test "key frame decode applies token residuals into current frame" {
+test "key frame decode parses token residuals into current frame" {
     var first_partition: [byte: 256] = [];
     var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
     try write_minimal_key_frame_partition(&first_writer);
@@ -353,8 +355,8 @@ test "key frame decode applies token residuals into current frame" {
 
     const current: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.current_slot);
     try assert_eq_i32(current.y.plane.origin[0] as i32, 128);
-    try assert_eq_i32(current.u.plane.origin[0] as i32, 129);
-    try assert_eq_i32(current.u.plane.origin[3] as i32, 129);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
+    try assert_eq_i32(current.u.plane.origin[3] as i32, 128);
     try assert_eq_i32(current.u.plane.origin[4] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
     try expect(context.scratch.coeff_bytes_written > 0);
@@ -385,7 +387,7 @@ test "decode_frame returns output frame only when show_frame is set" {
     try assert_eq_i32(shown.output.view.width as i32, 16);
     try assert_eq_i32(shown.output.view.height as i32, 16);
     try assert_eq_i32(shown.output.view.y.origin[0] as i32, 128);
-    try assert_eq_i32(shown.output.view.u.origin[0] as i32, 129);
+    try assert_eq_i32(shown.output.view.u.origin[0] as i32, 128);
     try assert_eq_i32(show_context.frame_pool.slot_lease_count0 as i32, 1);
 
     var hidden_frame: [byte: 330] = [];

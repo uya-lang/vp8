@@ -134,6 +134,8 @@ def parse_uya_byte_array(name: str) -> list[int]:
 DEFAULT_COEFF_PROBS = parse_uya_byte_array("VP8_DEFAULT_COEFF_PROBS")
 COEFF_UPDATE_PROBS = parse_uya_byte_array("VP8_COEFF_UPDATE_PROBS")
 MV_UPDATE_PROBS = parse_uya_byte_array("VP8_MV_UPDATE_PROBS")
+KEY_Y_MODE_PROBS = [145, 156, 163, 128]
+KEY_UV_MODE_PROBS = [142, 114, 183]
 Y_MODE_PROBS = [112, 86, 140, 37]
 UV_MODE_PROBS = [162, 101, 204]
 
@@ -207,8 +209,10 @@ def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
         writer.write(0, probability)
     writer.write(0, 128)
     for _ in range(mb_count):
-        writer.write(0, Y_MODE_PROBS[0])
-        writer.write(0, UV_MODE_PROBS[0])
+        writer.write(1, KEY_Y_MODE_PROBS[0])
+        writer.write(0, KEY_Y_MODE_PROBS[1])
+        writer.write(0, KEY_Y_MODE_PROBS[2])
+        writer.write(0, KEY_UV_MODE_PROBS[0])
 
     writer.flush()
     encoded = writer.bytes()

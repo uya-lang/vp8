@@ -112,6 +112,8 @@ use vp8.kernels.dispatch.make_default_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.mode.parse.clamp_inter_motion_vector;
 use vp8.mode.parse.parse_inter_intra_flag;
+use vp8.mode.parse.parse_inter_frame_uv_mode;
+use vp8.mode.parse.parse_inter_frame_y_mode;
 use vp8.mode.parse.parse_inter_motion_vector;
 use vp8.mode.parse.parse_inter_reference_frame;
 use vp8.mode.parse.parse_key_frame_mode_map;
@@ -907,8 +909,8 @@ fn parse_inter_mode_map(decoder: &Decoder, reader: &BoolReader, probs: &Vp8Probs
                 decoder.context.mb_info.mv_x[mb_index] = mv.x;
                 decoder.context.mb_info.mv_y[mb_index] = mv.y;
             } else {
-                const y_mode: byte = try parse_key_frame_y_mode(reader, probs);
-                const uv_mode: byte = try parse_key_frame_uv_mode(reader, probs);
+                const y_mode: byte = try parse_inter_frame_y_mode(reader, probs);
+                const uv_mode: byte = try parse_inter_frame_uv_mode(reader, probs);
                 decoder.context.mb_info.y_mode[mb_index] = y_mode;
                 decoder.context.mb_info.uv_mode[mb_index] = uv_mode;
                 decoder.context.mb_info.skip_coeff[mb_index] = skip_coeff as byte;

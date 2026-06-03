@@ -97,6 +97,9 @@ var VP8_KF_BMODE_PROBS: [byte: 900] = [
     32, 41, 20, 117, 151, 142, 20, 21, 163, 112, 19, 12, 61, 195, 128, 48, 4, 24
 ];
 
+var VP8_KF_Y_MODE_PROBS: [byte: 4] = [ 145, 156, 163, 128 ];
+var VP8_KF_UV_MODE_PROBS: [byte: 3] = [ 142, 114, 183 ];
+
 export fn vp8_kf_bmode_prob(above: byte, left: byte, tree_index: usize) !byte {
     if above >= (10 as byte) || left >= (10 as byte) || tree_index >= 9 {
         return error.ErrVp8BModeProbOutOfBounds;
@@ -106,6 +109,23 @@ export fn vp8_kf_bmode_prob(above: byte, left: byte, tree_index: usize) !byte {
 }
 
 export fn parse_key_frame_y_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
+    _ = probs;
+    if (try read_bit_with_probability(reader, VP8_KF_Y_MODE_PROBS[0])) == 0 {
+        return VP8_Y_MODE_B;
+    }
+    if (try read_bit_with_probability(reader, VP8_KF_Y_MODE_PROBS[1])) == 0 {
+        if (try read_bit_with_probability(reader, VP8_KF_Y_MODE_PROBS[2])) == 0 {
+            return VP8_Y_MODE_DC;
+        }
+        return VP8_Y_MODE_V;
+    }
+    if (try read_bit_with_probability(reader, VP8_KF_Y_MODE_PROBS[3])) == 0 {
+        return VP8_Y_MODE_H;
+    }
+    return VP8_Y_MODE_TM;
+}
+
+export fn parse_inter_frame_y_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
     if (try read_bit_with_probability(reader, probs.y_mode_probs[0])) == 0 {
         return VP8_Y_MODE_DC;
     }
@@ -122,6 +142,33 @@ export fn parse_key_frame_y_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
 }
 
 export fn parse_key_frame_uv_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
+    _ = probs;
+    if (try read_bit_with_probability(reader, VP8_KF_UV_MODE_PROBS[0])) == 0 {
+        return VP8_UV_MODE_DC;
+    }
+    if (try read_bit_with_probability(reader, VP8_KF_UV_MODE_PROBS[1])) == 0 {
+        return VP8_UV_MODE_V;
+    }
+    if (try read_bit_with_probability(reader, VP8_KF_UV_MODE_PROBS[2])) == 0 {
+        return VP8_UV_MODE_H;
+    }
+    return VP8_UV_MODE_TM;
+}
+
+fn key_frame_y_mode_as_b_context(y_mode: byte) byte {
+    if y_mode == VP8_Y_MODE_V {
+        return VP8_B_MODE_VE;
+    }
+    if y_mode == VP8_Y_MODE_H {
+        return VP8_B_MODE_HE;
+    }
+    if y_mode == VP8_Y_MODE_TM {
+        return VP8_B_MODE_TM;
+    }
+    return VP8_B_MODE_DC;
+}
+
+export fn parse_inter_frame_uv_mode(reader: &BoolReader, probs: &Vp8Probs) !byte {
     if (try read_bit_with_probability(reader, probs.uv_mode_probs[0])) == 0 {
         return VP8_UV_MODE_DC;
     }
@@ -210,23 +257,43 @@ export fn parse_skip_coefficient_flag(reader: &BoolReader, skip_enabled: bool, p
 }
 
 export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, skip_enabled: bool, prob_skip_false: byte, info: &MacroblockInfoArrays) !void {
-    var above_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
-    var left_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
     var output_b_modes: [byte: 16] = [];
 
     var mb_y: usize = 0;
     while mb_y < info.mb_rows {
         var mb_x: usize = 0;
         while mb_x < info.mb_cols {
+            var above_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
+            var left_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
+            if mb_y > 0 {
+                const above_index: usize = (((mb_y - 1) * info.mb_cols) + mb_x) * (16 as usize);
+                var above_block: usize = 0;
+                while above_block < 4 {
+                    above_b_modes[above_block] = info.b_mode[above_index + 12 + above_block];
+                    above_block = above_block + 1;
+                }
+            }
+            if mb_x > 0 {
+                const left_index: usize = ((mb_y * info.mb_cols) + (mb_x - 1)) * (16 as usize);
+                var left_block: usize = 0;
+                while left_block < 4 {
+                    left_b_modes[left_block] = info.b_mode[left_index + (left_block * 4) + 3];
+                    left_block = left_block + 1;
+                }
+            }
+
             const skip_coeff: bool = try parse_skip_coefficient_flag(reader, skip_enabled, prob_skip_false);
             const y_mode: byte = try parse_key_frame_y_mode(reader, probs);
             if y_mode == VP8_Y_MODE_B {
                 try parse_key_frame_luma_4x4_modes(reader, &above_b_modes[0] as &byte, &left_b_modes[0] as &byte, &output_b_modes[0] as &byte);
             } else {
+                const b_context_mode: byte = key_frame_y_mode_as_b_context(y_mode);
                 var mode_index: usize = 0;
                 while mode_index < 4 {
-                    above_b_modes[mode_index] = y_mode;
-                    left_b_modes[mode_index] = y_mode;
+                    output_b_modes[mode_index] = b_context_mode;
+                    output_b_modes[mode_index + 4] = b_context_mode;
+                    output_b_modes[mode_index + 8] = b_context_mode;
+                    output_b_modes[mode_index + 12] = b_context_mode;
                     mode_index = mode_index + 1;
                 }
             }
@@ -248,6 +315,13 @@ export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, skip_e
                 while block_index < 16 {
                     try macroblock_info_set_b_mode(info, mb_x, mb_y, block_index, output_b_modes[block_index]);
                     block_index = block_index + 1;
+                }
+            } else {
+                const fill_b_context_mode: byte = key_frame_y_mode_as_b_context(y_mode);
+                var fill_block_index: usize = 0;
+                while fill_block_index < 16 {
+                    try macroblock_info_set_b_mode(info, mb_x, mb_y, fill_block_index, fill_b_context_mode);
+                    fill_block_index = fill_block_index + 1;
                 }
             }
 
