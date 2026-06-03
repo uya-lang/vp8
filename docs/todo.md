@@ -225,10 +225,10 @@
 
 验收标准：
 
-- [ ] 任意 kernel 可在运行时切换 scalar/SIMD。
-- [ ] SIMD 不可用时自动回退 scalar。
-- [ ] benchmark 能分别输出 scalar 和 SIMD 指标。
-- [ ] 未通过生成代码检查或 benchmark 阈值的 kernel 不进入默认 dispatcher。
+- [x] 任意 kernel 可在运行时切换 scalar/SIMD。
+- [x] SIMD 不可用时自动回退 scalar。
+- [x] benchmark 能分别输出 scalar 和 SIMD 指标。
+- [x] 未通过生成代码检查或 benchmark 阈值的 kernel 不进入默认 dispatcher。
 
 ## Phase 10: SIMD Decoder Kernels
 
