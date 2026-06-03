@@ -63,6 +63,23 @@ fn clip_i32_to_u8(value: i32) byte {
     return value as byte;
 }
 
+fn abs_i32(value: i32) i32 {
+    if value < 0 {
+        return 0 - value;
+    }
+    return value;
+}
+
+fn signed_char_clamp(value: i32) i32 {
+    if value < -128 {
+        return -128;
+    }
+    if value > 127 {
+        return 127;
+    }
+    return value;
+}
+
 fn subpixel_offset_index(offset: u8) usize {
     if offset > (7 as u8) {
         return 7;
@@ -370,6 +387,114 @@ export fn predict_luma_subpixel_vertical_u8x16(dst: &byte, dst_stride: usize, sr
             col = col + 1;
         }
         row = row + 1;
+    }
+}
+
+fn simple_loop_filter_passes(p1: byte, p0: byte, q0: byte, q1: byte, limit: u8) bool {
+    const score: i32 = (abs_i32((p0 as i32) - (q0 as i32)) * 2) + (abs_i32((p1 as i32) - (q1 as i32)) >> 1);
+    return score <= (limit as i32);
+}
+
+fn apply_simple_loop_filter_values(p1: byte, p0: &byte, q0: &byte, q1: byte, limit: u8) void {
+    const p0_value: byte = p0[0];
+    const q0_value: byte = q0[0];
+    if !simple_loop_filter_passes(p1, p0_value, q0_value, q1, limit) {
+        return;
+    }
+
+    const outer: i32 = signed_char_clamp((p1 as i32) - (q1 as i32));
+    const filter_value: i32 = signed_char_clamp(outer + (3 * ((q0_value as i32) - (p0_value as i32))));
+    const filter1: i32 = signed_char_clamp(filter_value + 4) >> 3;
+    const filter2: i32 = signed_char_clamp(filter_value + 3) >> 3;
+    q0[0] = clip_i32_to_u8((q0_value as i32) - filter1);
+    p0[0] = clip_i32_to_u8((p0_value as i32) + filter2);
+}
+
+fn apply_simple_loop_filter_sample(base: &byte, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, limit: u8) void {
+    apply_simple_loop_filter_values(base[p1_index], &base[p0_index] as &byte, &base[q0_index] as &byte, base[q1_index], limit);
+}
+
+fn apply_simple_loop_filter_lanes(p1: &byte, p0: &byte, q0: &byte, q1: &byte, limit: u8, lanes: usize) void {
+    var lane: usize = 0;
+    while lane < lanes {
+        apply_simple_loop_filter_values(p1[lane], &p0[lane] as &byte, &q0[lane] as &byte, q1[lane], limit);
+        lane = lane + 1;
+    }
+}
+
+export fn loop_filter_simple_vertical_edge_u8x16(base: &byte, stride: usize, edge_col: usize, rows: usize, limit: u8) void {
+    var row: usize = 0;
+    while (row + 16) <= rows {
+        var p1_lanes: [byte: 16] = [];
+        var p0_lanes: [byte: 16] = [];
+        var q0_lanes: [byte: 16] = [];
+        var q1_lanes: [byte: 16] = [];
+
+        var lane: usize = 0;
+        while lane < 16 {
+            const sample_row: usize = row + lane;
+            const row_base: usize = sample_row * stride;
+            p1_lanes[lane] = base[row_base + edge_col - 2];
+            p0_lanes[lane] = base[row_base + edge_col - 1];
+            q0_lanes[lane] = base[row_base + edge_col];
+            q1_lanes[lane] = base[row_base + edge_col + 1];
+            lane = lane + 1;
+        }
+
+        apply_simple_loop_filter_lanes(&p1_lanes[0] as &byte, &p0_lanes[0] as &byte, &q0_lanes[0] as &byte, &q1_lanes[0] as &byte, limit, 16);
+
+        lane = 0;
+        while lane < 16 {
+            const sample_row: usize = row + lane;
+            const row_base: usize = sample_row * stride;
+            base[row_base + edge_col - 1] = p0_lanes[lane];
+            base[row_base + edge_col] = q0_lanes[lane];
+            lane = lane + 1;
+        }
+        row = row + 16;
+    }
+
+    while row < rows {
+        const row_base: usize = row * stride;
+        apply_simple_loop_filter_sample(base, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, limit);
+        row = row + 1;
+    }
+}
+
+export fn loop_filter_simple_horizontal_edge_u8x16(base: &byte, stride: usize, edge_row: usize, cols: usize, limit: u8) void {
+    const p1_base: usize = (edge_row - 2) * stride;
+    const p0_base: usize = (edge_row - 1) * stride;
+    const q0_base: usize = edge_row * stride;
+    const q1_base: usize = (edge_row + 1) * stride;
+
+    var col: usize = 0;
+    while (col + 16) <= cols {
+        var p1_lanes: [byte: 16] = [];
+        var p0_lanes: [byte: 16] = [];
+        var q0_lanes: [byte: 16] = [];
+        var q1_lanes: [byte: 16] = [];
+
+        const p1_values: U8x16 = load_u8x16(&base[p1_base + col] as &u8);
+        const p0_values: U8x16 = load_u8x16(&base[p0_base + col] as &u8);
+        const q0_values: U8x16 = load_u8x16(&base[q0_base + col] as &u8);
+        const q1_values: U8x16 = load_u8x16(&base[q1_base + col] as &u8);
+        store_u8x16(&p1_lanes[0] as &u8, p1_values);
+        store_u8x16(&p0_lanes[0] as &u8, p0_values);
+        store_u8x16(&q0_lanes[0] as &u8, q0_values);
+        store_u8x16(&q1_lanes[0] as &u8, q1_values);
+
+        apply_simple_loop_filter_lanes(&p1_lanes[0] as &byte, &p0_lanes[0] as &byte, &q0_lanes[0] as &byte, &q1_lanes[0] as &byte, limit, 16);
+
+        const filtered_p0: U8x16 = load_u8x16(&p0_lanes[0] as &u8);
+        const filtered_q0: U8x16 = load_u8x16(&q0_lanes[0] as &u8);
+        store_u8x16(&base[p0_base + col] as &u8, filtered_p0);
+        store_u8x16(&base[q0_base + col] as &u8, filtered_q0);
+        col = col + 16;
+    }
+
+    while col < cols {
+        apply_simple_loop_filter_sample(base, p1_base + col, p0_base + col, q0_base + col, q1_base + col, limit);
+        col = col + 1;
     }
 }
 

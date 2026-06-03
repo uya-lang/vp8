@@ -7,6 +7,8 @@ use vp8.common.plane.make_plane_view;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
+use vp8.kernels.scalar.loop_filter_simple_horizontal_edge;
+use vp8.kernels.scalar.loop_filter_simple_vertical_edge;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.predict_y16x16_dc;
@@ -33,6 +35,8 @@ use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
+use vp8.kernels.simd.loop_filter_simple_horizontal_edge_u8x16;
+use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
 use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.plane_copy_u8x16;
 use vp8.kernels.simd.plane_fill_u8x16;
@@ -705,4 +709,77 @@ test "SIMD luma sub-pixel vertical filter matches scalar byte exact" {
     predict_luma_subpixel(&scalar_dst[2] as &byte, 18, &src[4] as &byte, 21, 8, 8, 0 as u8, 7 as u8);
     predict_luma_subpixel_vertical_u8x16(&simd_dst[2] as &byte, 18, &src[4] as &byte, 21, 8, 8, 7 as u8);
     try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 144);
+}
+
+test "SIMD simple loop filter matches scalar byte exact" {
+    var scalar_vertical: [byte: 256] = [];
+    var simd_vertical: [byte: 256] = [];
+    var index: usize = 0;
+    while index < 256 {
+        scalar_vertical[index] = 77 as byte;
+        simd_vertical[index] = 77 as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 16 {
+        const base: usize = row * 16;
+        if row < 8 {
+            scalar_vertical[base + 3] = 100 as byte;
+            scalar_vertical[base + 4] = 110 as byte;
+            scalar_vertical[base + 5] = 120 as byte;
+            scalar_vertical[base + 6] = 125 as byte;
+        } else {
+            scalar_vertical[base + 3] = 0 as byte;
+            scalar_vertical[base + 4] = 10 as byte;
+            scalar_vertical[base + 5] = 240 as byte;
+            scalar_vertical[base + 6] = 255 as byte;
+        }
+        simd_vertical[base + 3] = scalar_vertical[base + 3];
+        simd_vertical[base + 4] = scalar_vertical[base + 4];
+        simd_vertical[base + 5] = scalar_vertical[base + 5];
+        simd_vertical[base + 6] = scalar_vertical[base + 6];
+        row = row + 1;
+    }
+
+    loop_filter_simple_vertical_edge(&scalar_vertical[0] as &byte, 16, 5, 16, 40 as u8);
+    loop_filter_simple_vertical_edge_u8x16(&simd_vertical[0] as &byte, 16, 5, 16, 40 as u8);
+    try assert_y16_buffers_equal(&scalar_vertical[0] as &byte, &simd_vertical[0] as &byte, 256);
+
+    var scalar_horizontal: [byte: 256] = [];
+    var simd_horizontal: [byte: 256] = [];
+    index = 0;
+    while index < 256 {
+        scalar_horizontal[index] = 33 as byte;
+        simd_horizontal[index] = 33 as byte;
+        index = index + 1;
+    }
+
+    var col: usize = 0;
+    while col < 16 {
+        const h_p1: usize = (3 * 16) + col;
+        const h_p0: usize = (4 * 16) + col;
+        const h_q0: usize = (5 * 16) + col;
+        const h_q1: usize = (6 * 16) + col;
+        if col < 8 {
+            scalar_horizontal[h_p1] = 128 as byte;
+            scalar_horizontal[h_p0] = 122 as byte;
+            scalar_horizontal[h_q0] = 110 as byte;
+            scalar_horizontal[h_q1] = 100 as byte;
+        } else {
+            scalar_horizontal[h_p1] = 0 as byte;
+            scalar_horizontal[h_p0] = 10 as byte;
+            scalar_horizontal[h_q0] = 240 as byte;
+            scalar_horizontal[h_q1] = 255 as byte;
+        }
+        simd_horizontal[h_p1] = scalar_horizontal[h_p1];
+        simd_horizontal[h_p0] = scalar_horizontal[h_p0];
+        simd_horizontal[h_q0] = scalar_horizontal[h_q0];
+        simd_horizontal[h_q1] = scalar_horizontal[h_q1];
+        col = col + 1;
+    }
+
+    loop_filter_simple_horizontal_edge(&scalar_horizontal[0] as &byte, 16, 5, 16, 40 as u8);
+    loop_filter_simple_horizontal_edge_u8x16(&simd_horizontal[0] as &byte, 16, 5, 16, 40 as u8);
+    try assert_y16_buffers_equal(&scalar_horizontal[0] as &byte, &simd_horizontal[0] as &byte, 256);
 }
