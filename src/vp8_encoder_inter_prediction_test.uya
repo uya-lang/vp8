@@ -1,0 +1,83 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_buffer_border_dirty;
+use vp8.encoder.inter_prediction.EncoderInterPredictionResult;
+use vp8.encoder.inter_prediction.predict_last_frame_macroblock;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_begin_frame;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_last;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
+
+test "encoder last frame inter prediction copies zero motion macroblock" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    seed.y.plane.origin[0] = 41 as byte;
+    seed.y.plane.origin[15] = 42 as byte;
+    seed.y.plane.origin[15 * seed.y.plane.stride] = 43 as byte;
+    seed.u.plane.origin[0] = 91 as byte;
+    seed.v.plane.origin[0] = 111 as byte;
+    try encoder_reference_refresh(&refs, true, false, false);
+
+    const last: &FrameBuffer = try encoder_reference_last(&refs);
+    try expect(frame_buffer_border_dirty(last));
+    try encoder_reference_begin_frame(&refs);
+
+    const result: EncoderInterPredictionResult = try predict_last_frame_macroblock(&refs, &kernels, 0, 0, 0 as i16, 0 as i16);
+    try assert_eq_i32(result.border_extension_count as i32, 3);
+    try expect(!frame_buffer_border_dirty(last));
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    try assert_eq_i32(current.y.plane.origin[0] as i32, 41);
+    try assert_eq_i32(current.y.plane.origin[15] as i32, 42);
+    try assert_eq_i32(current.y.plane.origin[15 * current.y.plane.stride] as i32, 43);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 91);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 111);
+}
+
+test "encoder last frame inter prediction uses reference border for negative integer motion" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(32, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    seed.y.plane.origin[0] = 10 as byte;
+    seed.y.plane.origin[1] = 20 as byte;
+    seed.y.plane.origin[2] = 30 as byte;
+    seed.u.plane.origin[0] = 80 as byte;
+    seed.v.plane.origin[0] = 90 as byte;
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    const result: EncoderInterPredictionResult = try predict_last_frame_macroblock(&refs, &kernels, 0, 0, -8 as i16, 0 as i16);
+    try assert_eq_i32(result.border_extension_count as i32, 3);
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    try assert_eq_i32(current.y.plane.origin[0] as i32, 10);
+    try assert_eq_i32(current.y.plane.origin[1] as i32, 10);
+    try assert_eq_i32(current.y.plane.origin[2] as i32, 20);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 80);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 90);
+}
+
+test "encoder last frame inter prediction rejects subpixel motion before refinement" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+
+    var rejected: bool = false;
+    _ = predict_last_frame_macroblock(&refs, &kernels, 0, 0, 4 as i16, 0 as i16) catch {
+        rejected = true;
+        EncoderInterPredictionResult{ border_extension_count: 0 };
+    };
+    try expect(rejected);
+}

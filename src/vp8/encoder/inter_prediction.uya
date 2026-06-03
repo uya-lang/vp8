@@ -1,0 +1,122 @@
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_buffer_extend_border_counted;
+use vp8.common.plane.Plane;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_last;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
+
+error ErrEncoderInterPredictionInvalidGeometry;
+error ErrEncoderInterPredictionUnsupportedSubpixel;
+error ErrEncoderInterPredictionOutOfBounds;
+
+export struct EncoderInterPredictionResult {
+    border_extension_count: usize
+}
+
+fn encoder_inter_prediction_checked_product(a: usize, b: usize) !usize {
+    const product: usize = a * b;
+    if a != 0 && (product / a) != b {
+        return error.ErrEncoderInterPredictionOutOfBounds;
+    }
+    return product;
+}
+
+fn encoder_inter_prediction_plane_data_index(plane: &Plane, x: i32, y: i32) !usize {
+    const border: i32 = plane.border as i32;
+    const data_x: i32 = x + border;
+    const data_y: i32 = y + border;
+    if data_x < 0 || data_y < 0 {
+        return error.ErrEncoderInterPredictionOutOfBounds;
+    }
+    if (data_x as usize) >= plane.stride {
+        return error.ErrEncoderInterPredictionOutOfBounds;
+    }
+
+    const row_offset: usize = try encoder_inter_prediction_checked_product(data_y as usize, plane.stride);
+    const index: usize = row_offset + (data_x as usize);
+    if index < row_offset || index >= plane.storage_len {
+        return error.ErrEncoderInterPredictionOutOfBounds;
+    }
+    return index;
+}
+
+fn encoder_inter_prediction_block_data_index(plane: &Plane, x: i32, y: i32, width: usize, height: usize) !usize {
+    if width == 0 || height == 0 || plane.data == null {
+        return error.ErrEncoderInterPredictionInvalidGeometry;
+    }
+
+    const block_width: i32 = width as i32;
+    const block_height: i32 = height as i32;
+    const last_x: i32 = x + block_width - 1;
+    const last_y: i32 = y + block_height - 1;
+
+    const start: usize = try encoder_inter_prediction_plane_data_index(plane, x, y);
+    _ = try encoder_inter_prediction_plane_data_index(plane, last_x, y);
+    _ = try encoder_inter_prediction_plane_data_index(plane, x, last_y);
+    _ = try encoder_inter_prediction_plane_data_index(plane, last_x, last_y);
+    return start;
+}
+
+fn encoder_inter_prediction_validate_frames(current: &FrameBuffer, reference: &FrameBuffer) !void {
+    if current.width == 0 || current.height == 0 {
+        return error.ErrEncoderInterPredictionInvalidGeometry;
+    }
+    if current.width != reference.width || current.height != reference.height {
+        return error.ErrEncoderInterPredictionInvalidGeometry;
+    }
+    if current.y.plane.width != reference.y.plane.width || current.y.plane.height != reference.y.plane.height {
+        return error.ErrEncoderInterPredictionInvalidGeometry;
+    }
+    if current.u.plane.width != reference.u.plane.width || current.u.plane.height != reference.u.plane.height {
+        return error.ErrEncoderInterPredictionInvalidGeometry;
+    }
+    if current.v.plane.width != reference.v.plane.width || current.v.plane.height != reference.v.plane.height {
+        return error.ErrEncoderInterPredictionInvalidGeometry;
+    }
+}
+
+fn encoder_inter_prediction_validate_macroblock(current: &FrameBuffer, mb_x: usize, mb_y: usize) !void {
+    const dst_y_x: usize = mb_x * (16 as usize);
+    const dst_y_y: usize = mb_y * (16 as usize);
+    if dst_y_x >= current.width || dst_y_y >= current.height {
+        return error.ErrEncoderInterPredictionOutOfBounds;
+    }
+}
+
+export fn predict_last_frame_macroblock(refs: &EncoderReferenceFramePool, kernels: &KernelFunctionTable, mb_x: usize, mb_y: usize, mv_x: i16, mv_y: i16) !EncoderInterPredictionResult {
+    if (mv_x % (8 as i16)) != (0 as i16) || (mv_y % (8 as i16)) != (0 as i16) {
+        return error.ErrEncoderInterPredictionUnsupportedSubpixel;
+    }
+
+    const current: &FrameBuffer = try encoder_reference_current(refs);
+    const reference: &FrameBuffer = try encoder_reference_last(refs);
+    try encoder_inter_prediction_validate_frames(current, reference);
+    try encoder_inter_prediction_validate_macroblock(current, mb_x, mb_y);
+
+    const border_extension_count: usize = frame_buffer_extend_border_counted(reference);
+
+    const dst_y_x: i32 = (mb_x * (16 as usize)) as i32;
+    const dst_y_y: i32 = (mb_y * (16 as usize)) as i32;
+    const src_y_x: i32 = dst_y_x + ((mv_x as i32) / 8);
+    const src_y_y: i32 = dst_y_y + ((mv_y as i32) / 8);
+    const dst_y_index: usize = try encoder_inter_prediction_block_data_index(&current.y.plane, dst_y_x, dst_y_y, 16, 16);
+    const src_y_index: usize = try encoder_inter_prediction_block_data_index(&reference.y.plane, src_y_x, src_y_y, 16, 16);
+    try kernel_table_predict_inter_copy(kernels, &current.y.plane.data[dst_y_index] as &byte, current.y.plane.stride, &reference.y.plane.data[src_y_index] as &byte, reference.y.plane.stride, 16, 16);
+
+    const dst_uv_x: i32 = (mb_x * (8 as usize)) as i32;
+    const dst_uv_y: i32 = (mb_y * (8 as usize)) as i32;
+    const src_uv_x: i32 = dst_uv_x + ((mv_x as i32) / 16);
+    const src_uv_y: i32 = dst_uv_y + ((mv_y as i32) / 16);
+    const dst_u_index: usize = try encoder_inter_prediction_block_data_index(&current.u.plane, dst_uv_x, dst_uv_y, 8, 8);
+    const dst_v_index: usize = try encoder_inter_prediction_block_data_index(&current.v.plane, dst_uv_x, dst_uv_y, 8, 8);
+    const src_u_index: usize = try encoder_inter_prediction_block_data_index(&reference.u.plane, src_uv_x, src_uv_y, 8, 8);
+    const src_v_index: usize = try encoder_inter_prediction_block_data_index(&reference.v.plane, src_uv_x, src_uv_y, 8, 8);
+    try kernel_table_predict_inter_copy(kernels, &current.u.plane.data[dst_u_index] as &byte, current.u.plane.stride, &reference.u.plane.data[src_u_index] as &byte, reference.u.plane.stride, 8, 8);
+    try kernel_table_predict_inter_copy(kernels, &current.v.plane.data[dst_v_index] as &byte, current.v.plane.stride, &reference.v.plane.data[src_v_index] as &byte, reference.v.plane.stride, 8, 8);
+
+    return EncoderInterPredictionResult{
+        border_extension_count: border_extension_count
+    };
+}

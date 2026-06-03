@@ -308,7 +308,7 @@
 ## Phase 13: Inter Encoder
 
 - [x] 实现 reference frame pool for encoder。
-- [ ] 实现 last frame inter prediction。
+- [x] 实现 last frame inter prediction。
 - [ ] 实现 integer-pel motion search。
 - [ ] 实现 half/quarter-pel refinement。
 - [ ] 实现 MV cost。
