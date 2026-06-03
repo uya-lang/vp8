@@ -1,0 +1,241 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8QuantHeader;
+use vp8.common.frame.FrameBuffer;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.inter_reconstruct.EncoderInterMacroblockReconstruction;
+use vp8.encoder.inter_reconstruct.reconstruct_last_frame_inter_macroblock;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_begin_frame;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
+use vp8.token.parse.CoefficientBlockSummary;
+
+fn test_quant() Vp8QuantHeader {
+    return Vp8QuantHeader{
+        base_qindex: 0 as u8,
+        y1_dc_delta: 0,
+        y2_dc_delta: 0,
+        y2_ac_delta: 0,
+        uv_dc_delta: 0,
+        uv_ac_delta: 0
+    };
+}
+
+fn dummy_inter_reconstruct() EncoderInterMacroblockReconstruction {
+    return EncoderInterMacroblockReconstruction{
+        border_extension_count: 0,
+        y_nonzero_block_count: 0,
+        uv_nonzero_block_count: 0,
+        nonzero_coefficient_count: 0
+    };
+}
+
+fn fill_reference_and_input(frame: &FrameBuffer, input: &byte) void {
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            const value: byte = (((row * 11) + (col * 7) + 33) % (251 as usize)) as byte;
+            frame.y.plane.origin[(row * frame.y.plane.stride) + col] = value;
+            input[(row * 16) + col] = value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    row = 0;
+    while row < 8 {
+        var col: usize = 0;
+        while col < 8 {
+            const chroma_index: usize = (row * 8) + col;
+            frame.u.plane.origin[(row * frame.u.plane.stride) + col] = 91 as byte;
+            frame.v.plane.origin[(row * frame.v.plane.stride) + col] = 117 as byte;
+            input[256 + chroma_index] = 91 as byte;
+            input[320 + chroma_index] = 117 as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn fill_constant_reference(frame: &FrameBuffer, y_value: byte, u_value: byte, v_value: byte) void {
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            frame.y.plane.origin[(row * frame.y.plane.stride) + col] = y_value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    row = 0;
+    while row < 8 {
+        var col: usize = 0;
+        while col < 8 {
+            frame.u.plane.origin[(row * frame.u.plane.stride) + col] = u_value;
+            frame.v.plane.origin[(row * frame.v.plane.stride) + col] = v_value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn fill_constant_i420(input: &byte, y_value: byte, u_value: byte, v_value: byte) void {
+    var index: usize = 0;
+    while index < 256 {
+        input[index] = y_value;
+        index = index + 1;
+    }
+    while index < 320 {
+        input[index] = u_value;
+        index = index + 1;
+    }
+    while index < 384 {
+        input[index] = v_value;
+        index = index + 1;
+    }
+}
+
+test "inter reconstruction preserves prediction when residual quantizes to zero" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var input: [byte: 384] = [];
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_and_input(seed, &input[0] as &byte);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const quant: Vp8QuantHeader = test_quant();
+    var y: [CoefficientBlockSummary: 16] = [];
+    var u: [CoefficientBlockSummary: 4] = [];
+    var v: [CoefficientBlockSummary: 4] = [];
+
+    const result: EncoderInterMacroblockReconstruction = try reconstruct_last_frame_inter_macroblock(
+        &refs,
+        &kernels,
+        &frame,
+        &quant,
+        0,
+        0,
+        0 as i16,
+        0 as i16,
+        &y[0] as &CoefficientBlockSummary,
+        &u[0] as &CoefficientBlockSummary,
+        &v[0] as &CoefficientBlockSummary
+    );
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    try assert_eq_i32(result.border_extension_count as i32, 3);
+    try assert_eq_i32(result.y_nonzero_block_count as i32, 0);
+    try assert_eq_i32(result.uv_nonzero_block_count as i32, 0);
+    try assert_eq_i32(result.nonzero_coefficient_count as i32, 0);
+    try assert_eq_i32(y[0].has_coeff as i32, false as i32);
+    try assert_eq_i32(current.y.plane.origin[0] as i32, input[0] as i32);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 91);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 117);
+}
+
+test "inter reconstruction applies quantized luma residual over last-frame prediction" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_constant_reference(seed, 100 as byte, 128 as byte, 129 as byte);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 384] = [];
+    fill_constant_i420(&input[0] as &byte, 132 as byte, 128 as byte, 129 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const quant: Vp8QuantHeader = test_quant();
+    var y: [CoefficientBlockSummary: 16] = [];
+    var u: [CoefficientBlockSummary: 4] = [];
+    var v: [CoefficientBlockSummary: 4] = [];
+
+    const result: EncoderInterMacroblockReconstruction = try reconstruct_last_frame_inter_macroblock(
+        &refs,
+        &kernels,
+        &frame,
+        &quant,
+        0,
+        0,
+        0 as i16,
+        0 as i16,
+        &y[0] as &CoefficientBlockSummary,
+        &u[0] as &CoefficientBlockSummary,
+        &v[0] as &CoefficientBlockSummary
+    );
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    try assert_eq_i32(result.y_nonzero_block_count as i32, 16);
+    try assert_eq_i32(result.uv_nonzero_block_count as i32, 0);
+    try assert_eq_i32((result.nonzero_coefficient_count > 0) as i32, true as i32);
+    try assert_eq_i32(y[0].has_coeff as i32, true as i32);
+    try assert_eq_i32(u[0].has_coeff as i32, false as i32);
+    try assert_eq_i32(v[0].has_coeff as i32, false as i32);
+    try assert_eq_i32((current.y.plane.origin[0] > (100 as byte)) as i32, true as i32);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 129);
+}
+
+test "inter reconstruction rejects invalid motion and summary outputs" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var input: [byte: 384] = [];
+    fill_constant_i420(&input[0] as &byte, 100 as byte, 128 as byte, 129 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const quant: Vp8QuantHeader = test_quant();
+    var y: [CoefficientBlockSummary: 16] = [];
+    var u: [CoefficientBlockSummary: 4] = [];
+    var v: [CoefficientBlockSummary: 4] = [];
+
+    var failed: i32 = 0;
+    _ = reconstruct_last_frame_inter_macroblock(
+        &refs,
+        &kernels,
+        &frame,
+        &quant,
+        0,
+        0,
+        4 as i16,
+        0 as i16,
+        &y[0] as &CoefficientBlockSummary,
+        &u[0] as &CoefficientBlockSummary,
+        &v[0] as &CoefficientBlockSummary
+    ) catch {
+        failed = 1;
+        dummy_inter_reconstruct();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = reconstruct_last_frame_inter_macroblock(
+        &refs,
+        &kernels,
+        &frame,
+        &quant,
+        0,
+        0,
+        0 as i16,
+        0 as i16,
+        null as &CoefficientBlockSummary,
+        &u[0] as &CoefficientBlockSummary,
+        &v[0] as &CoefficientBlockSummary
+    ) catch {
+        failed = 1;
+        dummy_inter_reconstruct();
+    };
+    try assert_eq_i32(failed, 1);
+}

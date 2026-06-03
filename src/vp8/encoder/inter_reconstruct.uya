@@ -1,0 +1,238 @@
+use vp8.bitstream.header.Vp8QuantHeader;
+use vp8.common.frame.FrameBuffer;
+use vp8.common.plane.Plane;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.YuvPlaneView;
+use vp8.encoder.context.validate_yuv_frame_view;
+use vp8.encoder.inter_prediction.EncoderInterPredictionResult;
+use vp8.encoder.inter_prediction.predict_last_frame_macroblock;
+use vp8.encoder.quant.forward_dct_4x4;
+use vp8.encoder.quant.quantize_block_4x4;
+use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.scalar.DequantFactors;
+use vp8.kernels.scalar.build_dequant_factors;
+use vp8.token.parse.CoefficientBlockSummary;
+
+error ErrEncoderInterReconstructInvalidInput;
+error ErrEncoderInterReconstructInvalidGeometry;
+
+export struct EncoderInterMacroblockReconstruction {
+    border_extension_count: usize,
+    y_nonzero_block_count: usize,
+    uv_nonzero_block_count: usize,
+    nonzero_coefficient_count: usize
+}
+
+fn encoder_inter_reconstruct_empty_summary() CoefficientBlockSummary {
+    return CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 0 as byte
+    };
+}
+
+fn encoder_inter_reconstruct_store_summary(dst: &CoefficientBlockSummary, src: &CoefficientBlockSummary) void {
+    dst.has_coeff = src.has_coeff;
+    dst.dc_only = src.dc_only;
+    dst.coefficient_count = src.coefficient_count;
+    dst.eob_position = src.eob_position;
+}
+
+fn encoder_inter_reconstruct_validate_inputs(
+    refs: &EncoderReferenceFramePool,
+    kernels: &KernelFunctionTable,
+    frame: &YuvFrameView,
+    quant: &Vp8QuantHeader,
+    y_summaries: &CoefficientBlockSummary,
+    u_summaries: &CoefficientBlockSummary,
+    v_summaries: &CoefficientBlockSummary
+) !void {
+    if refs == null || kernels == null || frame == null || quant == null {
+        return error.ErrEncoderInterReconstructInvalidInput;
+    }
+    if y_summaries == null || u_summaries == null || v_summaries == null {
+        return error.ErrEncoderInterReconstructInvalidInput;
+    }
+    try validate_yuv_frame_view(frame);
+}
+
+fn encoder_inter_reconstruct_validate_current(frame: &YuvFrameView, current: &FrameBuffer) !void {
+    if current.width != frame.width || current.height != frame.height {
+        return error.ErrEncoderInterReconstructInvalidGeometry;
+    }
+    if current.y.plane.width != frame.y.width || current.y.plane.height != frame.y.height {
+        return error.ErrEncoderInterReconstructInvalidGeometry;
+    }
+    if current.u.plane.width != frame.u.width || current.u.plane.height != frame.u.height {
+        return error.ErrEncoderInterReconstructInvalidGeometry;
+    }
+    if current.v.plane.width != frame.v.width || current.v.plane.height != frame.v.height {
+        return error.ErrEncoderInterReconstructInvalidGeometry;
+    }
+}
+
+fn encoder_inter_reconstruct_clamp_coord(value: usize, limit: usize) usize {
+    if value >= limit {
+        return limit - 1;
+    }
+    return value;
+}
+
+fn encoder_inter_reconstruct_sample_plane_clamped(plane: &YuvPlaneView, x: usize, y: usize) byte {
+    const sample_x: usize = encoder_inter_reconstruct_clamp_coord(x, plane.width);
+    const sample_y: usize = encoder_inter_reconstruct_clamp_coord(y, plane.height);
+    return plane.data[(sample_y * plane.stride) + sample_x];
+}
+
+fn encoder_inter_reconstruct_build_residual_4x4(src: &YuvPlaneView, recon_plane: &Plane, x: usize, y: usize, residual: &i16) void {
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            const src_value: byte = encoder_inter_reconstruct_sample_plane_clamped(src, x + col, y + row);
+            const predicted: byte = recon_plane.origin[((y + row) * recon_plane.stride) + x + col];
+            residual[(row * 4) + col] = ((src_value as i32) - (predicted as i32)) as i16;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn encoder_inter_reconstruct_one_block(
+    src: &YuvPlaneView,
+    recon_plane: &Plane,
+    x: usize,
+    y: usize,
+    dc_factor: i16,
+    ac_factor: i16
+) !CoefficientBlockSummary {
+    var residual: [i16: 16] = [];
+    var dct: [i16: 16] = [];
+    var qcoeff: [i16: 16] = [];
+    var dqcoeff: [i16: 16] = [];
+
+    encoder_inter_reconstruct_build_residual_4x4(src, recon_plane, x, y, &residual[0] as &i16);
+    forward_dct_4x4(&residual[0] as &i16, 4, &dct[0] as &i16);
+    const summary: CoefficientBlockSummary = try quantize_block_4x4(&dct[0] as &i16, dc_factor, ac_factor, &qcoeff[0] as &i16, &dqcoeff[0] as &i16);
+    try reconstruct_quantized_block_4x4(&qcoeff[0] as &i16, dc_factor, ac_factor, &recon_plane.origin[(y * recon_plane.stride) + x] as &byte, recon_plane.stride, summary.dc_only);
+    return summary;
+}
+
+fn encoder_inter_reconstruct_record_summary(y_nonzero: &usize, uv_nonzero: &usize, nonzero_coefficients: &usize, summary: &CoefficientBlockSummary, is_luma: bool) void {
+    if !summary.has_coeff {
+        return;
+    }
+    if is_luma {
+        y_nonzero[0] = y_nonzero[0] + 1;
+    } else {
+        uv_nonzero[0] = uv_nonzero[0] + 1;
+    }
+    nonzero_coefficients[0] = nonzero_coefficients[0] + (summary.coefficient_count as usize);
+}
+
+fn encoder_inter_reconstruct_y_blocks(
+    y_nonzero: &usize,
+    uv_nonzero: &usize,
+    nonzero_coefficients: &usize,
+    frame: &YuvFrameView,
+    current: &FrameBuffer,
+    factors: &DequantFactors,
+    mb_x: usize,
+    mb_y: usize,
+    y_summaries: &CoefficientBlockSummary
+) !void {
+    var block_y: usize = 0;
+    while block_y < 4 {
+        var block_x: usize = 0;
+        while block_x < 4 {
+            const index: usize = (block_y * (4 as usize)) + block_x;
+            const x: usize = (mb_x * (16 as usize)) + (block_x * (4 as usize));
+            const y: usize = (mb_y * (16 as usize)) + (block_y * (4 as usize));
+            var summary: CoefficientBlockSummary = try encoder_inter_reconstruct_one_block(&frame.y, &current.y.plane, x, y, factors.y1_dc, factors.y1_ac);
+            encoder_inter_reconstruct_store_summary(&y_summaries[index] as &CoefficientBlockSummary, &summary);
+            encoder_inter_reconstruct_record_summary(y_nonzero, uv_nonzero, nonzero_coefficients, &y_summaries[index] as &CoefficientBlockSummary, true);
+            block_x = block_x + 1;
+        }
+        block_y = block_y + 1;
+    }
+}
+
+fn encoder_inter_reconstruct_uv_blocks(
+    y_nonzero: &usize,
+    uv_nonzero: &usize,
+    nonzero_coefficients: &usize,
+    src: &YuvPlaneView,
+    recon_plane: &Plane,
+    factors: &DequantFactors,
+    mb_x: usize,
+    mb_y: usize,
+    summaries: &CoefficientBlockSummary
+) !void {
+    var block_y: usize = 0;
+    while block_y < 2 {
+        var block_x: usize = 0;
+        while block_x < 2 {
+            const index: usize = (block_y * (2 as usize)) + block_x;
+            const x: usize = (mb_x * (8 as usize)) + (block_x * (4 as usize));
+            const y: usize = (mb_y * (8 as usize)) + (block_y * (4 as usize));
+            var summary: CoefficientBlockSummary = try encoder_inter_reconstruct_one_block(src, recon_plane, x, y, factors.uv_dc, factors.uv_ac);
+            encoder_inter_reconstruct_store_summary(&summaries[index] as &CoefficientBlockSummary, &summary);
+            encoder_inter_reconstruct_record_summary(y_nonzero, uv_nonzero, nonzero_coefficients, &summaries[index] as &CoefficientBlockSummary, false);
+            block_x = block_x + 1;
+        }
+        block_y = block_y + 1;
+    }
+}
+
+export fn reconstruct_last_frame_inter_macroblock(
+    refs: &EncoderReferenceFramePool,
+    kernels: &KernelFunctionTable,
+    frame: &YuvFrameView,
+    quant: &Vp8QuantHeader,
+    mb_x: usize,
+    mb_y: usize,
+    mv_x: i16,
+    mv_y: i16,
+    y_summaries: &CoefficientBlockSummary,
+    u_summaries: &CoefficientBlockSummary,
+    v_summaries: &CoefficientBlockSummary
+) !EncoderInterMacroblockReconstruction {
+    try encoder_inter_reconstruct_validate_inputs(refs, kernels, frame, quant, y_summaries, u_summaries, v_summaries);
+    const current: &FrameBuffer = try encoder_reference_current(refs);
+    try encoder_inter_reconstruct_validate_current(frame, current);
+
+    var clear_index: usize = 0;
+    while clear_index < 16 {
+        var empty_y_summary: CoefficientBlockSummary = encoder_inter_reconstruct_empty_summary();
+        encoder_inter_reconstruct_store_summary(&y_summaries[clear_index] as &CoefficientBlockSummary, &empty_y_summary);
+        clear_index = clear_index + 1;
+    }
+    clear_index = 0;
+    while clear_index < 4 {
+        var empty_u_summary: CoefficientBlockSummary = encoder_inter_reconstruct_empty_summary();
+        var empty_v_summary: CoefficientBlockSummary = encoder_inter_reconstruct_empty_summary();
+        encoder_inter_reconstruct_store_summary(&u_summaries[clear_index] as &CoefficientBlockSummary, &empty_u_summary);
+        encoder_inter_reconstruct_store_summary(&v_summaries[clear_index] as &CoefficientBlockSummary, &empty_v_summary);
+        clear_index = clear_index + 1;
+    }
+
+    const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, mv_x, mv_y);
+    var y_nonzero_block_count: usize = 0;
+    var uv_nonzero_block_count: usize = 0;
+    var nonzero_coefficient_count: usize = 0;
+    const factors: DequantFactors = build_dequant_factors(quant);
+
+    try encoder_inter_reconstruct_y_blocks(&y_nonzero_block_count, &uv_nonzero_block_count, &nonzero_coefficient_count, frame, current, &factors, mb_x, mb_y, y_summaries);
+    try encoder_inter_reconstruct_uv_blocks(&y_nonzero_block_count, &uv_nonzero_block_count, &nonzero_coefficient_count, &frame.u, &current.u.plane, &factors, mb_x, mb_y, u_summaries);
+    try encoder_inter_reconstruct_uv_blocks(&y_nonzero_block_count, &uv_nonzero_block_count, &nonzero_coefficient_count, &frame.v, &current.v.plane, &factors, mb_x, mb_y, v_summaries);
+    return EncoderInterMacroblockReconstruction{
+        border_extension_count: prediction.border_extension_count,
+        y_nonzero_block_count: y_nonzero_block_count,
+        uv_nonzero_block_count: uv_nonzero_block_count,
+        nonzero_coefficient_count: nonzero_coefficient_count
+    };
+}
