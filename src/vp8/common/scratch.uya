@@ -7,6 +7,9 @@ error ErrScratchOverflow;
 error ErrScratchOutOfMemory;
 error ErrScratchCapacityExceeded;
 
+const TOKEN_DECODE_BLOCK_COEFFS: usize = 16;
+const TOKEN_DECODE_ROW_BLOCKS: usize = 4;
+
 export struct RowScratchArena {
     raw: &byte,
     raw_len: usize,
@@ -17,6 +20,13 @@ export struct RowScratchArena {
     alignment: usize,
     coeff_bytes_read: usize,
     coeff_bytes_written: usize
+}
+
+export struct TokenDecodeRowScratch {
+    coefficients: &i16,
+    y2_coefficients: &i16,
+    y2_dequantized: &i16,
+    y2_dc: &i16
 }
 
 export fn empty_row_scratch_arena() RowScratchArena {
@@ -144,6 +154,25 @@ export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignmen
         arena.high_water = arena.offset;
     }
     return @ptr_from_usize(aligned_addr) as &byte;
+}
+
+export fn token_decode_row_scratch_bytes() usize {
+    return TOKEN_DECODE_ROW_BLOCKS * TOKEN_DECODE_BLOCK_COEFFS * (@size_of(i16) as usize);
+}
+
+fn token_decode_row_scratch_block(base: &i16, block_index: usize) &i16 {
+    return &base[block_index * TOKEN_DECODE_BLOCK_COEFFS] as &i16;
+}
+
+export fn allocate_token_decode_row_scratch(arena: &RowScratchArena) !TokenDecodeRowScratch {
+    const raw: &byte = try row_scratch_alloc_bytes(arena, token_decode_row_scratch_bytes(), 16);
+    const base: &i16 = raw as &i16;
+    return TokenDecodeRowScratch{
+        coefficients: token_decode_row_scratch_block(base, 0),
+        y2_coefficients: token_decode_row_scratch_block(base, 1),
+        y2_dequantized: token_decode_row_scratch_block(base, 2),
+        y2_dc: token_decode_row_scratch_block(base, 3)
+    };
 }
 
 export fn coeff_scratch_note_bytes_read(arena: &RowScratchArena, byte_count: usize) !void {

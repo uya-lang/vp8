@@ -2,15 +2,22 @@ use std.testing.assert_eq_i32;
 use std.testing.expect;
 
 use vp8.common.scratch.RowScratchArena;
+use vp8.common.scratch.TokenDecodeRowScratch;
 use vp8.common.scratch.allocate_row_scratch_arena;
+use vp8.common.scratch.allocate_token_decode_row_scratch;
 use vp8.common.scratch.coeff_scratch_note_bytes_read;
 use vp8.common.scratch.coeff_scratch_note_bytes_written;
 use vp8.common.scratch.free_row_scratch_arena;
 use vp8.common.scratch.frame_scratch_reset;
 use vp8.common.scratch.row_scratch_alloc_bytes;
 use vp8.common.scratch.row_scratch_reset;
+use vp8.common.scratch.token_decode_row_scratch_bytes;
 
 fn assert_aligned(ptr: &byte, alignment: usize) !void {
+    try expect((@usize_from_ptr(ptr as &void) % alignment) == 0);
+}
+
+fn assert_i16_aligned(ptr: &i16, alignment: usize) !void {
     try expect((@usize_from_ptr(ptr as &void) % alignment) == 0);
 }
 
@@ -50,6 +57,35 @@ test "RowScratchArena rejects invalid allocation requests and clears ownership" 
     free_row_scratch_arena(&arena);
     try expect(arena.data == null);
     try assert_eq_i32(arena.capacity as i32, 0);
+}
+
+test "TokenDecodeRowScratch allocates row-local coefficient blocks from arena" {
+    var arena: RowScratchArena = try allocate_row_scratch_arena(256, 16);
+    defer free_row_scratch_arena(&arena);
+
+    const scratch: TokenDecodeRowScratch = try allocate_token_decode_row_scratch(&arena);
+    const block_bytes: usize = 16 * (@size_of(i16) as usize);
+    const coeff_addr: usize = @usize_from_ptr(scratch.coefficients as &void);
+    const y2_coeff_addr: usize = @usize_from_ptr(scratch.y2_coefficients as &void);
+    const y2_dequantized_addr: usize = @usize_from_ptr(scratch.y2_dequantized as &void);
+    const y2_dc_addr: usize = @usize_from_ptr(scratch.y2_dc as &void);
+
+    try assert_i16_aligned(scratch.coefficients, 16);
+    try assert_i16_aligned(scratch.y2_coefficients, 16);
+    try assert_i16_aligned(scratch.y2_dequantized, 16);
+    try assert_i16_aligned(scratch.y2_dc, 16);
+    try assert_eq_i32((y2_coeff_addr - coeff_addr) as i32, block_bytes as i32);
+    try assert_eq_i32((y2_dequantized_addr - y2_coeff_addr) as i32, block_bytes as i32);
+    try assert_eq_i32((y2_dc_addr - y2_dequantized_addr) as i32, block_bytes as i32);
+    try assert_eq_i32(arena.high_water as i32, token_decode_row_scratch_bytes() as i32);
+
+    scratch.coefficients[0] = 7 as i16;
+    scratch.y2_dc[15] = -3 as i16;
+
+    try row_scratch_reset(&arena);
+    _ = try allocate_token_decode_row_scratch(&arena);
+    try assert_eq_i32(arena.offset as i32, token_decode_row_scratch_bytes() as i32);
+    try assert_eq_i32(arena.high_water as i32, token_decode_row_scratch_bytes() as i32);
 }
 
 test "RowScratchArena tracks coefficient scratch read and write bytes" {
