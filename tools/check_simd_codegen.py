@@ -139,6 +139,22 @@ SIMD_KERNELS = (
         "name": "predict_y4x4_horizontal_up_u8x16",
         "symbol": "vp8_kernels_simd_predict_y4x4_horizontal_up_u8x16",
     },
+    {
+        "name": "predict_uv8x8_dc_u8x16",
+        "symbol": "vp8_kernels_simd_predict_uv8x8_dc_u8x16",
+    },
+    {
+        "name": "predict_uv8x8_vertical_u8x16",
+        "symbol": "vp8_kernels_simd_predict_uv8x8_vertical_u8x16",
+    },
+    {
+        "name": "predict_uv8x8_horizontal_u8x16",
+        "symbol": "vp8_kernels_simd_predict_uv8x8_horizontal_u8x16",
+    },
+    {
+        "name": "predict_uv8x8_true_motion_u8x16",
+        "symbol": "vp8_kernels_simd_predict_uv8x8_true_motion_u8x16",
+    },
 )
 
 
@@ -283,7 +299,7 @@ def write_report(
 
 检查结果：
 
-- 当前 plane copy/fill/border extension/residual add clamp/DC-only inverse transform/4x4 inverse DCT batch/Y16x16/Y4x4 predictor SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
+- 当前 plane copy/fill/border extension/residual add clamp/DC-only inverse transform/4x4 inverse DCT batch/Y16x16/Y4x4/UV8x8 predictor SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
 - `plane_copy_u8x16` 以 16 字节 vector load/store 处理整块，尾部保留 scalar copy。
 - `plane_fill_u8x16` 以 `@vector.splat` + 16 字节 vector store 处理整块，尾部保留 scalar fill。
 - `extend_plane_border_u8x16` 复用 16 字节 plane fill/copy helper 处理左右边界和顶部/底部复制。
@@ -292,6 +308,7 @@ def write_report(
 - `inverse_transform_4x4_batch_i32x4` 使用 `i32x4` 执行两阶段 inverse DCT 算术；因当前缺少 shuffle/transpose，4x4 转置仍通过小数组 gather/scatter 完成。
 - `predict_y16x16_dc_u8x16` / `vertical` / `horizontal` 复用 16 字节 fill/copy helper；`true_motion` 使用 `i16x16` 行向量计算并逐 lane clamp/store。
 - `predict_y4x4_*_u8x16` 覆盖 DC/TM/VE/HE/DL/DR/VR/VL/HD/HU；4x4 block 以 `u8x16` 表达，stride 为 4 时直接 store，通用 stride 通过小数组 scatter。
+- `predict_uv8x8_*_u8x16` 覆盖 DC/vertical/horizontal/true_motion；8x8 block 以两行一组 `u8x16` 表达，stride 为 8 时直接 store，通用 stride 通过两行 scatter。
 - 这些 kernel 目前只作为 forced/测试用 portable SIMD 实现记录，不进入默认 dispatcher。
 
 ## 汇编快照结论

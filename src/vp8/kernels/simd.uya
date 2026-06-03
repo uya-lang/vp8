@@ -99,6 +99,49 @@ fn fill_4x4_u8x16(dst: &byte, dst_stride: usize, value: byte) void {
     write_4x4_values_u8x16(dst, dst_stride, &lanes[0] as &byte);
 }
 
+fn write_8x8_pair_u8x16(dst: &byte, dst_stride: usize, values: &byte) void {
+    const block: U8x16 = load_u8x16(values as &u8);
+    if dst_stride == 8 {
+        store_u8x16(dst as &u8, block);
+        return;
+    }
+
+    var lanes: [byte: 16] = [];
+    store_u8x16(&lanes[0] as &u8, block);
+
+    var row: usize = 0;
+    while row < 2 {
+        const dst_base: usize = row * dst_stride;
+        const value_base: usize = row * 8;
+        var col: usize = 0;
+        while col < 8 {
+            dst[dst_base + col] = lanes[value_base + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn write_8x8_values_u8x16(dst: &byte, dst_stride: usize, values: &byte) void {
+    var pair: usize = 0;
+    while pair < 4 {
+        write_8x8_pair_u8x16(&dst[(pair * 2) * dst_stride] as &byte, dst_stride, &values[pair * 16] as &byte);
+        pair = pair + 1;
+    }
+}
+
+fn fill_8x8_u8x16(dst: &byte, dst_stride: usize, value: byte) void {
+    const block: U8x16 = @vector.splat(value as u8);
+    var lanes: [byte: 16] = [];
+    store_u8x16(&lanes[0] as &u8, block);
+
+    var pair: usize = 0;
+    while pair < 4 {
+        write_8x8_pair_u8x16(&dst[(pair * 2) * dst_stride] as &byte, dst_stride, &lanes[0] as &byte);
+        pair = pair + 1;
+    }
+}
+
 fn avg2_u8(a: byte, b: byte) byte {
     return (((a as i32) + (b as i32) + 1) >> 1) as byte;
 }
@@ -451,6 +494,101 @@ export fn predict_y4x4_horizontal_up_u8x16(dst: &byte, dst_stride: usize, left: 
         p6, p6, p6, p6
     ];
     write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_uv8x8_dc_u8x16(dst: &byte, dst_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) void {
+    var sum: i32 = 0;
+    var value: byte = 128 as byte;
+
+    if has_above {
+        var col: usize = 0;
+        while col < 8 {
+            sum = sum + (above[col] as i32);
+            col = col + 1;
+        }
+    }
+
+    if has_left {
+        var row: usize = 0;
+        while row < 8 {
+            sum = sum + (left[row] as i32);
+            row = row + 1;
+        }
+    }
+
+    if has_above && has_left {
+        value = ((sum + 8) >> 4) as byte;
+    } else if has_above || has_left {
+        value = ((sum + 4) >> 3) as byte;
+    }
+
+    fill_8x8_u8x16(dst, dst_stride, value);
+}
+
+export fn predict_uv8x8_vertical_u8x16(dst: &byte, dst_stride: usize, above: &byte) void {
+    var values: [byte: 16] = [
+        above[0], above[1], above[2], above[3], above[4], above[5], above[6], above[7],
+        above[0], above[1], above[2], above[3], above[4], above[5], above[6], above[7]
+    ];
+
+    var pair: usize = 0;
+    while pair < 4 {
+        write_8x8_pair_u8x16(&dst[(pair * 2) * dst_stride] as &byte, dst_stride, &values[0] as &byte);
+        pair = pair + 1;
+    }
+}
+
+export fn predict_uv8x8_horizontal_u8x16(dst: &byte, dst_stride: usize, left: &byte) void {
+    var values: [byte: 16] = [];
+    var pair: usize = 0;
+    while pair < 4 {
+        const first_row: byte = left[pair * 2];
+        const second_row: byte = left[(pair * 2) + 1];
+        var col: usize = 0;
+        while col < 8 {
+            values[col] = first_row;
+            values[8 + col] = second_row;
+            col = col + 1;
+        }
+        write_8x8_pair_u8x16(&dst[(pair * 2) * dst_stride] as &byte, dst_stride, &values[0] as &byte);
+        pair = pair + 1;
+    }
+}
+
+export fn predict_uv8x8_true_motion_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    var above_lanes: [i16: 16] = [
+        above[0] as i16, above[1] as i16, above[2] as i16, above[3] as i16,
+        above[4] as i16, above[5] as i16, above[6] as i16, above[7] as i16,
+        above[0] as i16, above[1] as i16, above[2] as i16, above[3] as i16,
+        above[4] as i16, above[5] as i16, above[6] as i16, above[7] as i16
+    ];
+    const above_values: I16x16 = @vector.load(&above_lanes[0] as &i16);
+    const above_left_values: I16x16 = @vector.splat(above_left as i16);
+
+    var pair: usize = 0;
+    while pair < 4 {
+        const first_row: usize = pair * 2;
+        const second_row: usize = first_row + 1;
+        var left_lanes: [i16: 16] = [
+            left[first_row] as i16, left[first_row] as i16, left[first_row] as i16, left[first_row] as i16,
+            left[first_row] as i16, left[first_row] as i16, left[first_row] as i16, left[first_row] as i16,
+            left[second_row] as i16, left[second_row] as i16, left[second_row] as i16, left[second_row] as i16,
+            left[second_row] as i16, left[second_row] as i16, left[second_row] as i16, left[second_row] as i16
+        ];
+        const left_values: I16x16 = @vector.load(&left_lanes[0] as &i16);
+        const predicted: I16x16 = (left_values + above_values) - above_left_values;
+        var predicted_lanes: [i16: 16] = [];
+        var values: [byte: 16] = [];
+        @vector.store(&predicted_lanes[0] as &i16, predicted);
+
+        var index: usize = 0;
+        while index < 16 {
+            values[index] = clip_i16_to_u8(predicted_lanes[index]);
+            index = index + 1;
+        }
+        write_8x8_pair_u8x16(&dst[first_row * dst_stride] as &byte, dst_stride, &values[0] as &byte);
+        pair = pair + 1;
+    }
 }
 
 export fn add_residual_4x4_clamped_u8x16(dst: &byte, dst_stride: usize, residual: &i16) void {
