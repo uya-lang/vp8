@@ -1,4 +1,8 @@
 use vp8.kernels.scalar.clip_i32_to_u8;
+use vp8.mode.parse.VP8_UV_MODE_DC;
+use vp8.mode.parse.VP8_UV_MODE_H;
+use vp8.mode.parse.VP8_UV_MODE_TM;
+use vp8.mode.parse.VP8_UV_MODE_V;
 use vp8.mode.parse.VP8_Y_MODE_DC;
 use vp8.mode.parse.VP8_Y_MODE_H;
 use vp8.mode.parse.VP8_Y_MODE_TM;
@@ -6,8 +10,15 @@ use vp8.mode.parse.VP8_Y_MODE_V;
 
 error ErrIntra16x16ModeSearchInvalidGeometry;
 error ErrIntra16x16ModeSearchInvalidMode;
+error ErrUvModeSearchInvalidGeometry;
+error ErrUvModeSearchInvalidMode;
 
 export struct Intra16x16ModeSearchResult {
+    mode: byte,
+    distortion: u32
+}
+
+export struct UvModeSearchResult {
     mode: byte,
     distortion: u32
 }
@@ -175,6 +186,208 @@ export fn search_intra16x16_mode(src: &byte, src_stride: usize, above: &byte, ha
     }
     if has_above && has_left {
         update_best_intra16x16_mode(&best, VP8_Y_MODE_TM, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_TM));
+    }
+
+    return best;
+}
+
+fn validate_uv_search_input(
+    u_src: &byte,
+    u_stride: usize,
+    v_src: &byte,
+    v_stride: usize,
+    u_above: &byte,
+    v_above: &byte,
+    has_above: bool,
+    u_left: &byte,
+    v_left: &byte,
+    has_left: bool
+) !void {
+    if u_src == null || v_src == null {
+        return error.ErrUvModeSearchInvalidGeometry;
+    }
+    if u_stride < 8 || v_stride < 8 {
+        return error.ErrUvModeSearchInvalidGeometry;
+    }
+    if has_above && (u_above == null || v_above == null) {
+        return error.ErrUvModeSearchInvalidGeometry;
+    }
+    if has_left && (u_left == null || v_left == null) {
+        return error.ErrUvModeSearchInvalidGeometry;
+    }
+}
+
+fn uv_dc_value(above: &byte, has_above: bool, left: &byte, has_left: bool) byte {
+    var sum: i32 = 0;
+    if has_above {
+        var col: usize = 0;
+        while col < 8 {
+            sum = sum + (above[col] as i32);
+            col = col + 1;
+        }
+    }
+    if has_left {
+        var row: usize = 0;
+        while row < 8 {
+            sum = sum + (left[row] as i32);
+            row = row + 1;
+        }
+    }
+
+    if has_above && has_left {
+        return ((sum + 8) >> 4) as byte;
+    }
+    if has_above || has_left {
+        return ((sum + 4) >> 3) as byte;
+    }
+    return 128 as byte;
+}
+
+fn sad8x8_against_constant(src: &byte, stride: usize, predicted: byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * stride;
+        var col: usize = 0;
+        while col < 8 {
+            cost = cost + abs_diff_u8(src[base + col], predicted);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn sad8x8_against_vertical(src: &byte, stride: usize, above: &byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * stride;
+        var col: usize = 0;
+        while col < 8 {
+            cost = cost + abs_diff_u8(src[base + col], above[col]);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn sad8x8_against_horizontal(src: &byte, stride: usize, left: &byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * stride;
+        const predicted: byte = left[row];
+        var col: usize = 0;
+        while col < 8 {
+            cost = cost + abs_diff_u8(src[base + col], predicted);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn sad8x8_against_true_motion(src: &byte, stride: usize, above: &byte, left: &byte, above_left: byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 8 {
+        const base: usize = row * stride;
+        const left_value: i32 = left[row] as i32;
+        var col: usize = 0;
+        while col < 8 {
+            const predicted: byte = clip_i32_to_u8(left_value + (above[col] as i32) - (above_left as i32));
+            cost = cost + abs_diff_u8(src[base + col], predicted);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+export fn uv_mode_sad(
+    u_src: &byte,
+    u_stride: usize,
+    v_src: &byte,
+    v_stride: usize,
+    u_above: &byte,
+    v_above: &byte,
+    has_above: bool,
+    u_left: &byte,
+    v_left: &byte,
+    has_left: bool,
+    u_above_left: byte,
+    v_above_left: byte,
+    mode: byte
+) !u32 {
+    try validate_uv_search_input(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left);
+
+    if mode == VP8_UV_MODE_DC {
+        return sad8x8_against_constant(u_src, u_stride, uv_dc_value(u_above, has_above, u_left, has_left)) +
+            sad8x8_against_constant(v_src, v_stride, uv_dc_value(v_above, has_above, v_left, has_left));
+    }
+    if mode == VP8_UV_MODE_V {
+        if !has_above {
+            return error.ErrUvModeSearchInvalidMode;
+        }
+        return sad8x8_against_vertical(u_src, u_stride, u_above) +
+            sad8x8_against_vertical(v_src, v_stride, v_above);
+    }
+    if mode == VP8_UV_MODE_H {
+        if !has_left {
+            return error.ErrUvModeSearchInvalidMode;
+        }
+        return sad8x8_against_horizontal(u_src, u_stride, u_left) +
+            sad8x8_against_horizontal(v_src, v_stride, v_left);
+    }
+    if mode == VP8_UV_MODE_TM {
+        if !has_above || !has_left {
+            return error.ErrUvModeSearchInvalidMode;
+        }
+        return sad8x8_against_true_motion(u_src, u_stride, u_above, u_left, u_above_left) +
+            sad8x8_against_true_motion(v_src, v_stride, v_above, v_left, v_above_left);
+    }
+
+    return error.ErrUvModeSearchInvalidMode;
+}
+
+fn update_best_uv_mode(best: &UvModeSearchResult, mode: byte, distortion: u32) void {
+    if distortion < best.distortion {
+        best.mode = mode;
+        best.distortion = distortion;
+    }
+}
+
+export fn search_uv_mode(
+    u_src: &byte,
+    u_stride: usize,
+    v_src: &byte,
+    v_stride: usize,
+    u_above: &byte,
+    v_above: &byte,
+    has_above: bool,
+    u_left: &byte,
+    v_left: &byte,
+    has_left: bool,
+    u_above_left: byte,
+    v_above_left: byte
+) !UvModeSearchResult {
+    try validate_uv_search_input(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left);
+
+    var best: UvModeSearchResult = UvModeSearchResult{
+        mode: VP8_UV_MODE_DC,
+        distortion: try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_DC)
+    };
+
+    if has_above {
+        update_best_uv_mode(&best, VP8_UV_MODE_V, try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_V));
+    }
+    if has_left {
+        update_best_uv_mode(&best, VP8_UV_MODE_H, try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_H));
+    }
+    if has_above && has_left {
+        update_best_uv_mode(&best, VP8_UV_MODE_TM, try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_TM));
     }
 
     return best;

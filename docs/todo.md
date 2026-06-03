@@ -288,7 +288,7 @@
 - [x] 实现 IVF writer 集成。
 - [x] 实现 key frame header writer。
 - [x] 实现 intra 16x16 mode search。
-- [ ] 实现 UV mode search。
+- [x] 实现 UV mode search。
 - [ ] 实现 forward DCT。
 - [ ] 实现 forward WHT。
 - [ ] 实现 quantize。
