@@ -181,7 +181,7 @@
 - [x] 实现 visible crop。
 - [x] 实现 `decode <input.ivf> --yuv out.yuv`。
 - [x] 实现 `info <input.ivf>`。
-- [ ] 实现 `decode-frame --index N`。
+- [x] 实现 `decode-frame --index N`。
 
 验收标准：
 

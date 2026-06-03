@@ -1,3 +1,4 @@
+use libc.atoi;
 use libc.printf;
 use libc.strcmp;
 use libc.FILE;
@@ -46,6 +47,7 @@ fn print_help() void {
     _ = printf("  vp8uya version\n");
     _ = printf("  vp8uya info <input.ivf>\n");
     _ = printf("  vp8uya decode <input.ivf> --yuv <out.yuv>\n");
+    _ = printf("  vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>\n");
 }
 
 fn print_version() void {
@@ -206,6 +208,77 @@ fn run_decode(input_path: &byte, output_path: &byte) i32 {
     return 0;
 }
 
+fn run_decode_frame(input_path: &byte, frame_index: u32, output_path: &byte) i32 {
+    const file: FileBuffer = read_file(input_path) catch {
+        _ = printf("error: failed to read input file\n");
+        return 2;
+    };
+    defer free(file.data as &void);
+
+    const header: IvfHeader = parse_ivf_header(file.data, file.len) catch {
+        _ = printf("error: invalid IVF header\n");
+        return 2;
+    };
+
+    var iterator: IvfFrameIterator = make_ivf_frame_iterator(file.data, file.len, &header) catch {
+        _ = printf("error: invalid IVF frame data\n");
+        return 2;
+    };
+
+    var context: DecoderContext = allocate_decoder_context(header.width as usize, header.height as usize, 32, 32, 65536) catch {
+        _ = printf("error: failed to allocate decoder context\n");
+        return 2;
+    };
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    const out: &FILE = fopen(output_path as *byte, "wb\0" as &byte);
+    if out == null {
+        _ = printf("error: failed to open output file\n");
+        return 2;
+    }
+
+    while ivf_frame_iterator_has_next(&iterator) {
+        const frame: IvfFrame = ivf_frame_iterator_next(&iterator) catch {
+            _ = fclose(out);
+            _ = printf("error: invalid IVF frame data\n");
+            return 2;
+        };
+
+        var result: DecoderFrameResult = decoder_decode_frame(&decoder, frame.payload.data, frame.payload.len) catch {
+            _ = fclose(out);
+            _ = printf("error: failed to decode VP8 frame\n");
+            return 2;
+        };
+
+        if frame.index == frame_index {
+            write_result_yuv(&result, out) catch {
+                _ = decoded_frame_release(&result.output) catch {};
+                _ = fclose(out);
+                _ = printf("error: failed to write YUV output\n");
+                return 2;
+            };
+            _ = decoded_frame_release(&result.output) catch {
+                _ = fclose(out);
+                _ = printf("error: failed to release decoded frame\n");
+                return 2;
+            };
+            _ = fclose(out);
+            return 0;
+        }
+
+        _ = decoded_frame_release(&result.output) catch {
+            _ = fclose(out);
+            _ = printf("error: failed to release decoded frame\n");
+            return 2;
+        };
+    }
+
+    _ = fclose(out);
+    _ = printf("error: frame index not found\n");
+    return 2;
+}
+
 export extern fn main(argc: i32, argv: & &byte) i32 {
     if argc <= 1 {
         print_help();
@@ -242,6 +315,26 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
             return 2;
         }
         return run_decode(argv[2], argv[4]);
+    }
+    if strcmp(cmd as *const byte, "decode-frame\0" as *const byte) == 0 {
+        if argc < 7 {
+            _ = printf("error: decode-frame requires <input.ivf> --index N --yuv <out.yuv>\n");
+            return 2;
+        }
+        if strcmp(argv[3] as *const byte, "--index\0" as *const byte) != 0 {
+            _ = printf("error: decode-frame requires --index N\n");
+            return 2;
+        }
+        const index_i32: i32 = atoi(argv[4] as *const byte);
+        if index_i32 < 0 {
+            _ = printf("error: frame index must be non-negative\n");
+            return 2;
+        }
+        if strcmp(argv[5] as *const byte, "--yuv\0" as *const byte) != 0 {
+            _ = printf("error: decode-frame requires --yuv <out.yuv>\n");
+            return 2;
+        }
+        return run_decode_frame(argv[2], index_i32 as u32, argv[6]);
     }
 
     _ = printf("unknown command: %s\n", cmd);
