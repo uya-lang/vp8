@@ -278,7 +278,7 @@
 
 - [x] 单线程和多线程 YUV MD5 一致。
 - [x] 多线程 malformed input 不死锁。
-- [ ] 并行 coefficient scratch 峰值与 `ring_depth * mb_cols` 成正比，不随整帧无界增长。
+- [x] 并行 coefficient scratch 峰值与 `ring_depth * mb_cols` 成正比，不随整帧无界增长。
 - [ ] 1080p 样本性能报告包含 fps、cycles/pixel、线程数、bytes copied/frame、allocation count。
 
 ## Phase 12: Encoder MVP Keyframe

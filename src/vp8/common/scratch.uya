@@ -340,6 +340,20 @@ export fn mb_coeff_scratch_ring_bound_bytes(ring: &MbCoeffScratchRing) usize {
     return ring.bound_bytes;
 }
 
+export fn mb_coeff_scratch_ring_high_water_bytes(ring: &MbCoeffScratchRing) !usize {
+    if ring.mb_cols == 0 || ring.ring_depth == 0 || ring.ring_depth > MB_COEFF_SCRATCH_RING_MAX_DEPTH {
+        return error.ErrMbCoeffScratchRingInvalidGeometry;
+    }
+
+    var total: usize = 0;
+    var index: usize = 0;
+    while index < ring.ring_depth {
+        total = try scratch_checked_add(total, ring.slots[index].arena.high_water);
+        index = index + 1;
+    }
+    return total;
+}
+
 export fn mb_coeff_scratch_ring_in_flight_rows(ring: &MbCoeffScratchRing) usize {
     if ring.next_decode_row < ring.reconstruct_fence_row {
         return 0;

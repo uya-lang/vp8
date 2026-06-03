@@ -16,6 +16,7 @@ use vp8.common.scratch.free_row_scratch_arena;
 use vp8.common.scratch.frame_scratch_reset;
 use vp8.common.scratch.mb_coeff_scratch_ring_acquire_decode_row;
 use vp8.common.scratch.mb_coeff_scratch_ring_bound_bytes;
+use vp8.common.scratch.mb_coeff_scratch_ring_high_water_bytes;
 use vp8.common.scratch.mb_coeff_scratch_ring_in_flight_rows;
 use vp8.common.scratch.mb_coeff_scratch_ring_release_reconstructed_row;
 use vp8.common.scratch.row_scratch_alloc_bytes;
@@ -222,4 +223,32 @@ test "MbCoeffScratchRing binds release order to row fence" {
     try mb_coeff_scratch_ring_release_reconstructed_row(&ring, 0);
     try mb_coeff_scratch_ring_release_reconstructed_row(&ring, 1);
     try assert_eq_i32(mb_coeff_scratch_ring_in_flight_rows(&ring) as i32, 0);
+}
+
+test "MbCoeffScratchRing peak scratch stays bounded by ring depth and row width" {
+    const mb_cols: usize = 3;
+    const ring_depth: usize = 2;
+    const frame_rows: usize = 12;
+    var ring: MbCoeffScratchRing = try allocate_mb_coeff_scratch_ring(mb_cols, ring_depth, 16);
+    defer free_mb_coeff_scratch_ring(&ring);
+
+    const row_bytes: usize = try token_decode_row_output_bytes(mb_cols);
+    const bound_bytes: usize = row_bytes * ring_depth;
+    try assert_eq_i32(mb_coeff_scratch_ring_bound_bytes(&ring) as i32, bound_bytes as i32);
+    try assert_eq_i32((try mb_coeff_scratch_ring_high_water_bytes(&ring)) as i32, 0);
+
+    _ = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 0);
+    _ = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 1);
+    try assert_eq_i32((try mb_coeff_scratch_ring_high_water_bytes(&ring)) as i32, bound_bytes as i32);
+
+    var next_row: usize = 2;
+    var release_row: usize = 0;
+    while next_row < frame_rows {
+        try mb_coeff_scratch_ring_release_reconstructed_row(&ring, release_row);
+        _ = try mb_coeff_scratch_ring_acquire_decode_row(&ring, next_row);
+        try assert_eq_i32((try mb_coeff_scratch_ring_high_water_bytes(&ring)) as i32, bound_bytes as i32);
+        try assert_eq_i32(mb_coeff_scratch_ring_in_flight_rows(&ring) as i32, ring_depth as i32);
+        release_row = release_row + 1;
+        next_row = next_row + 1;
+    }
 }
