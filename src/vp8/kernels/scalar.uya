@@ -255,6 +255,39 @@ fn abs_i32(value: i32) i32 {
     return value;
 }
 
+struct SumSseResult {
+    sum: i32,
+    sse: u32
+}
+
+fn sum_sse_block(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize, width: usize, height: usize) SumSseResult {
+    var sum: i32 = 0;
+    var sse: u32 = 0;
+    var row: usize = 0;
+    while row < height {
+        const src_base: usize = row * src_stride;
+        const reference_base: usize = row * reference_stride;
+        var col: usize = 0;
+        while col < width {
+            const diff: i32 = (src[src_base + col] as i32) - (reference[reference_base + col] as i32);
+            sum = sum + diff;
+            sse = sse + ((diff * diff) as u32);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return SumSseResult{ sum: sum, sse: sse };
+}
+
+fn variance_from_sum_sse(sum: i32, sse: u32, sample_shift: i32) u32 {
+    const wide_sum: i64 = sum as i64;
+    const correction: u32 = (((wide_sum * wide_sum) as u64) >> sample_shift) as u32;
+    if correction > sse {
+        return 0;
+    }
+    return sse - correction;
+}
+
 export fn sad_16x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
     var distortion: u32 = 0;
     var row: usize = 0;
@@ -304,6 +337,36 @@ export fn sad_4x4(src: &byte, src_stride: usize, reference: &byte, reference_str
         row = row + 1;
     }
     return distortion;
+}
+
+export fn sse_16x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SumSseResult = sum_sse_block(src, src_stride, reference, reference_stride, 16, 16);
+    return result.sse;
+}
+
+export fn sse_8x8(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SumSseResult = sum_sse_block(src, src_stride, reference, reference_stride, 8, 8);
+    return result.sse;
+}
+
+export fn sse_4x4(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SumSseResult = sum_sse_block(src, src_stride, reference, reference_stride, 4, 4);
+    return result.sse;
+}
+
+export fn variance_16x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SumSseResult = sum_sse_block(src, src_stride, reference, reference_stride, 16, 16);
+    return variance_from_sum_sse(result.sum, result.sse, 8);
+}
+
+export fn variance_8x8(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SumSseResult = sum_sse_block(src, src_stride, reference, reference_stride, 8, 8);
+    return variance_from_sum_sse(result.sum, result.sse, 6);
+}
+
+export fn variance_4x4(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SumSseResult = sum_sse_block(src, src_stride, reference, reference_stride, 4, 4);
+    return variance_from_sum_sse(result.sum, result.sse, 4);
 }
 
 fn signed_char_clamp(value: i32) i32 {

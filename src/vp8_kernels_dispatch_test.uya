@@ -10,6 +10,12 @@ use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
 use vp8.kernels.dispatch.kernel_table_sad_4x4;
 use vp8.kernels.dispatch.kernel_table_sad_8x8;
 use vp8.kernels.dispatch.kernel_table_sad_16x16;
+use vp8.kernels.dispatch.kernel_table_sse_4x4;
+use vp8.kernels.dispatch.kernel_table_sse_8x8;
+use vp8.kernels.dispatch.kernel_table_sse_16x16;
+use vp8.kernels.dispatch.kernel_table_variance_4x4;
+use vp8.kernels.dispatch.kernel_table_variance_8x8;
+use vp8.kernels.dispatch.kernel_table_variance_16x16;
 use vp8.kernels.dispatch.make_default_kernel_table;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
@@ -76,6 +82,12 @@ test "kernel table exposes scalar function pointers" {
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
+    try expect(table.sse_16x16_fn != null);
+    try expect(table.sse_8x8_fn != null);
+    try expect(table.sse_4x4_fn != null);
+    try expect(table.variance_16x16_fn != null);
+    try expect(table.variance_8x8_fn != null);
+    try expect(table.variance_4x4_fn != null);
 
     var src: [byte: 16] = [
         1, 2, 3, 4,
@@ -94,6 +106,10 @@ test "kernel table exposes scalar function pointers" {
 
     const sad: u32 = try kernel_table_sad_16x16(&table, &sad_src[3] as &byte, 19, &sad_reference[7] as &byte, 21);
     try assert_eq_i32(sad as i32, 32768);
+    const sse: u32 = try kernel_table_sse_16x16(&table, &sad_src[3] as &byte, 19, &sad_reference[7] as &byte, 21);
+    try assert_eq_i32(sse as i32, 5592320);
+    const variance: u32 = try kernel_table_variance_16x16(&table, &sad_src[3] as &byte, 19, &sad_reference[7] as &byte, 21);
+    try assert_eq_i32(variance as i32, 5592320);
 
     var sad8_src: [byte: 160] = [];
     var sad8_reference: [byte: 176] = [];
@@ -101,6 +117,10 @@ test "kernel table exposes scalar function pointers" {
 
     const sad8: u32 = try kernel_table_sad_8x8(&table, &sad8_src[2] as &byte, 13, &sad8_reference[5] as &byte, 15);
     try assert_eq_i32(sad8 as i32, 12288);
+    const sse8: u32 = try kernel_table_sse_8x8(&table, &sad8_src[2] as &byte, 13, &sad8_reference[5] as &byte, 15);
+    try assert_eq_i32(sse8 as i32, 2446656);
+    const variance8: u32 = try kernel_table_variance_8x8(&table, &sad8_src[2] as &byte, 13, &sad8_reference[5] as &byte, 15);
+    try assert_eq_i32(variance8 as i32, 87360);
 
     var sad4_src: [byte: 64] = [];
     var sad4_reference: [byte: 80] = [];
@@ -108,6 +128,10 @@ test "kernel table exposes scalar function pointers" {
 
     const sad4: u32 = try kernel_table_sad_4x4(&table, &sad4_src[1] as &byte, 7, &sad4_reference[3] as &byte, 9);
     try assert_eq_i32(sad4 as i32, 3840);
+    const sse4: u32 = try kernel_table_sse_4x4(&table, &sad4_src[1] as &byte, 7, &sad4_reference[3] as &byte, 9);
+    try assert_eq_i32(sse4 as i32, 922960);
+    const variance4: u32 = try kernel_table_variance_4x4(&table, &sad4_src[1] as &byte, 7, &sad4_reference[3] as &byte, 9);
+    try assert_eq_i32(variance4 as i32, 1360);
 }
 
 test "kernel table residual entry calls through scalar implementation" {
@@ -151,6 +175,12 @@ test "default kernel table remains scalar until SIMD kernels are registered" {
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
+    try expect(table.sse_16x16_fn != null);
+    try expect(table.sse_8x8_fn != null);
+    try expect(table.sse_4x4_fn != null);
+    try expect(table.variance_16x16_fn != null);
+    try expect(table.variance_8x8_fn != null);
+    try expect(table.variance_4x4_fn != null);
 }
 
 test "forced SIMD kernel table registers portable SAD kernel" {
@@ -163,6 +193,12 @@ test "forced SIMD kernel table registers portable SAD kernel" {
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
+    try expect(table.sse_16x16_fn != null);
+    try expect(table.sse_8x8_fn != null);
+    try expect(table.sse_4x4_fn != null);
+    try expect(table.variance_16x16_fn != null);
+    try expect(table.variance_8x8_fn != null);
+    try expect(table.variance_4x4_fn != null);
 
     var src: [byte: 400] = [];
     var reference: [byte: 448] = [];
@@ -170,6 +206,10 @@ test "forced SIMD kernel table registers portable SAD kernel" {
 
     const sad: u32 = try kernel_table_sad_16x16(&table, &src[3] as &byte, 19, &reference[7] as &byte, 21);
     try assert_eq_i32(sad as i32, 32768);
+    const sse: u32 = try kernel_table_sse_16x16(&table, &src[3] as &byte, 19, &reference[7] as &byte, 21);
+    try assert_eq_i32(sse as i32, 5592320);
+    const variance: u32 = try kernel_table_variance_16x16(&table, &src[3] as &byte, 19, &reference[7] as &byte, 21);
+    try assert_eq_i32(variance as i32, 5592320);
 
     var src8: [byte: 160] = [];
     var reference8: [byte: 176] = [];
@@ -177,6 +217,10 @@ test "forced SIMD kernel table registers portable SAD kernel" {
 
     const sad8: u32 = try kernel_table_sad_8x8(&table, &src8[2] as &byte, 13, &reference8[5] as &byte, 15);
     try assert_eq_i32(sad8 as i32, 12288);
+    const sse8: u32 = try kernel_table_sse_8x8(&table, &src8[2] as &byte, 13, &reference8[5] as &byte, 15);
+    try assert_eq_i32(sse8 as i32, 2446656);
+    const variance8: u32 = try kernel_table_variance_8x8(&table, &src8[2] as &byte, 13, &reference8[5] as &byte, 15);
+    try assert_eq_i32(variance8 as i32, 87360);
 
     var src4: [byte: 64] = [];
     var reference4: [byte: 80] = [];
@@ -184,6 +228,10 @@ test "forced SIMD kernel table registers portable SAD kernel" {
 
     const sad4: u32 = try kernel_table_sad_4x4(&table, &src4[1] as &byte, 7, &reference4[3] as &byte, 9);
     try assert_eq_i32(sad4 as i32, 3840);
+    const sse4: u32 = try kernel_table_sse_4x4(&table, &src4[1] as &byte, 7, &reference4[3] as &byte, 9);
+    try assert_eq_i32(sse4 as i32, 922960);
+    const variance4: u32 = try kernel_table_variance_4x4(&table, &src4[1] as &byte, 7, &reference4[3] as &byte, 9);
+    try assert_eq_i32(variance4 as i32, 1360);
 }
 
 test "kernel table wrappers reject unknown entries" {
@@ -227,6 +275,72 @@ test "kernel table wrappers reject unknown entries" {
     failed = 0;
 
     _ = kernel_table_sad_4x4(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.sse_16x16_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_sse_16x16(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.sse_8x8_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_sse_8x8(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.sse_4x4_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_sse_4x4(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.variance_16x16_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_variance_16x16(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.variance_8x8_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_variance_8x8(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.variance_4x4_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_variance_4x4(&table, &src[0] as &byte, 2, &dst[0] as &byte, 2) catch {
         failed = 1;
         0 as u32;
     };

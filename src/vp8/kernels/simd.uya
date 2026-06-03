@@ -7,6 +7,11 @@ type I16Mask16 = @mask(16);
 export type I32x4 = @vector(i32, 4);
 export type I32Mask4 = @mask(4);
 
+struct SimdSumSseResult {
+    sum: i32,
+    sse: u32
+}
+
 const SIMD_VP8_COSPI8_SQRT2_MINUS_1: i32 = 20091;
 const SIMD_VP8_SINPI8_SQRT2: i32 = 35468;
 const SIMD_VP8_SUBPIXEL_FILTERS: [i16: 48] = [
@@ -118,6 +123,16 @@ fn load_u8_4_as_i16x8(src: &byte) I16x8 {
     return @vector.load(&lanes[0] as &i16);
 }
 
+fn simd_load_u8_as_i32x4(src: &byte) I32x4 {
+    var lanes: [i32: 4] = [];
+    var index: usize = 0;
+    while index < 4 {
+        lanes[index] = src[index] as i32;
+        index = index + 1;
+    }
+    return @vector.load(&lanes[0] as &i32);
+}
+
 fn sad_row_16_u8x16(src: &byte, reference: &byte) u32 {
     const src_values: I16x16 = load_u8_as_i16x16(src);
     const reference_values: I16x16 = load_u8_as_i16x16(reference);
@@ -143,6 +158,59 @@ fn sad_row_4_u8x16(src: &byte, reference: &byte) u32 {
     const negative: I16Mask8 = diff < @vector.splat(0 as i16);
     const abs_diff: I16x8 = @vector.select(negative, @vector.splat(0 as i16) - diff, diff);
     return @vector.reduce_add(abs_diff) as u32;
+}
+
+fn simd_sum_sse_row_4_u8x16(src: &byte, reference: &byte) SimdSumSseResult {
+    const src_values: I32x4 = simd_load_u8_as_i32x4(src);
+    const reference_values: I32x4 = simd_load_u8_as_i32x4(reference);
+    const diff: I32x4 = src_values - reference_values;
+    const squared: I32x4 = diff * diff;
+
+    var diff_lanes: [i32: 4] = [];
+    var squared_lanes: [i32: 4] = [];
+    @vector.store(&diff_lanes[0] as &i32, diff);
+    @vector.store(&squared_lanes[0] as &i32, squared);
+
+    var sum: i32 = 0;
+    var sse: u32 = 0;
+    var index: usize = 0;
+    while index < 4 {
+        sum = sum + diff_lanes[index];
+        sse = sse + (squared_lanes[index] as u32);
+        index = index + 1;
+    }
+    return SimdSumSseResult{
+        sum: sum,
+        sse: sse
+    };
+}
+
+fn simd_add_sum_sse(left: SimdSumSseResult, right: SimdSumSseResult) SimdSumSseResult {
+    return SimdSumSseResult{
+        sum: left.sum + right.sum,
+        sse: left.sse + right.sse
+    };
+}
+
+fn simd_sum_sse_row_8_u8x16(src: &byte, reference: &byte) SimdSumSseResult {
+    const first: SimdSumSseResult = simd_sum_sse_row_4_u8x16(src, reference);
+    const second: SimdSumSseResult = simd_sum_sse_row_4_u8x16(&src[4] as &byte, &reference[4] as &byte);
+    return simd_add_sum_sse(first, second);
+}
+
+fn simd_sum_sse_row_16_u8x16(src: &byte, reference: &byte) SimdSumSseResult {
+    const first: SimdSumSseResult = simd_sum_sse_row_8_u8x16(src, reference);
+    const second: SimdSumSseResult = simd_sum_sse_row_8_u8x16(&src[8] as &byte, &reference[8] as &byte);
+    return simd_add_sum_sse(first, second);
+}
+
+fn simd_variance_from_sum_sse(sum: i32, sse: u32, sample_shift: i32) u32 {
+    const wide_sum: i64 = sum as i64;
+    const correction: u32 = (((wide_sum * wide_sum) as u64) >> sample_shift) as u32;
+    if correction > sse {
+        return 0;
+    }
+    return sse - correction;
 }
 
 export fn sad_16x16_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
@@ -173,6 +241,72 @@ export fn sad_4x4_u8x16(src: &byte, src_stride: usize, reference: &byte, referen
         row = row + 1;
     }
     return distortion;
+}
+
+fn simd_sum_sse_16x16_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) SimdSumSseResult {
+    var result: SimdSumSseResult = SimdSumSseResult{ sum: 0, sse: 0 };
+    var row: usize = 0;
+    while row < 16 {
+        const row_result: SimdSumSseResult = simd_sum_sse_row_16_u8x16(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
+        result.sum = result.sum + row_result.sum;
+        result.sse = result.sse + row_result.sse;
+        row = row + 1;
+    }
+    return result;
+}
+
+fn simd_sum_sse_8x8_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) SimdSumSseResult {
+    var result: SimdSumSseResult = SimdSumSseResult{ sum: 0, sse: 0 };
+    var row: usize = 0;
+    while row < 8 {
+        const row_result: SimdSumSseResult = simd_sum_sse_row_8_u8x16(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
+        result.sum = result.sum + row_result.sum;
+        result.sse = result.sse + row_result.sse;
+        row = row + 1;
+    }
+    return result;
+}
+
+fn simd_sum_sse_4x4_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) SimdSumSseResult {
+    var result: SimdSumSseResult = SimdSumSseResult{ sum: 0, sse: 0 };
+    var row: usize = 0;
+    while row < 4 {
+        const row_result: SimdSumSseResult = simd_sum_sse_row_4_u8x16(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
+        result.sum = result.sum + row_result.sum;
+        result.sse = result.sse + row_result.sse;
+        row = row + 1;
+    }
+    return result;
+}
+
+export fn sse_16x16_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SimdSumSseResult = simd_sum_sse_16x16_u8x16(src, src_stride, reference, reference_stride);
+    return result.sse;
+}
+
+export fn sse_8x8_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SimdSumSseResult = simd_sum_sse_8x8_u8x16(src, src_stride, reference, reference_stride);
+    return result.sse;
+}
+
+export fn sse_4x4_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SimdSumSseResult = simd_sum_sse_4x4_u8x16(src, src_stride, reference, reference_stride);
+    return result.sse;
+}
+
+export fn variance_16x16_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SimdSumSseResult = simd_sum_sse_16x16_u8x16(src, src_stride, reference, reference_stride);
+    return simd_variance_from_sum_sse(result.sum, result.sse, 8);
+}
+
+export fn variance_8x8_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SimdSumSseResult = simd_sum_sse_8x8_u8x16(src, src_stride, reference, reference_stride);
+    return simd_variance_from_sum_sse(result.sum, result.sse, 6);
+}
+
+export fn variance_4x4_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    const result: SimdSumSseResult = simd_sum_sse_4x4_u8x16(src, src_stride, reference, reference_stride);
+    return simd_variance_from_sum_sse(result.sum, result.sse, 4);
 }
 
 fn store_clipped_i16x16_to_u8(dst: &byte, values: I16x16) void {

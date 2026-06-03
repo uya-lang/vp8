@@ -354,7 +354,7 @@
 - [x] SIMD SAD 16x16。
 - [x] SIMD SAD 8x8。
 - [x] SIMD SAD 4x4。
-- [ ] SIMD SSE/variance。
+- [x] SIMD SSE/variance。
 - [ ] SIMD SATD/Hadamard cost。
 - [ ] SIMD forward DCT。
 - [ ] SIMD forward WHT。
