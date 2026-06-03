@@ -57,6 +57,8 @@ CLI, and checks their YUV MD5 values against built-in goldens.
 
 `make test-decoder-scalar` runs the decoder suite with
 `VP8UYA_FORCE_SCALAR=1` and is the scalar reference regression gate.
+Tiny fixture metadata lives in `fixtures/manifest.json`; binary IVF and YUV
+outputs are generated under `build/tiny-md5/`.
 
 `bench/` is reserved for benchmark harnesses and baseline records. Benchmarks
 must keep scalar and SIMD paths comparable and must not become correctness

@@ -17,18 +17,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HEADER_SOURCE = REPO_ROOT / "src" / "vp8" / "bitstream" / "header.uya"
+FIXTURE_MANIFEST = REPO_ROOT / "fixtures" / "manifest.json"
 MASK32 = 0xFFFFFFFF
 COEFF_BANDS = [0, 1, 2, 3, 6, 4, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7]
-
-
-EXPECTED_MD5 = {
-    "gray-16x16": "02b5d5d5ba2a5de00017b31c40c527bc",
-    "u-dc-16x16": "5b811f8dcf01249891776066e0f3e7e2",
-    "v-dc-16x16": "ebcdf5dd1274dc0e22582f169df6137f",
-    "gray-32x16": "e979abdb2b582b325de6f5bb97b0e643",
-    "gray-17x17": "2671dd258a7442dc814db1376ce7682d",
-    "inter-copy-16x16": "c620b3f0df394a7509cb2a26dde5a3d5",
-}
 
 
 @dataclass(frozen=True)
@@ -37,17 +28,29 @@ class Sample:
     width: int
     height: int
     variant: str
+    frame_count: int = 1
     output_frames: int = 1
 
 
-SAMPLES = [
-    Sample("gray-16x16", 16, 16, "gray"),
-    Sample("u-dc-16x16", 16, 16, "u-dc"),
-    Sample("v-dc-16x16", 16, 16, "v-dc"),
-    Sample("gray-32x16", 32, 16, "gray"),
-    Sample("gray-17x17", 17, 17, "gray"),
-    Sample("inter-copy-16x16", 16, 16, "inter-copy", 2),
-]
+def load_manifest() -> tuple[list[Sample], dict[str, str]]:
+    manifest = json.loads(FIXTURE_MANIFEST.read_text(encoding="utf-8"))
+    samples = []
+    expected_md5 = {}
+    for item in manifest["samples"]:
+        sample = Sample(
+            name=item["name"],
+            width=int(item["width"]),
+            height=int(item["height"]),
+            variant=item["variant"],
+            frame_count=int(item["frame_count"]),
+            output_frames=int(item.get("output_frames", item["frame_count"])),
+        )
+        samples.append(sample)
+        expected_md5[sample.name] = item["yuv_md5"]
+    return samples, expected_md5
+
+
+SAMPLES, EXPECTED_MD5 = load_manifest()
 
 
 class BoolWriter:
@@ -314,6 +317,8 @@ def make_ivf(sample: Sample) -> bytes:
         frames = [make_vp8_key_frame(key_sample), make_vp8_inter_frame(sample)]
     else:
         frames = [make_vp8_key_frame(sample)]
+    if len(frames) != sample.frame_count:
+        raise RuntimeError(f"{sample.name}: expected {sample.frame_count} frames, generated {len(frames)}")
 
     header = bytearray()
     header.extend(b"DKIF")

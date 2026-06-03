@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "description": "Built-in generated VP8 IVF fixtures used by make test and make test-decoder-scalar. Binary IVF and YUV outputs are generated under build/tiny-md5 and are intentionally not tracked.",
+  "samples": [
+    {
+      "name": "gray-16x16",
+      "source": "generated synthetic VP8 key frame from tests/tiny_ivf_md5.py",
+      "variant": "gray",
+      "container": "ivf",
+      "width": 16,
+      "height": 16,
+      "frame_count": 1,
+      "output_frames": 1,
+      "yuv_bytes": 384,
+      "yuv_md5": "02b5d5d5ba2a5de00017b31c40c527bc"
+    },
+    {
+      "name": "u-dc-16x16",
+      "source": "generated synthetic VP8 key frame from tests/tiny_ivf_md5.py",
+      "variant": "u-dc",
+      "container": "ivf",
+      "width": 16,
+      "height": 16,
+      "frame_count": 1,
+      "output_frames": 1,
+      "yuv_bytes": 384,
+      "yuv_md5": "5b811f8dcf01249891776066e0f3e7e2"
+    },
+    {
+      "name": "v-dc-16x16",
+      "source": "generated synthetic VP8 key frame from tests/tiny_ivf_md5.py",
+      "variant": "v-dc",
+      "container": "ivf",
+      "width": 16,
+      "height": 16,
+      "frame_count": 1,
+      "output_frames": 1,
+      "yuv_bytes": 384,
+      "yuv_md5": "ebcdf5dd1274dc0e22582f169df6137f"
+    },
+    {
+      "name": "gray-32x16",
+      "source": "generated synthetic VP8 key frame from tests/tiny_ivf_md5.py",
+      "variant": "gray",
+      "container": "ivf",
+      "width": 32,
+      "height": 16,
+      "frame_count": 1,
+      "output_frames": 1,
+      "yuv_bytes": 768,
+      "yuv_md5": "e979abdb2b582b325de6f5bb97b0e643"
+    },
+    {
+      "name": "gray-17x17",
+      "source": "generated synthetic VP8 key frame from tests/tiny_ivf_md5.py",
+      "variant": "gray",
+      "container": "ivf",
+      "width": 17,
+      "height": 17,
+      "frame_count": 1,
+      "output_frames": 1,
+      "yuv_bytes": 451,
+      "yuv_md5": "2671dd258a7442dc814db1376ce7682d"
+    },
+    {
+      "name": "inter-copy-16x16",
+      "source": "generated synthetic VP8 key frame plus zero-motion inter frame from tests/tiny_ivf_md5.py",
+      "variant": "inter-copy",
+      "container": "ivf",
+      "width": 16,
+      "height": 16,
+      "frame_count": 2,
+      "output_frames": 2,
+      "yuv_bytes": 768,
+      "yuv_md5": "c620b3f0df394a7509cb2a26dde5a3d5"
+    }
+  ]
+}

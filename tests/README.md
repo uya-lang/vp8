@@ -9,6 +9,8 @@ IVF samples, including a key+inter sample, under `build/tiny-md5/`, decodes
 them with `build/vp8uya`, and compares the YUV output with golden MD5 values.
 `make test-decoder-scalar` runs the same decoder suite with
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
+Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
+outputs remain under ignored build directories.
 
 Future tests should keep external codec tools optional. Built-in tests must run
 without libvpx, FFmpeg, or network access; differential tests may live behind
