@@ -3,8 +3,10 @@ use vp8.common.cpu.SimdLevel;
 use vp8.common.cpu.simd_level_available;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.predict_inter_copy;
+use vp8.kernels.scalar.sad_4x4;
 use vp8.kernels.scalar.sad_8x8;
 use vp8.kernels.scalar.sad_16x16;
+use vp8.kernels.simd.sad_4x4_u8x16;
 use vp8.kernels.simd.sad_8x8_u8x16;
 use vp8.kernels.simd.sad_16x16_u8x16;
 
@@ -16,7 +18,8 @@ export struct KernelFunctionTable {
     predict_inter_copy_fn: &void,
     add_residual_4x4_clamped_fn: &void,
     sad_16x16_fn: &void,
-    sad_8x8_fn: &void
+    sad_8x8_fn: &void,
+    sad_4x4_fn: &void
 }
 
 export fn make_scalar_kernel_table() KernelFunctionTable {
@@ -25,7 +28,8 @@ export fn make_scalar_kernel_table() KernelFunctionTable {
         predict_inter_copy_fn: &predict_inter_copy,
         add_residual_4x4_clamped_fn: &add_residual_4x4_clamped,
         sad_16x16_fn: &sad_16x16,
-        sad_8x8_fn: &sad_8x8
+        sad_8x8_fn: &sad_8x8,
+        sad_4x4_fn: &sad_4x4
     };
 }
 
@@ -41,7 +45,8 @@ export fn make_forced_simd_kernel_table(capabilities: &SimdCapabilities) KernelF
             predict_inter_copy_fn: &predict_inter_copy,
             add_residual_4x4_clamped_fn: &add_residual_4x4_clamped,
             sad_16x16_fn: &sad_16x16_u8x16,
-            sad_8x8_fn: &sad_8x8_u8x16
+            sad_8x8_fn: &sad_8x8_u8x16,
+            sad_4x4_fn: &sad_4x4_u8x16
         };
     }
     return make_scalar_kernel_table();
@@ -79,6 +84,16 @@ export fn kernel_table_sad_8x8(table: &KernelFunctionTable, src: &byte, src_stri
     }
     if table.sad_8x8_fn == (&sad_8x8_u8x16 as &void) {
         return sad_8x8_u8x16(src, src_stride, reference, reference_stride);
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_sad_4x4(table: &KernelFunctionTable, src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) !u32 {
+    if table.sad_4x4_fn == (&sad_4x4 as &void) {
+        return sad_4x4(src, src_stride, reference, reference_stride);
+    }
+    if table.sad_4x4_fn == (&sad_4x4_u8x16 as &void) {
+        return sad_4x4_u8x16(src, src_stride, reference, reference_stride);
     }
     return error.ErrKernelFunctionTableInvalidEntry;
 }

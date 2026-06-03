@@ -289,6 +289,23 @@ export fn sad_8x8(src: &byte, src_stride: usize, reference: &byte, reference_str
     return distortion;
 }
 
+export fn sad_4x4(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    var distortion: u32 = 0;
+    var row: usize = 0;
+    while row < 4 {
+        const src_base: usize = row * src_stride;
+        const reference_base: usize = row * reference_stride;
+        var col: usize = 0;
+        while col < 4 {
+            const diff: i32 = (src[src_base + col] as i32) - (reference[reference_base + col] as i32);
+            distortion = distortion + (abs_i32(diff) as u32);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return distortion;
+}
+
 fn signed_char_clamp(value: i32) i32 {
     return clamp_i32_to_i32(value, -128, 127);
 }
