@@ -6,6 +6,7 @@ TOOLCHAIN_HELLO := $(BUILD_DIR)/toolchain_hello
 SAMPLE_IVF := $(BUILD_DIR)/sample.ivf
 TINY_MD5_DIR := $(BUILD_DIR)/tiny-md5
 TINY_MD5_SCRIPT := tests/tiny_ivf_md5.py
+KEYFRAME_MD5_DIR := $(BUILD_DIR)/keyframe-md5
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 SRC := src/main.uya
@@ -15,7 +16,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 test-vpxdiff clean require-uya
+.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 test-keyframe-md5 test-vpxdiff clean require-uya
 
 all: build
 
@@ -58,6 +59,9 @@ test-decoder-scalar: build
 
 test-tiny-md5: build
 	python3 $(TINY_MD5_SCRIPT) $(BIN) $(TINY_MD5_DIR)
+
+test-keyframe-md5: build
+	python3 $(TINY_MD5_SCRIPT) --group key $(BIN) $(KEYFRAME_MD5_DIR)
 
 test-vpxdiff:
 	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR)

@@ -11,6 +11,7 @@ them with `build/vp8uya`, and compares the YUV output with golden MD5 values.
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
 Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
 outputs remain under ignored build directories.
+`make test-keyframe-md5` filters the manifest to key-frame MD5 samples.
 `make test-vpxdiff` optionally compares compatible manifest samples with
 `vpxdec`; it skips cleanly when libvpx tools are unavailable.
 

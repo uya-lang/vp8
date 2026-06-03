@@ -28,29 +28,34 @@ class Sample:
     width: int
     height: int
     variant: str
+    groups: tuple[str, ...]
     frame_count: int = 1
     output_frames: int = 1
 
 
-def load_manifest() -> tuple[list[Sample], dict[str, str]]:
+def load_manifest() -> tuple[list[Sample], dict[str, str], dict[str, tuple[str, ...]]]:
     manifest = json.loads(FIXTURE_MANIFEST.read_text(encoding="utf-8"))
     samples = []
     expected_md5 = {}
+    groups_by_name = {}
     for item in manifest["samples"]:
+        groups = tuple(str(group) for group in item.get("groups", []))
         sample = Sample(
             name=item["name"],
             width=int(item["width"]),
             height=int(item["height"]),
             variant=item["variant"],
+            groups=groups,
             frame_count=int(item["frame_count"]),
             output_frames=int(item.get("output_frames", item["frame_count"])),
         )
         samples.append(sample)
         expected_md5[sample.name] = item["yuv_md5"]
-    return samples, expected_md5
+        groups_by_name[sample.name] = groups
+    return samples, expected_md5, groups_by_name
 
 
-SAMPLES, EXPECTED_MD5 = load_manifest()
+SAMPLES, EXPECTED_MD5, GROUPS_BY_NAME = load_manifest()
 
 
 class BoolWriter:
@@ -313,7 +318,7 @@ def make_vp8_inter_frame(sample: Sample) -> bytes:
 
 def make_ivf(sample: Sample) -> bytes:
     if sample.variant == "inter-copy":
-        key_sample = Sample(f"{sample.name}-key", sample.width, sample.height, "u-dc")
+        key_sample = Sample(f"{sample.name}-key", sample.width, sample.height, "u-dc", ())
         frames = [make_vp8_key_frame(key_sample), make_vp8_inter_frame(sample)]
     else:
         frames = [make_vp8_key_frame(sample)]
@@ -370,13 +375,24 @@ def run_sample(bin_path: Path, out_dir: Path, sample: Sample) -> dict[str, objec
     }
 
 
+def parse_args(argv: list[str]) -> tuple[str | None, Path, Path] | None:
+    args = argv[1:]
+    group = None
+    if len(args) >= 2 and args[0] == "--group":
+        group = args[1]
+        args = args[2:]
+    if len(args) != 2:
+        return None
+    return group, Path(args[0]), Path(args[1])
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 3:
-        print("usage: tiny_ivf_md5.py <vp8uya-bin> <out-dir>", file=sys.stderr)
+    parsed = parse_args(argv)
+    if parsed is None:
+        print("usage: tiny_ivf_md5.py [--group NAME] <vp8uya-bin> <out-dir>", file=sys.stderr)
         return 2
 
-    bin_path = Path(argv[1])
-    out_dir = Path(argv[2])
+    group, bin_path, out_dir = parsed
     if not bin_path.exists():
         print(f"error: binary not found: {bin_path}", file=sys.stderr)
         return 2
@@ -385,7 +401,15 @@ def main(argv: list[str]) -> int:
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
 
-    results = [run_sample(bin_path, out_dir, sample) for sample in SAMPLES]
+    selected_samples = [
+        sample for sample in SAMPLES
+        if group is None or group in GROUPS_BY_NAME.get(sample.name, ())
+    ]
+    if not selected_samples:
+        print(f"error: no samples matched group {group}", file=sys.stderr)
+        return 2
+
+    results = [run_sample(bin_path, out_dir, sample) for sample in selected_samples]
     (out_dir / "manifest.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
 
     failures = []

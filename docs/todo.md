@@ -193,7 +193,7 @@
 
 - [x] 建立 `fixtures/manifest.json`，记录样本来源、帧数、MD5。
 - [x] 增加 libvpx/vpxdec 可选差分脚本。
-- [ ] 对 key frame 样本做 YUV MD5 对照。
+- [x] 对 key frame 样本做 YUV MD5 对照。
 - [ ] 对 inter frame 样本做 YUV MD5 对照。
 - [ ] 对尺寸非 16 对齐样本做对照。
 - [ ] 对 segmentation 样本做对照。
