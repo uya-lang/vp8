@@ -309,7 +309,7 @@
 
 - [x] 实现 reference frame pool for encoder。
 - [x] 实现 last frame inter prediction。
-- [ ] 实现 integer-pel motion search。
+- [x] 实现 integer-pel motion search。
 - [ ] 实现 half/quarter-pel refinement。
 - [ ] 实现 MV cost。
 - [ ] 实现 inter/intra mode decision。

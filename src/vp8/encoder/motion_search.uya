@@ -1,0 +1,208 @@
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_buffer_extend_border_counted;
+use vp8.common.plane.Plane;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.YuvPlaneView;
+use vp8.encoder.context.validate_yuv_frame_view;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.encoder_reference_last;
+
+error ErrEncoderMotionSearchInvalidGeometry;
+error ErrEncoderMotionSearchOutOfBounds;
+error ErrEncoderMotionSearchNoCandidate;
+
+const ENCODER_INTEGER_PEL_MAX_SEARCH_RADIUS: usize = 64;
+
+export struct IntegerPelMotionSearchResult {
+    mv_x: i16,
+    mv_y: i16,
+    distortion: u32,
+    candidates_evaluated: usize,
+    border_extension_count: usize
+}
+
+fn encoder_motion_search_checked_product(a: usize, b: usize) !usize {
+    const product: usize = a * b;
+    if a != 0 && (product / a) != b {
+        return error.ErrEncoderMotionSearchOutOfBounds;
+    }
+    return product;
+}
+
+fn encoder_motion_search_plane_data_index(plane: &Plane, x: i32, y: i32) !usize {
+    const border: i32 = plane.border as i32;
+    const data_x: i32 = x + border;
+    const data_y: i32 = y + border;
+    if data_x < 0 || data_y < 0 {
+        return error.ErrEncoderMotionSearchOutOfBounds;
+    }
+    if (data_x as usize) >= plane.stride {
+        return error.ErrEncoderMotionSearchOutOfBounds;
+    }
+
+    const row_offset: usize = try encoder_motion_search_checked_product(data_y as usize, plane.stride);
+    const index: usize = row_offset + (data_x as usize);
+    if index < row_offset || index >= plane.storage_len {
+        return error.ErrEncoderMotionSearchOutOfBounds;
+    }
+    return index;
+}
+
+fn encoder_motion_search_block_data_index(plane: &Plane, x: i32, y: i32, width: usize, height: usize) !usize {
+    if width == 0 || height == 0 || plane.data == null {
+        return error.ErrEncoderMotionSearchInvalidGeometry;
+    }
+
+    const block_width: i32 = width as i32;
+    const block_height: i32 = height as i32;
+    const last_x: i32 = x + block_width - 1;
+    const last_y: i32 = y + block_height - 1;
+
+    const start: usize = try encoder_motion_search_plane_data_index(plane, x, y);
+    _ = try encoder_motion_search_plane_data_index(plane, last_x, y);
+    _ = try encoder_motion_search_plane_data_index(plane, x, last_y);
+    _ = try encoder_motion_search_plane_data_index(plane, last_x, last_y);
+    return start;
+}
+
+fn encoder_motion_search_abs_i32(value: i32) i32 {
+    if value < 0 {
+        return 0 - value;
+    }
+    return value;
+}
+
+fn encoder_motion_search_abs_diff_u8(actual: byte, predicted: byte) u32 {
+    const diff: i32 = (actual as i32) - (predicted as i32);
+    return encoder_motion_search_abs_i32(diff) as u32;
+}
+
+fn encoder_motion_search_clamp_source_coord(value: i32, limit: usize) usize {
+    if value < 0 {
+        return 0;
+    }
+    const coord: usize = value as usize;
+    if coord >= limit {
+        return limit - 1;
+    }
+    return coord;
+}
+
+fn encoder_motion_search_source_sample_clamped(plane: &YuvPlaneView, x: i32, y: i32) byte {
+    const sample_x: usize = encoder_motion_search_clamp_source_coord(x, plane.width);
+    const sample_y: usize = encoder_motion_search_clamp_source_coord(y, plane.height);
+    return plane.data[(sample_y * plane.stride) + sample_x];
+}
+
+fn encoder_motion_search_sad_y16(src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, dx: i32, dy: i32) !u32 {
+    const src_x: i32 = (mb_x * (16 as usize)) as i32;
+    const src_y: i32 = (mb_y * (16 as usize)) as i32;
+    const ref_x: i32 = src_x + dx;
+    const ref_y: i32 = src_y + dy;
+    const ref_index: usize = try encoder_motion_search_block_data_index(&reference.y.plane, ref_x, ref_y, 16, 16);
+
+    var distortion: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        const ref_base: usize = ref_index + (row * reference.y.plane.stride);
+        var col: usize = 0;
+        while col < 16 {
+            const src_value: byte = encoder_motion_search_source_sample_clamped(&src.y, src_x + (col as i32), src_y + (row as i32));
+            const ref_value: byte = reference.y.plane.data[ref_base + col];
+            distortion = distortion + encoder_motion_search_abs_diff_u8(src_value, ref_value);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return distortion;
+}
+
+fn encoder_motion_search_better_candidate(distortion: u32, dx: i32, dy: i32, best: &IntegerPelMotionSearchResult, has_best: bool) bool {
+    if !has_best {
+        return true;
+    }
+    if distortion < best.distortion {
+        return true;
+    }
+    if distortion > best.distortion {
+        return false;
+    }
+
+    const best_dx: i32 = (best.mv_x as i32) / 8;
+    const best_dy: i32 = (best.mv_y as i32) / 8;
+    const candidate_distance: i32 = encoder_motion_search_abs_i32(dx) + encoder_motion_search_abs_i32(dy);
+    const best_distance: i32 = encoder_motion_search_abs_i32(best_dx) + encoder_motion_search_abs_i32(best_dy);
+    if candidate_distance < best_distance {
+        return true;
+    }
+    if candidate_distance > best_distance {
+        return false;
+    }
+    if dy < best_dy {
+        return true;
+    }
+    if dy > best_dy {
+        return false;
+    }
+    return dx < best_dx;
+}
+
+fn encoder_motion_search_validate_input(frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, search_radius: usize) !void {
+    if search_radius > ENCODER_INTEGER_PEL_MAX_SEARCH_RADIUS {
+        return error.ErrEncoderMotionSearchInvalidGeometry;
+    }
+    try validate_yuv_frame_view(frame);
+    if frame.width != reference.width || frame.height != reference.height {
+        return error.ErrEncoderMotionSearchInvalidGeometry;
+    }
+
+    const mb_pixel_x: usize = mb_x * (16 as usize);
+    const mb_pixel_y: usize = mb_y * (16 as usize);
+    if mb_pixel_x >= frame.width || mb_pixel_y >= frame.height {
+        return error.ErrEncoderMotionSearchOutOfBounds;
+    }
+}
+
+export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame: &YuvFrameView, mb_x: usize, mb_y: usize, search_radius: usize) !IntegerPelMotionSearchResult {
+    const reference: &FrameBuffer = try encoder_reference_last(refs);
+    try encoder_motion_search_validate_input(frame, reference, mb_x, mb_y, search_radius);
+
+    const border_extension_count: usize = frame_buffer_extend_border_counted(reference);
+    var best: IntegerPelMotionSearchResult = IntegerPelMotionSearchResult{
+        mv_x: 0 as i16,
+        mv_y: 0 as i16,
+        distortion: 4294967295 as u32,
+        candidates_evaluated: 0,
+        border_extension_count: border_extension_count
+    };
+    var has_best: bool = false;
+
+    const radius: i32 = search_radius as i32;
+    var dy: i32 = 0 - radius;
+    while dy <= radius {
+        var dx: i32 = 0 - radius;
+        while dx <= radius {
+            var valid: bool = true;
+            const distortion: u32 = encoder_motion_search_sad_y16(frame, reference, mb_x, mb_y, dx, dy) catch {
+                valid = false;
+                0 as u32;
+            };
+            if valid {
+                best.candidates_evaluated = best.candidates_evaluated + 1;
+                if encoder_motion_search_better_candidate(distortion, dx, dy, &best, has_best) {
+                    best.mv_x = (dx * 8) as i16;
+                    best.mv_y = (dy * 8) as i16;
+                    best.distortion = distortion;
+                    has_best = true;
+                }
+            }
+            dx = dx + 1;
+        }
+        dy = dy + 1;
+    }
+
+    if !has_best {
+        return error.ErrEncoderMotionSearchNoCandidate;
+    }
+    return best;
+}
