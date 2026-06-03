@@ -13,6 +13,8 @@ fn dummy_rate_control() EncoderRateControl {
     return EncoderRateControl{
         mode: EncoderRateControlMode.constant_quantizer,
         cqp_quantizer: 0 as u8,
+        current_quantizer: 0 as u8,
+        target_bits_per_frame: 0,
         frame_index: 0,
         last_actual_bits: 0
     };
@@ -47,7 +49,7 @@ test "CQP rate control keeps fixed quantizer across feedback" {
     try assert_eq_i32(control.last_actual_bits as i32, 99999);
 }
 
-test "CQP rate control rejects invalid config and unsupported modes" {
+test "CQP rate control rejects invalid config" {
     var failed: i32 = 0;
     _ = make_encoder_rate_control(null as &EncoderConfig) catch {
         failed = 1;
@@ -64,11 +66,11 @@ test "CQP rate control rejects invalid config and unsupported modes" {
     };
     try assert_eq_i32(failed, 1);
 
-    var unsupported: EncoderConfig = make_default_encoder_config(16, 16);
-    unsupported.rate_control_mode = EncoderRateControlMode.target_bitrate;
-    unsupported.target_bitrate_bps = 100000;
+    var invalid_bitrate: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_bitrate.rate_control_mode = EncoderRateControlMode.target_bitrate;
+    invalid_bitrate.target_bitrate_bps = 0;
     failed = 0;
-    _ = make_encoder_rate_control(&unsupported) catch {
+    _ = make_encoder_rate_control(&invalid_bitrate) catch {
         failed = 1;
         dummy_rate_control();
     };
@@ -80,4 +82,52 @@ test "CQP rate control rejects invalid config and unsupported modes" {
         dummy_rate_control_decision();
     };
     try assert_eq_i32(failed, 1);
+}
+
+test "simple VBR rate control computes target bits and adapts quantizer" {
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.rate_control_mode = EncoderRateControlMode.target_bitrate;
+    config.target_bitrate_bps = 240000;
+    config.fps_numerator = 30;
+    config.fps_denominator = 1;
+    config.quantizer = 40 as u8;
+
+    var control: EncoderRateControl = try make_encoder_rate_control(&config);
+    const first: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&control, false);
+    try assert_eq_i32(first.frame_index as i32, 0);
+    try assert_eq_i32(first.quantizer as i32, 40);
+    try assert_eq_i32(first.target_bits as i32, 8000);
+
+    try encoder_rate_control_finish_frame(&control, 12000);
+    const second: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&control, false);
+    try assert_eq_i32(second.frame_index as i32, 1);
+    try assert_eq_i32(second.quantizer as i32, 42);
+    try assert_eq_i32(second.target_bits as i32, 8000);
+    try assert_eq_i32(control.last_actual_bits as i32, 12000);
+
+    try encoder_rate_control_finish_frame(&control, 4000);
+    const third: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&control, false);
+    try assert_eq_i32(third.frame_index as i32, 2);
+    try assert_eq_i32(third.quantizer as i32, 40);
+    try assert_eq_i32(third.target_bits as i32, 8000);
+}
+
+test "simple VBR quantizer adjustment clamps to VP8 qindex range" {
+    var high_config: EncoderConfig = make_default_encoder_config(16, 16);
+    high_config.rate_control_mode = EncoderRateControlMode.target_bitrate;
+    high_config.target_bitrate_bps = 30000;
+    high_config.quantizer = 126 as u8;
+    var high: EncoderRateControl = try make_encoder_rate_control(&high_config);
+    try encoder_rate_control_finish_frame(&high, 2000);
+    const high_decision: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&high, false);
+    try assert_eq_i32(high_decision.quantizer as i32, 127);
+
+    var low_config: EncoderConfig = make_default_encoder_config(16, 16);
+    low_config.rate_control_mode = EncoderRateControlMode.target_bitrate;
+    low_config.target_bitrate_bps = 30000;
+    low_config.quantizer = 1 as u8;
+    var low: EncoderRateControl = try make_encoder_rate_control(&low_config);
+    try encoder_rate_control_finish_frame(&low, 0);
+    const low_decision: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&low, false);
+    try assert_eq_i32(low_decision.quantizer as i32, 0);
 }

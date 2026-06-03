@@ -36,6 +36,7 @@ use vp8.decoder.scalar.decoder_decode_frame;
 use vp8.decoder.scalar.make_decoder;
 use vp8.decoder.scalar.make_decoder_with_kernel_table;
 use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderRateControlMode;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
@@ -73,7 +74,7 @@ fn print_help() void {
     _ = printf("  vp8uya info <input.ivf>\n");
     _ = printf("  vp8uya decode <input.ivf> --yuv <out.yuv> [--stats <out.jsonl>]\n");
     _ = printf("  vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>\n");
-    _ = printf("  vp8uya encode <input.yuv> --width W --height H [--quantizer Q] --out <out.ivf>\n");
+    _ = printf("  vp8uya encode <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] --out <out.ivf>\n");
 }
 
 fn print_version() void {
@@ -422,7 +423,7 @@ fn run_decode_frame(input_path: &byte, frame_index: u32, output_path: &byte, for
     return 2;
 }
 
-fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override: i32, output_path: &byte) i32 {
+fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override: i32, target_bitrate_bps: u32, output_path: &byte) i32 {
     if width == 0 || height == 0 {
         _ = printf("error: encode width and height must be positive\n");
         return 2;
@@ -438,8 +439,12 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
     if quantizer_override >= 0 {
         config.quantizer = quantizer_override as u8;
     }
+    if target_bitrate_bps != 0 {
+        config.rate_control_mode = EncoderRateControlMode.target_bitrate;
+        config.target_bitrate_bps = target_bitrate_bps;
+    }
     var rate_control: EncoderRateControl = make_encoder_rate_control(&config) catch {
-        _ = printf("error: invalid CQP rate control config\n");
+        _ = printf("error: invalid rate control config\n");
         return 2;
     };
     const decision: EncoderRateControlDecision = encoder_rate_control_decide_frame(&rate_control, true) catch {
@@ -595,12 +600,13 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
     }
     if strcmp(cmd as *const byte, "encode\0" as *const byte) == 0 {
         if (argc as usize) < command_index + 8 {
-            _ = printf("error: encode requires <input.yuv> --width W --height H [--quantizer Q] --out <out.ivf>\n");
+            _ = printf("error: encode requires <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] --out <out.ivf>\n");
             return 2;
         }
         var width: usize = 0;
         var height: usize = 0;
         var quantizer: i32 = -1;
+        var target_bitrate_bps: u32 = 0;
         var out_path: &byte = null as &byte;
         var encode_arg_index: usize = command_index + 2;
         while (argc as usize) > encode_arg_index {
@@ -640,6 +646,18 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
                 }
                 quantizer = parsed_quantizer;
                 encode_arg_index = encode_arg_index + 2;
+            } else if strcmp(argv[encode_arg_index] as *const byte, "--target-bitrate\0" as *const byte) == 0 {
+                if (argc as usize) <= encode_arg_index + 1 {
+                    _ = printf("error: --target-bitrate requires BPS\n");
+                    return 2;
+                }
+                const parsed_bitrate: i32 = atoi(argv[encode_arg_index + 1] as *const byte);
+                if parsed_bitrate <= 0 {
+                    _ = printf("error: --target-bitrate must be positive\n");
+                    return 2;
+                }
+                target_bitrate_bps = parsed_bitrate as u32;
+                encode_arg_index = encode_arg_index + 2;
             } else if strcmp(argv[encode_arg_index] as *const byte, "--out\0" as *const byte) == 0 {
                 if (argc as usize) <= encode_arg_index + 1 {
                     _ = printf("error: --out requires <out.ivf>\n");
@@ -653,10 +671,10 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
             }
         }
         if width == 0 || height == 0 || out_path == null {
-            _ = printf("error: encode requires --width W --height H [--quantizer Q] --out <out.ivf>\n");
+            _ = printf("error: encode requires --width W --height H [--quantizer Q] [--target-bitrate BPS] --out <out.ivf>\n");
             return 2;
         }
-        return run_encode(argv[command_index + 1], width, height, quantizer, out_path);
+        return run_encode(argv[command_index + 1], width, height, quantizer, target_bitrate_bps, out_path);
     }
 
     _ = printf("unknown command: %s\n", cmd);

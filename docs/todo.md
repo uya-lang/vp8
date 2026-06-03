@@ -330,7 +330,7 @@
 ## Phase 14: Rate Control 与质量
 
 - [x] CQP 模式。
-- [ ] 简单 VBR 模式。
+- [x] 简单 VBR 模式。
 - [ ] CBR buffer model。
 - [ ] keyframe interval 控制。
 - [ ] quantizer delta 调整。
