@@ -1,0 +1,34 @@
+error ErrEncoderRefreshPolicyInvalidInput;
+
+export struct EncoderGoldenRefreshPolicy {
+    refresh_interval: u32
+}
+
+export struct EncoderGoldenRefreshDecision {
+    refresh_golden: bool,
+    refresh_due_to_keyframe: bool,
+    refresh_due_to_interval: bool
+}
+
+export fn make_fixed_interval_golden_refresh_policy(refresh_interval: u32) !EncoderGoldenRefreshPolicy {
+    return EncoderGoldenRefreshPolicy{
+        refresh_interval: refresh_interval
+    };
+}
+
+export fn decide_golden_frame_refresh(policy: &EncoderGoldenRefreshPolicy, frame_index: u32, is_keyframe: bool) !EncoderGoldenRefreshDecision {
+    if policy == null {
+        return error.ErrEncoderRefreshPolicyInvalidInput;
+    }
+
+    var due_to_interval: bool = false;
+    if !is_keyframe && policy.refresh_interval != 0 && frame_index != 0 {
+        due_to_interval = (frame_index % policy.refresh_interval) == 0;
+    }
+
+    return EncoderGoldenRefreshDecision{
+        refresh_golden: is_keyframe || due_to_interval,
+        refresh_due_to_keyframe: is_keyframe,
+        refresh_due_to_interval: due_to_interval
+    };
+}

@@ -1,0 +1,82 @@
+use std.testing.assert_eq_i32;
+
+use vp8.common.frame.FrameBuffer;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_bytes_copied;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_golden;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.encoder.refresh_policy.EncoderGoldenRefreshDecision;
+use vp8.encoder.refresh_policy.EncoderGoldenRefreshPolicy;
+use vp8.encoder.refresh_policy.decide_golden_frame_refresh;
+use vp8.encoder.refresh_policy.make_fixed_interval_golden_refresh_policy;
+
+fn dummy_golden_decision() EncoderGoldenRefreshDecision {
+    return EncoderGoldenRefreshDecision{
+        refresh_golden: false,
+        refresh_due_to_keyframe: false,
+        refresh_due_to_interval: false
+    };
+}
+
+test "golden refresh policy always refreshes keyframes" {
+    const disabled: EncoderGoldenRefreshPolicy = try make_fixed_interval_golden_refresh_policy(0);
+    const decision: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&disabled, 0, true);
+
+    try assert_eq_i32(decision.refresh_golden as i32, true as i32);
+    try assert_eq_i32(decision.refresh_due_to_keyframe as i32, true as i32);
+    try assert_eq_i32(decision.refresh_due_to_interval as i32, false as i32);
+}
+
+test "golden refresh policy refreshes non-keyframes at fixed nonzero intervals" {
+    const policy: EncoderGoldenRefreshPolicy = try make_fixed_interval_golden_refresh_policy(4);
+
+    const frame0: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&policy, 0, false);
+    const frame3: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&policy, 3, false);
+    const frame4: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&policy, 4, false);
+    const frame8: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&policy, 8, false);
+
+    try assert_eq_i32(frame0.refresh_golden as i32, false as i32);
+    try assert_eq_i32(frame3.refresh_golden as i32, false as i32);
+    try assert_eq_i32(frame4.refresh_golden as i32, true as i32);
+    try assert_eq_i32(frame4.refresh_due_to_interval as i32, true as i32);
+    try assert_eq_i32(frame8.refresh_golden as i32, true as i32);
+}
+
+test "golden refresh policy can disable periodic non-key refresh" {
+    const policy: EncoderGoldenRefreshPolicy = try make_fixed_interval_golden_refresh_policy(0);
+    const decision: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&policy, 16, false);
+
+    try assert_eq_i32(decision.refresh_golden as i32, false as i32);
+    try assert_eq_i32(decision.refresh_due_to_keyframe as i32, false as i32);
+    try assert_eq_i32(decision.refresh_due_to_interval as i32, false as i32);
+}
+
+test "golden refresh decision aliases current frame without copy through reference pool" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    const current_slot: usize = refs.pool.current_slot;
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    current.y.plane.origin[0] = 211 as byte;
+
+    const policy: EncoderGoldenRefreshPolicy = try make_fixed_interval_golden_refresh_policy(2);
+    const decision: EncoderGoldenRefreshDecision = try decide_golden_frame_refresh(&policy, 2, false);
+    try encoder_reference_refresh(&refs, false, decision.refresh_golden, false);
+
+    const golden: &FrameBuffer = try encoder_reference_golden(&refs);
+    try assert_eq_i32(refs.pool.golden_slot as i32, current_slot as i32);
+    try assert_eq_i32(golden.y.plane.origin[0] as i32, 211);
+    try assert_eq_i32(encoder_reference_bytes_copied(&refs) as i32, 0);
+}
+
+test "golden refresh policy rejects null policy input" {
+    var failed: i32 = 0;
+    _ = decide_golden_frame_refresh(null as &EncoderGoldenRefreshPolicy, 1, false) catch {
+        failed = 1;
+        dummy_golden_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}
