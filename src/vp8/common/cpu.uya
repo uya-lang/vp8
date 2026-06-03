@@ -1,0 +1,53 @@
+export enum SimdLevel {
+    scalar = 0,
+    vector128 = 1,
+    vector256_tiled = 2,
+    asm_x86 = 3,
+    asm_arm = 4,
+}
+
+export const SIMD_LEVEL_COUNT: usize = 5;
+
+export fn simd_level_default() SimdLevel {
+    return SimdLevel.scalar;
+}
+
+export fn simd_level_index(level: SimdLevel) usize {
+    if level == SimdLevel.scalar {
+        return 0;
+    }
+    if level == SimdLevel.vector128 {
+        return 1;
+    }
+    if level == SimdLevel.vector256_tiled {
+        return 2;
+    }
+    if level == SimdLevel.asm_x86 {
+        return 3;
+    }
+    return 4;
+}
+
+export fn simd_level_name(level: SimdLevel) &const byte {
+    if level == SimdLevel.scalar {
+        return "scalar\0" as &const byte;
+    }
+    if level == SimdLevel.vector128 {
+        return "vector128\0" as &const byte;
+    }
+    if level == SimdLevel.vector256_tiled {
+        return "vector256_tiled\0" as &const byte;
+    }
+    if level == SimdLevel.asm_x86 {
+        return "asm_x86\0" as &const byte;
+    }
+    return "asm_arm\0" as &const byte;
+}
+
+export fn simd_level_is_portable_vector(level: SimdLevel) bool {
+    return level == SimdLevel.vector128 || level == SimdLevel.vector256_tiled;
+}
+
+export fn simd_level_is_asm(level: SimdLevel) bool {
+    return level == SimdLevel.asm_x86 || level == SimdLevel.asm_arm;
+}

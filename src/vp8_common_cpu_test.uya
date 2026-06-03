@@ -1,0 +1,48 @@
+use libc.strcmp;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.cpu.SimdLevel;
+use vp8.common.cpu.SIMD_LEVEL_COUNT;
+use vp8.common.cpu.simd_level_default;
+use vp8.common.cpu.simd_level_index;
+use vp8.common.cpu.simd_level_is_asm;
+use vp8.common.cpu.simd_level_is_portable_vector;
+use vp8.common.cpu.simd_level_name;
+
+fn assert_simd_level_name(level: SimdLevel, expected: &const byte) !void {
+    try assert_eq_i32(strcmp(simd_level_name(level) as *const byte, expected as *const byte), 0);
+}
+
+test "SimdLevel defines stable dispatcher order" {
+    try assert_eq_i32(SIMD_LEVEL_COUNT as i32, 5);
+    try assert_eq_i32(simd_level_index(SimdLevel.scalar) as i32, 0);
+    try assert_eq_i32(simd_level_index(SimdLevel.vector128) as i32, 1);
+    try assert_eq_i32(simd_level_index(SimdLevel.vector256_tiled) as i32, 2);
+    try assert_eq_i32(simd_level_index(SimdLevel.asm_x86) as i32, 3);
+    try assert_eq_i32(simd_level_index(SimdLevel.asm_arm) as i32, 4);
+}
+
+test "SimdLevel names match CLI and diagnostic spelling" {
+    try assert_simd_level_name(SimdLevel.scalar, "scalar\0" as &const byte);
+    try assert_simd_level_name(SimdLevel.vector128, "vector128\0" as &const byte);
+    try assert_simd_level_name(SimdLevel.vector256_tiled, "vector256_tiled\0" as &const byte);
+    try assert_simd_level_name(SimdLevel.asm_x86, "asm_x86\0" as &const byte);
+    try assert_simd_level_name(SimdLevel.asm_arm, "asm_arm\0" as &const byte);
+}
+
+test "SimdLevel classifies scalar portable vectors and asm levels" {
+    try expect(simd_level_default() == SimdLevel.scalar);
+
+    try expect(!simd_level_is_portable_vector(SimdLevel.scalar));
+    try expect(simd_level_is_portable_vector(SimdLevel.vector128));
+    try expect(simd_level_is_portable_vector(SimdLevel.vector256_tiled));
+    try expect(!simd_level_is_portable_vector(SimdLevel.asm_x86));
+    try expect(!simd_level_is_portable_vector(SimdLevel.asm_arm));
+
+    try expect(!simd_level_is_asm(SimdLevel.scalar));
+    try expect(!simd_level_is_asm(SimdLevel.vector128));
+    try expect(!simd_level_is_asm(SimdLevel.vector256_tiled));
+    try expect(simd_level_is_asm(SimdLevel.asm_x86));
+    try expect(simd_level_is_asm(SimdLevel.asm_arm));
+}

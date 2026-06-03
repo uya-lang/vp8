@@ -210,7 +210,7 @@
 
 ## Phase 9: SIMD 框架
 
-- [ ] 定义 `SimdLevel`。
+- [x] 定义 `SimdLevel`。
 - [ ] 实现 CPU/构建能力检测。
 - [ ] 实现 kernel function table。
 - [ ] 实现 `--force-scalar`。
