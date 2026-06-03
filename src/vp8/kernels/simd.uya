@@ -6,6 +6,9 @@ type I16x16 = @vector(i16, 16);
 export type I32x4 = @vector(i32, 4);
 export type I32Mask4 = @mask(4);
 
+const SIMD_VP8_COSPI8_SQRT2_MINUS_1: i32 = 20091;
+const SIMD_VP8_SINPI8_SQRT2: i32 = 35468;
+
 export fn load_u8x16(src: &u8) U8x16 {
     return @vector.load(src);
 }
@@ -38,6 +41,23 @@ fn clip_i16_to_u8(value: i16) byte {
         return 255 as byte;
     }
     return value as byte;
+}
+
+fn make_i32x4(a: i32, b: i32, c: i32, d: i32) I32x4 {
+    var lanes: [i32: 4] = [];
+    lanes[0] = a;
+    lanes[1] = b;
+    lanes[2] = c;
+    lanes[3] = d;
+    return @vector.load(&lanes[0] as &i32);
+}
+
+fn idct_mul_shift_i32x4(value: I32x4, factor: i32) I32x4 {
+    return (value * @vector.splat(factor)) >> @vector.splat(16);
+}
+
+fn idct_round_shift_3_i32x4(value: I32x4) I32x4 {
+    return (value + @vector.splat(4)) >> @vector.splat(3);
 }
 
 export fn plane_copy_u8x16(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize, width: usize, height: usize) void {
@@ -153,4 +173,70 @@ export fn inverse_transform_dc_only_4x4_i16x16(dc: i16, output: &i16) void {
     const residual: i16 = (((dc as i32) + 4) >> 3) as i16;
     const values: I16x16 = @vector.splat(residual);
     @vector.store(output, values);
+}
+
+fn inverse_transform_4x4_one_i32x4(input: &i16, output: &i16) void {
+    const in0: I32x4 = make_i32x4(input[0] as i32, input[4] as i32, input[8] as i32, input[12] as i32);
+    const in1: I32x4 = make_i32x4(input[1] as i32, input[5] as i32, input[9] as i32, input[13] as i32);
+    const in2: I32x4 = make_i32x4(input[2] as i32, input[6] as i32, input[10] as i32, input[14] as i32);
+    const in3: I32x4 = make_i32x4(input[3] as i32, input[7] as i32, input[11] as i32, input[15] as i32);
+
+    const a1: I32x4 = in0 + in2;
+    const b1: I32x4 = in0 - in2;
+    const c1_cos: I32x4 = idct_mul_shift_i32x4(in1, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const c1_sin: I32x4 = idct_mul_shift_i32x4(in3, SIMD_VP8_SINPI8_SQRT2);
+    const c1: I32x4 = (c1_cos - in3) + c1_sin;
+    const d1_sin: I32x4 = idct_mul_shift_i32x4(in1, SIMD_VP8_SINPI8_SQRT2);
+    const d1_cos: I32x4 = idct_mul_shift_i32x4(in3, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const d1: I32x4 = ((in1 + d1_sin) + in3) + d1_cos;
+
+    var tmp0: [i32: 4] = [];
+    var tmp1: [i32: 4] = [];
+    var tmp2: [i32: 4] = [];
+    var tmp3: [i32: 4] = [];
+    @vector.store(&tmp0[0] as &i32, a1 + d1);
+    @vector.store(&tmp3[0] as &i32, a1 - d1);
+    @vector.store(&tmp1[0] as &i32, b1 + c1);
+    @vector.store(&tmp2[0] as &i32, b1 - c1);
+
+    const t0: I32x4 = make_i32x4(tmp0[0], tmp1[0], tmp2[0], tmp3[0]);
+    const t1: I32x4 = make_i32x4(tmp0[1], tmp1[1], tmp2[1], tmp3[1]);
+    const t2: I32x4 = make_i32x4(tmp0[2], tmp1[2], tmp2[2], tmp3[2]);
+    const t3: I32x4 = make_i32x4(tmp0[3], tmp1[3], tmp2[3], tmp3[3]);
+
+    const a2: I32x4 = t0 + t2;
+    const b2: I32x4 = t0 - t2;
+    const c2_cos: I32x4 = idct_mul_shift_i32x4(t1, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const c2_sin: I32x4 = idct_mul_shift_i32x4(t3, SIMD_VP8_SINPI8_SQRT2);
+    const c2: I32x4 = (c2_cos - t3) + c2_sin;
+    const d2_sin: I32x4 = idct_mul_shift_i32x4(t1, SIMD_VP8_SINPI8_SQRT2);
+    const d2_cos: I32x4 = idct_mul_shift_i32x4(t3, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const d2: I32x4 = ((t1 + d2_sin) + t3) + d2_cos;
+
+    var out0: [i32: 4] = [];
+    var out1: [i32: 4] = [];
+    var out2: [i32: 4] = [];
+    var out3: [i32: 4] = [];
+    @vector.store(&out0[0] as &i32, idct_round_shift_3_i32x4(a2 + d2));
+    @vector.store(&out3[0] as &i32, idct_round_shift_3_i32x4(a2 - d2));
+    @vector.store(&out1[0] as &i32, idct_round_shift_3_i32x4(b2 + c2));
+    @vector.store(&out2[0] as &i32, idct_round_shift_3_i32x4(b2 - c2));
+
+    var col: usize = 0;
+    while col < 4 {
+        output[col] = out0[col] as i16;
+        output[4 + col] = out1[col] as i16;
+        output[8 + col] = out2[col] as i16;
+        output[12 + col] = out3[col] as i16;
+        col = col + 1;
+    }
+}
+
+export fn inverse_transform_4x4_batch_i32x4(input: &i16, output: &i16, block_count: usize) void {
+    var block: usize = 0;
+    while block < block_count {
+        const base: usize = block * 16;
+        inverse_transform_4x4_one_i32x4(&input[base] as &i16, &output[base] as &i16);
+        block = block + 1;
+    }
 }

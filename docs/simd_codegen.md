@@ -21,7 +21,7 @@
 检查结果：
 
 - 6 个 portable SIMD load/store helper 都生成了稳定的 C 符号。
-- 当前 C99 后端将 `@vector.load` / `@vector.store` 通过 `__uya_memcpy` 表达，本次生成 C 中 `__uya_memcpy` 出现 11 次。
+- 当前 C99 后端将 `@vector.load` / `@vector.store` 通过 `__uya_memcpy` 表达，本次生成 C 中 `__uya_memcpy` 出现 20 次。
 - 这条记录只证明当前 helper 可生成、可链接、可测试，并记录了实际 lowering；它不证明这些 helper 已经是单条硬件 SIMD load/store。
 
 ## SIMD kernel 符号快照
@@ -33,22 +33,24 @@
 | extend_plane_border_u8x16 | `vp8_kernels_simd_extend_plane_border_u8x16` |
 | add_residual_4x4_clamped_u8x16 | `vp8_kernels_simd_add_residual_4x4_clamped_u8x16` |
 | inverse_transform_dc_only_4x4_i16x16 | `vp8_kernels_simd_inverse_transform_dc_only_4x4_i16x16` |
+| inverse_transform_4x4_batch_i32x4 | `vp8_kernels_simd_inverse_transform_4x4_batch_i32x4` |
 
 检查结果：
 
-- 当前 plane copy/fill/border extension/residual add clamp/DC-only inverse transform SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
+- 当前 plane copy/fill/border extension/residual add clamp/DC-only inverse transform/4x4 inverse DCT batch SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
 - `plane_copy_u8x16` 以 16 字节 vector load/store 处理整块，尾部保留 scalar copy。
 - `plane_fill_u8x16` 以 `@vector.splat` + 16 字节 vector store 处理整块，尾部保留 scalar fill。
 - `extend_plane_border_u8x16` 复用 16 字节 plane fill/copy helper 处理左右边界和顶部/底部复制。
 - `add_residual_4x4_clamped_u8x16` 使用 `i16x16` signed saturating vector add，因当前缺少 narrow-to-u8 vector path，最终 clamp/store 仍逐 lane 完成。
 - `inverse_transform_dc_only_4x4_i16x16` 使用 `i16x16` splat/store 填充 4x4 residual block。
+- `inverse_transform_4x4_batch_i32x4` 使用 `i32x4` 执行两阶段 inverse DCT 算术；因当前缺少 shuffle/transpose，4x4 转置仍通过小数组 gather/scatter 完成。
 - 这些 kernel 目前只作为 forced/测试用 portable SIMD 实现记录，不进入默认 dispatcher。
 
 ## 汇编快照结论
 
 - `cc -std=c99 -O0 -g -fno-builtin -S` 可从生成 C 产出汇编快照。
-- 汇编中检测到 11 个 SIMD helper/kernel label：`vp8_kernels_simd_load_u8x16, vp8_kernels_simd_store_u8x16, vp8_kernels_simd_load_i16x8, vp8_kernels_simd_store_i16x8, vp8_kernels_simd_load_i32x4, vp8_kernels_simd_store_i32x4, vp8_kernels_simd_plane_copy_u8x16, vp8_kernels_simd_plane_fill_u8x16, vp8_kernels_simd_extend_plane_border_u8x16, vp8_kernels_simd_add_residual_4x4_clamped_u8x16, vp8_kernels_simd_inverse_transform_dc_only_4x4_i16x16`。
-- 本次汇编快照中 `__uya_memcpy` 出现 15 次。后续若编译器或优化级别改变，应重新检查实际热路径指令。
+- 汇编中检测到 12 个 SIMD helper/kernel label：`vp8_kernels_simd_load_u8x16, vp8_kernels_simd_store_u8x16, vp8_kernels_simd_load_i16x8, vp8_kernels_simd_store_i16x8, vp8_kernels_simd_load_i32x4, vp8_kernels_simd_store_i32x4, vp8_kernels_simd_plane_copy_u8x16, vp8_kernels_simd_plane_fill_u8x16, vp8_kernels_simd_extend_plane_border_u8x16, vp8_kernels_simd_add_residual_4x4_clamped_u8x16, vp8_kernels_simd_inverse_transform_dc_only_4x4_i16x16, vp8_kernels_simd_inverse_transform_4x4_batch_i32x4`。
+- 本次汇编快照中 `__uya_memcpy` 出现 24 次。后续若编译器或优化级别改变，应重新检查实际热路径指令。
 
 ## 默认启用判断
 

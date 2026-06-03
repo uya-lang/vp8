@@ -6,7 +6,9 @@ use vp8.common.plane.extend_plane_border;
 use vp8.common.plane.make_plane_view;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
+use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
+use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
 use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
@@ -318,4 +320,36 @@ test "SIMD DC only inverse transform matches scalar output" {
     try assert_simd_dc_only_matches_scalar(7 as i16);
     try assert_simd_dc_only_matches_scalar(-20 as i16);
     try assert_simd_dc_only_matches_scalar(255 as i16);
+}
+
+test "SIMD 4x4 inverse DCT batch matches scalar blocks" {
+    var input: [i16: 48] = [
+        32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        16, -8, 4, -2, 3, -6, 9, -12, 5, 7, -10, 11, -13, 14, -15, 6
+    ];
+    var scalar_out: [i16: 48] = [];
+    var simd_out: [i16: 48] = [];
+
+    var index: usize = 0;
+    while index < 48 {
+        scalar_out[index] = -999;
+        simd_out[index] = -999;
+        index = index + 1;
+    }
+
+    var block: usize = 0;
+    while block < 3 {
+        const base: usize = block * 16;
+        inverse_transform_4x4(&input[base] as &i16, &scalar_out[base] as &i16);
+        block = block + 1;
+    }
+
+    inverse_transform_4x4_batch_i32x4(&input[0] as &i16, &simd_out[0] as &i16, 3);
+
+    index = 0;
+    while index < 48 {
+        try assert_eq_i32(simd_out[index] as i32, scalar_out[index] as i32);
+        index = index + 1;
+    }
 }

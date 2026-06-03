@@ -236,7 +236,7 @@
 - [x] SIMD border extension。
 - [x] SIMD residual add/clamp。
 - [x] SIMD DC-only inverse transform。
-- [ ] SIMD 4x4 inverse DCT batch。
+- [x] SIMD 4x4 inverse DCT batch。
 - [ ] SIMD intra 16x16 predictors。
 - [ ] SIMD intra 4x4 高频 predictors。
 - [ ] SIMD UV predictors。
