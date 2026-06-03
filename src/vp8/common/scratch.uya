@@ -6,9 +6,11 @@ error ErrScratchInvalidGeometry;
 error ErrScratchOverflow;
 error ErrScratchOutOfMemory;
 error ErrScratchCapacityExceeded;
+error ErrScratchOutOfBounds;
 
 const TOKEN_DECODE_BLOCK_COEFFS: usize = 16;
 const TOKEN_DECODE_ROW_BLOCKS: usize = 4;
+const TOKEN_DECODE_MB_BLOCKS: usize = 25;
 
 export struct RowScratchArena {
     raw: &byte,
@@ -27,6 +29,12 @@ export struct TokenDecodeRowScratch {
     y2_coefficients: &i16,
     y2_dequantized: &i16,
     y2_dc: &i16
+}
+
+export struct TokenDecodeRowOutput {
+    mb_cols: usize,
+    coefficients: &i16,
+    summaries: &byte
 }
 
 export fn empty_row_scratch_arena() RowScratchArena {
@@ -64,6 +72,22 @@ fn scratch_align_up(value: usize, alignment: usize) !usize {
         return error.ErrScratchOverflow;
     }
     return (padded / alignment) * alignment;
+}
+
+fn scratch_checked_mul(a: usize, b: usize) !usize {
+    const product: usize = a * b;
+    if b != 0 && (product / b) != a {
+        return error.ErrScratchOverflow;
+    }
+    return product;
+}
+
+fn scratch_checked_add(a: usize, b: usize) !usize {
+    const sum: usize = a + b;
+    if sum < a {
+        return error.ErrScratchOverflow;
+    }
+    return sum;
 }
 
 export fn allocate_row_scratch_arena(capacity: usize, alignment: usize) !RowScratchArena {
@@ -160,6 +184,34 @@ export fn token_decode_row_scratch_bytes() usize {
     return TOKEN_DECODE_ROW_BLOCKS * TOKEN_DECODE_BLOCK_COEFFS * (@size_of(i16) as usize);
 }
 
+export fn token_decode_macroblock_output_blocks() usize {
+    return TOKEN_DECODE_MB_BLOCKS;
+}
+
+fn token_decode_row_output_block_count(mb_cols: usize) !usize {
+    if mb_cols == 0 {
+        return error.ErrScratchInvalidGeometry;
+    }
+    return try scratch_checked_mul(mb_cols, TOKEN_DECODE_MB_BLOCKS);
+}
+
+fn token_decode_row_output_coeff_bytes(mb_cols: usize) !usize {
+    const block_count: usize = try token_decode_row_output_block_count(mb_cols);
+    const coeff_count: usize = try scratch_checked_mul(block_count, TOKEN_DECODE_BLOCK_COEFFS);
+    return try scratch_checked_mul(coeff_count, @size_of(i16) as usize);
+}
+
+fn token_decode_row_output_summary_bytes(mb_cols: usize) !usize {
+    const block_count: usize = try token_decode_row_output_block_count(mb_cols);
+    return try scratch_checked_mul(block_count, @size_of(byte) as usize);
+}
+
+export fn token_decode_row_output_bytes(mb_cols: usize) !usize {
+    const coeff_bytes: usize = try token_decode_row_output_coeff_bytes(mb_cols);
+    const summary_bytes: usize = try token_decode_row_output_summary_bytes(mb_cols);
+    return try scratch_checked_add(coeff_bytes, summary_bytes);
+}
+
 fn token_decode_row_scratch_block(base: &i16, block_index: usize) &i16 {
     return &base[block_index * TOKEN_DECODE_BLOCK_COEFFS] as &i16;
 }
@@ -173,6 +225,40 @@ export fn allocate_token_decode_row_scratch(arena: &RowScratchArena) !TokenDecod
         y2_dequantized: token_decode_row_scratch_block(base, 2),
         y2_dc: token_decode_row_scratch_block(base, 3)
     };
+}
+
+export fn allocate_token_decode_row_output(arena: &RowScratchArena, mb_cols: usize) !TokenDecodeRowOutput {
+    const coeff_bytes: usize = try token_decode_row_output_coeff_bytes(mb_cols);
+    const summary_bytes: usize = try token_decode_row_output_summary_bytes(mb_cols);
+    const raw_coefficients: &byte = try row_scratch_alloc_bytes(arena, coeff_bytes, 16);
+    const raw_summaries: &byte = try row_scratch_alloc_bytes(arena, summary_bytes, 1);
+    _ = memset(raw_coefficients as *byte, 0, coeff_bytes);
+    _ = memset(raw_summaries as *byte, 0, summary_bytes);
+    return TokenDecodeRowOutput{
+        mb_cols: mb_cols,
+        coefficients: raw_coefficients as &i16,
+        summaries: raw_summaries
+    };
+}
+
+fn token_decode_row_output_index(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !usize {
+    if output.coefficients == null || output.summaries == null || output.mb_cols == 0 {
+        return error.ErrScratchInvalidGeometry;
+    }
+    if mb_x >= output.mb_cols || block_index >= TOKEN_DECODE_MB_BLOCKS {
+        return error.ErrScratchOutOfBounds;
+    }
+    return (mb_x * TOKEN_DECODE_MB_BLOCKS) + block_index;
+}
+
+export fn token_decode_row_block_coefficients(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !&i16 {
+    const index: usize = try token_decode_row_output_index(output, mb_x, block_index);
+    return &output.coefficients[index * TOKEN_DECODE_BLOCK_COEFFS] as &i16;
+}
+
+export fn token_decode_row_block_summary_ptr(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !&byte {
+    const index: usize = try token_decode_row_output_index(output, mb_x, block_index);
+    return &output.summaries[index] as &byte;
 }
 
 export fn coeff_scratch_note_bytes_read(arena: &RowScratchArena, byte_count: usize) !void {
