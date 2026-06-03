@@ -179,7 +179,7 @@
 - [x] 实现 reference refresh。
 - [x] 实现 show_frame output。
 - [x] 实现 visible crop。
-- [ ] 实现 `decode <input.ivf> --yuv out.yuv`。
+- [x] 实现 `decode <input.ivf> --yuv out.yuv`。
 - [x] 实现 `info <input.ivf>`。
 - [ ] 实现 `decode-frame --index N`。
 

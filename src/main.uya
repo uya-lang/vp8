@@ -7,19 +7,32 @@ use libc.fread;
 use libc.free;
 use libc.fseek;
 use libc.ftell;
+use libc.fwrite;
 use libc.malloc;
 
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.allocate_decoder_context;
+use vp8.common.decode_context.free_decoder_context;
+use vp8.common.frame.decoded_frame_release;
 use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfFrame;
 use vp8.container.ivf.IvfHeader;
 use vp8.container.ivf.ivf_frame_iterator_has_next;
 use vp8.container.ivf.ivf_frame_iterator_next;
 use vp8.container.ivf.make_ivf_frame_iterator;
 use vp8.container.ivf.parse_ivf_header;
+use vp8.container.raw.write_yuv420_frame;
+use vp8.container.raw.yuv420_frame_size;
+use vp8.decoder.scalar.Decoder;
+use vp8.decoder.scalar.DecoderFrameResult;
+use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.decoder.scalar.make_decoder;
 
 error ErrOpenFile;
 error ErrInvalidFileSize;
 error ErrOutOfMemory;
 error ErrReadFile;
+error ErrWriteFile;
 
 struct FileBuffer {
     data: &byte,
@@ -37,10 +50,6 @@ fn print_help() void {
 
 fn print_version() void {
     _ = printf("vp8uya 0.0.0-scaffold\n");
-}
-
-fn print_not_implemented(command: &byte) void {
-    _ = printf("%s is not implemented yet; VP8 parsing and decoding are not available in this scaffold.\n", command);
 }
 
 fn read_file(path: &byte) !FileBuffer {
@@ -117,6 +126,86 @@ fn run_info(path: &byte) i32 {
     return 0;
 }
 
+fn write_result_yuv(result: &DecoderFrameResult, fp: &FILE) !void {
+    if !result.has_output {
+        return;
+    }
+
+    const len: usize = yuv420_frame_size(&result.output.view);
+    const data: &byte = malloc(len) as &byte;
+    if data == null {
+        return error.ErrOutOfMemory;
+    }
+    defer free(data as &void);
+
+    const written_len: usize = try write_yuv420_frame(data, len, &result.output.view);
+    const written: usize = fwrite(data as &const byte, 1, written_len, fp);
+    if written != written_len {
+        return error.ErrWriteFile;
+    }
+}
+
+fn run_decode(input_path: &byte, output_path: &byte) i32 {
+    const file: FileBuffer = read_file(input_path) catch {
+        _ = printf("error: failed to read input file\n");
+        return 2;
+    };
+    defer free(file.data as &void);
+
+    const header: IvfHeader = parse_ivf_header(file.data, file.len) catch {
+        _ = printf("error: invalid IVF header\n");
+        return 2;
+    };
+
+    var iterator: IvfFrameIterator = make_ivf_frame_iterator(file.data, file.len, &header) catch {
+        _ = printf("error: invalid IVF frame data\n");
+        return 2;
+    };
+
+    var context: DecoderContext = allocate_decoder_context(header.width as usize, header.height as usize, 32, 32, 65536) catch {
+        _ = printf("error: failed to allocate decoder context\n");
+        return 2;
+    };
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    const out: &FILE = fopen(output_path as *byte, "wb\0" as &byte);
+    if out == null {
+        _ = printf("error: failed to open output file\n");
+        return 2;
+    }
+
+    while ivf_frame_iterator_has_next(&iterator) {
+        const frame: IvfFrame = ivf_frame_iterator_next(&iterator) catch {
+            _ = fclose(out);
+            _ = printf("error: invalid IVF frame data\n");
+            return 2;
+        };
+
+        var result: DecoderFrameResult = decoder_decode_frame(&decoder, frame.payload.data, frame.payload.len) catch {
+            _ = fclose(out);
+            _ = printf("error: failed to decode VP8 frame\n");
+            return 2;
+        };
+
+        write_result_yuv(&result, out) catch {
+            _ = decoded_frame_release(&result.output) catch {};
+            _ = fclose(out);
+            _ = printf("error: failed to write YUV output\n");
+            return 2;
+        };
+
+        _ = decoded_frame_release(&result.output) catch {
+            _ = fclose(out);
+            _ = printf("error: failed to release decoded frame\n");
+            return 2;
+        };
+    }
+
+    _ = fclose(out);
+    return 0;
+}
+
 export extern fn main(argc: i32, argv: & &byte) i32 {
     if argc <= 1 {
         print_help();
@@ -144,8 +233,15 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
         return run_info(argv[2]);
     }
     if strcmp(cmd as *const byte, "decode\0" as *const byte) == 0 {
-        print_not_implemented(cmd);
-        return 2;
+        if argc < 5 {
+            _ = printf("error: decode requires <input.ivf> --yuv <out.yuv>\n");
+            return 2;
+        }
+        if strcmp(argv[3] as *const byte, "--yuv\0" as *const byte) != 0 {
+            _ = printf("error: decode currently requires --yuv <out.yuv>\n");
+            return 2;
+        }
+        return run_decode(argv[2], argv[4]);
     }
 
     _ = printf("unknown command: %s\n", cmd);

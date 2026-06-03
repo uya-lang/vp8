@@ -1,7 +1,10 @@
 use vp8.bitstream.readers.BoundedSlice;
 use vp8.bitstream.readers.read_slice_at;
+use vp8.common.frame.FrameVisibleView;
+use vp8.common.plane.Plane;
 
 error ErrEmptyRawVp8Payload;
+error ErrYuvWriteOutOfBounds;
 
 export struct RawVp8Frame {
     payload: BoundedSlice
@@ -15,4 +18,47 @@ export fn read_raw_vp8_frame(data: &byte, len: usize) !RawVp8Frame {
     return RawVp8Frame{
         payload: try read_slice_at(data, len, 0, len)
     };
+}
+
+fn ensure_yuv_write_available(len: usize, offset: usize, need: usize) !void {
+    if offset > len {
+        return error.ErrYuvWriteOutOfBounds;
+    }
+    const remaining: usize = len - offset;
+    if remaining < need {
+        return error.ErrYuvWriteOutOfBounds;
+    }
+}
+
+fn yuv420_plane_size(plane: &Plane) usize {
+    return plane.width * plane.height;
+}
+
+export fn yuv420_frame_size(view: &FrameVisibleView) usize {
+    return yuv420_plane_size(&view.y) + yuv420_plane_size(&view.u) + yuv420_plane_size(&view.v);
+}
+
+fn write_yuv420_plane(out: &byte, len: usize, offset: usize, plane: &Plane) !usize {
+    var cursor: usize = offset;
+    var row: usize = 0;
+    while row < plane.height {
+        try ensure_yuv_write_available(len, cursor, plane.width);
+        var col: usize = 0;
+        const row_offset: usize = row * plane.stride;
+        while col < plane.width {
+            out[cursor + col] = plane.origin[row_offset + col];
+            col = col + 1;
+        }
+        cursor = cursor + plane.width;
+        row = row + 1;
+    }
+    return cursor;
+}
+
+export fn write_yuv420_frame(out: &byte, len: usize, view: &FrameVisibleView) !usize {
+    try ensure_yuv_write_available(len, 0, yuv420_frame_size(view));
+    var offset: usize = try write_yuv420_plane(out, len, 0, &view.y);
+    offset = try write_yuv420_plane(out, len, offset, &view.u);
+    offset = try write_yuv420_plane(out, len, offset, &view.v);
+    return offset;
 }

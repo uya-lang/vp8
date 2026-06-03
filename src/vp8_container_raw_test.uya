@@ -1,8 +1,12 @@
 use std.testing.assert_eq_i32;
 
 use vp8.bitstream.readers.BoundedSlice;
+use vp8.common.frame.FrameVisibleView;
+use vp8.common.plane.Plane;
 use vp8.container.raw.RawVp8Frame;
 use vp8.container.raw.read_raw_vp8_frame;
+use vp8.container.raw.write_yuv420_frame;
+use vp8.container.raw.yuv420_frame_size;
 
 test "read raw VP8 payload as bounded slice" {
     var data: [byte: 5] = [ 0x9d, 0x01, 0x2a, 0xaa, 0xbb ];
@@ -22,5 +26,36 @@ test "reject empty raw VP8 payload" {
         RawVp8Frame{ payload: BoundedSlice{ data: &data[0] as &byte, len: 0 } };
     };
 
+    try assert_eq_i32(failed, 1);
+}
+
+test "write YUV420 visible frame as contiguous I420 planes" {
+    var y_data: [byte: 10] = [ 1, 2, 3, 99, 99, 4, 5, 6, 99, 99 ];
+    var u_data: [byte: 3] = [ 7, 8, 99 ];
+    var v_data: [byte: 3] = [ 9, 10, 99 ];
+    const y: Plane = Plane{ data: &y_data[0] as &byte, origin: &y_data[0] as &byte, width: 3, height: 2, stride: 5, border: 0, storage_len: 10 };
+    const u: Plane = Plane{ data: &u_data[0] as &byte, origin: &u_data[0] as &byte, width: 2, height: 1, stride: 3, border: 0, storage_len: 3 };
+    const v: Plane = Plane{ data: &v_data[0] as &byte, origin: &v_data[0] as &byte, width: 2, height: 1, stride: 3, border: 0, storage_len: 3 };
+    const view: FrameVisibleView = FrameVisibleView{ width: 3, height: 2, y: y, u: u, v: v };
+    var out: [byte: 10] = [];
+
+    try assert_eq_i32(yuv420_frame_size(&view) as i32, 10);
+    const written: usize = try write_yuv420_frame(&out[0] as &byte, 10, &view);
+
+    try assert_eq_i32(written as i32, 10);
+    try assert_eq_i32(out[0] as i32, 1);
+    try assert_eq_i32(out[2] as i32, 3);
+    try assert_eq_i32(out[3] as i32, 4);
+    try assert_eq_i32(out[5] as i32, 6);
+    try assert_eq_i32(out[6] as i32, 7);
+    try assert_eq_i32(out[7] as i32, 8);
+    try assert_eq_i32(out[8] as i32, 9);
+    try assert_eq_i32(out[9] as i32, 10);
+
+    var failed: i32 = 0;
+    _ = write_yuv420_frame(&out[0] as &byte, 9, &view) catch {
+        failed = 1;
+        0 as usize;
+    };
     try assert_eq_i32(failed, 1);
 }
