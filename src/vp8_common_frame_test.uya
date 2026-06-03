@@ -182,6 +182,37 @@ test "FramePool normal reference refresh never copies whole frames" {
     try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
 }
 
+test "FramePool reuses released non-reference current slot across frames" {
+    var pool: FramePool = try allocate_frame_pool(16, 16, 32, 32);
+    defer free_frame_pool(&pool);
+
+    try frame_pool_refresh_references(&pool, true, true, true);
+    try frame_pool_begin_frame(&pool);
+    try assert_eq_i32(pool.current_slot as i32, 1);
+    try assert_eq_i32(pool.current_slot_switch_count as i32, 1);
+    try assert_eq_i32(pool.current_slot_reuse_count as i32, 0);
+
+    var first_output: DecodedFrame = try frame_pool_borrow_current_decoded_frame(&pool);
+    try frame_pool_begin_frame(&pool);
+    try assert_eq_i32(pool.current_slot as i32, 2);
+    try assert_eq_i32(pool.current_slot_switch_count as i32, 2);
+    try assert_eq_i32(pool.current_slot_reuse_count as i32, 0);
+
+    try decoded_frame_release(&first_output);
+    try frame_pool_begin_frame(&pool);
+    try assert_eq_i32(pool.current_slot as i32, 2);
+    try assert_eq_i32(pool.current_slot_switch_count as i32, 2);
+    try assert_eq_i32(pool.current_slot_reuse_count as i32, 1);
+
+    var second_output: DecodedFrame = try frame_pool_borrow_current_decoded_frame(&pool);
+    try decoded_frame_release(&second_output);
+    try frame_pool_begin_frame(&pool);
+    try assert_eq_i32(pool.current_slot as i32, 2);
+    try assert_eq_i32(pool.current_slot_switch_count as i32, 2);
+    try assert_eq_i32(pool.current_slot_reuse_count as i32, 2);
+    try assert_eq_i32(pool.bytes_copied_for_ref_refresh as i32, 0);
+}
+
 test "FrameBuffer tracks reference border dirty flags per plane" {
     var frame: FrameBuffer = try allocate_frame_buffer(16, 16, 32, 32);
     defer free_frame_buffer(&frame);

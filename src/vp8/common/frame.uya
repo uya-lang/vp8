@@ -31,6 +31,8 @@ export struct FramePool {
     width: usize,
     height: usize,
     current_slot: usize,
+    current_slot_reuse_count: usize,
+    current_slot_switch_count: usize,
     last_slot: usize,
     golden_slot: usize,
     altref_slot: usize,
@@ -122,6 +124,8 @@ export fn empty_frame_pool() FramePool {
         width: 0,
         height: 0,
         current_slot: 0,
+        current_slot_reuse_count: 0,
+        current_slot_switch_count: 0,
         last_slot: 1,
         golden_slot: 2,
         altref_slot: 3,
@@ -251,6 +255,8 @@ export fn free_frame_pool(pool: &FramePool) void {
     free_frame_buffer(&pool.slot0);
     pool.width = 0;
     pool.height = 0;
+    pool.current_slot_reuse_count = 0;
+    pool.current_slot_switch_count = 0;
 }
 
 export fn frame_pool_get_slot(pool: &FramePool, slot: usize) !&FrameBuffer {
@@ -419,23 +425,28 @@ fn frame_pool_slot_is_free_for_current(pool: &FramePool, slot: usize) !bool {
 
 export fn frame_pool_begin_frame(pool: &FramePool) !void {
     if try frame_pool_slot_is_free_for_current(pool, pool.current_slot) {
+        pool.current_slot_reuse_count = pool.current_slot_reuse_count + 1;
         return;
     }
 
     if try frame_pool_slot_is_free_for_current(pool, 0) {
         pool.current_slot = 0;
+        pool.current_slot_switch_count = pool.current_slot_switch_count + 1;
         return;
     }
     if try frame_pool_slot_is_free_for_current(pool, 1) {
         pool.current_slot = 1;
+        pool.current_slot_switch_count = pool.current_slot_switch_count + 1;
         return;
     }
     if try frame_pool_slot_is_free_for_current(pool, 2) {
         pool.current_slot = 2;
+        pool.current_slot_switch_count = pool.current_slot_switch_count + 1;
         return;
     }
     if try frame_pool_slot_is_free_for_current(pool, 3) {
         pool.current_slot = 3;
+        pool.current_slot_switch_count = pool.current_slot_switch_count + 1;
         return;
     }
     return error.ErrFramePoolNoFreeSlot;
