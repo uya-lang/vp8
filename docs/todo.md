@@ -171,12 +171,11 @@
 - [x] 实现 key frame decode。
 - [x] 实现 inter frame decode。
 - [x] 实现 current frame reconstruction。
-- [~] 实现 row-delayed loop filter。
-  - remaining: 已有 simple/normal 单边 scalar kernel、VP8 filter level -> limit/blimit/thresh 派生 helper、normal Y/UV macroblock/subblock edge dispatcher、normal row-delay decoder 接线；仍缺 simple filter 的 Y-only dispatcher 与 decoder 接线。
+- [x] 实现 row-delayed loop filter。
   - [x] 实现 loop filter level 到 limit/blimit/thresh 的 scalar 派生 helper。
   - [x] 实现 Y/UV macroblock edge 与 subblock edge loop filter dispatcher。
   - [x] 将 normal loop filter dispatcher 接入 decoder row delay：当前 row 完成后过滤上一 row，帧结束过滤最后一 row。
-  - [ ] 实现 simple loop filter 的 Y-only macroblock/subblock dispatcher 并接入 decoder row delay。
+  - [x] 实现 simple loop filter 的 Y-only macroblock/subblock dispatcher 并接入 decoder row delay。
 - [x] 实现 reference refresh。
 - [ ] 实现 show_frame output。
 - [x] 实现 visible crop。

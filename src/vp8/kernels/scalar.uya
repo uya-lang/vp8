@@ -606,6 +606,57 @@ export fn loop_filter_normal_subblock_edges_yuv(y: &Plane, u: &Plane, v: &Plane,
     dispatch_normal_subblock_edges_plane(v, mb_col, mb_row, 8, 4, thresholds);
 }
 
+fn dispatch_simple_macroblock_edges_plane(plane: &Plane, mb_col: usize, mb_row: usize, mb_size: usize, thresholds: &LoopFilterThresholds) void {
+    const block_x: usize = mb_col * mb_size;
+    const block_y: usize = mb_row * mb_size;
+    const rows: usize = loop_filter_remaining_span(block_y, plane.height, mb_size);
+    const cols: usize = loop_filter_remaining_span(block_x, plane.width, mb_size);
+
+    if rows > 0 && mb_col > 0 && block_x >= 2 && (block_x + 1) < plane.width {
+        loop_filter_simple_vertical_edge(&plane.origin[block_y * plane.stride] as &byte, plane.stride, block_x, rows, thresholds.macroblock_blimit);
+    }
+    if cols > 0 && mb_row > 0 && block_y >= 2 && (block_y + 1) < plane.height {
+        loop_filter_simple_horizontal_edge(&plane.origin[block_x] as &byte, plane.stride, block_y, cols, thresholds.macroblock_blimit);
+    }
+}
+
+fn dispatch_simple_subblock_edges_plane(plane: &Plane, mb_col: usize, mb_row: usize, mb_size: usize, subblock_size: usize, thresholds: &LoopFilterThresholds) void {
+    const block_x: usize = mb_col * mb_size;
+    const block_y: usize = mb_row * mb_size;
+    const rows: usize = loop_filter_remaining_span(block_y, plane.height, mb_size);
+    const cols: usize = loop_filter_remaining_span(block_x, plane.width, mb_size);
+
+    var subblock: usize = 1;
+    const subblock_count: usize = mb_size / subblock_size;
+    while subblock < subblock_count {
+        const edge_col: usize = block_x + (subblock * subblock_size);
+        if rows > 0 && edge_col >= 2 && (edge_col + 1) < plane.width {
+            loop_filter_simple_vertical_edge(&plane.origin[block_y * plane.stride] as &byte, plane.stride, edge_col, rows, thresholds.subblock_blimit);
+        }
+
+        const edge_row: usize = block_y + (subblock * subblock_size);
+        if cols > 0 && edge_row >= 2 && (edge_row + 1) < plane.height {
+            loop_filter_simple_horizontal_edge(&plane.origin[block_x] as &byte, plane.stride, edge_row, cols, thresholds.subblock_blimit);
+        }
+
+        subblock = subblock + 1;
+    }
+}
+
+export fn loop_filter_simple_macroblock_edges_y(y: &Plane, mb_col: usize, mb_row: usize, thresholds: &LoopFilterThresholds) void {
+    if !thresholds.enabled {
+        return;
+    }
+    dispatch_simple_macroblock_edges_plane(y, mb_col, mb_row, 16, thresholds);
+}
+
+export fn loop_filter_simple_subblock_edges_y(y: &Plane, mb_col: usize, mb_row: usize, thresholds: &LoopFilterThresholds) void {
+    if !thresholds.enabled {
+        return;
+    }
+    dispatch_simple_subblock_edges_plane(y, mb_col, mb_row, 16, 4, thresholds);
+}
+
 fn fill_16x16(dst: &byte, dst_stride: usize, value: byte) void {
     var row: usize = 0;
     while row < 16 {

@@ -39,6 +39,8 @@ use vp8.kernels.scalar.LoopFilterThresholds;
 use vp8.kernels.scalar.build_loop_filter_thresholds;
 use vp8.kernels.scalar.loop_filter_normal_macroblock_edges_yuv;
 use vp8.kernels.scalar.loop_filter_normal_subblock_edges_yuv;
+use vp8.kernels.scalar.loop_filter_simple_macroblock_edges_y;
+use vp8.kernels.scalar.loop_filter_simple_subblock_edges_y;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -986,4 +988,37 @@ test "scalar normal subblock loop filter dispatcher filters Y and UV internal ed
     try assert_eq_i32(v_data[(3 * 16) + 6] as i32, 122);
     try assert_eq_i32(v_data[(4 * 16) + 6] as i32, 123);
     try assert_eq_i32(v_data[(5 * 16) + 6] as i32, 129);
+}
+
+test "scalar simple loop filter dispatcher filters Y macroblock and subblock edges" {
+    var y_data: [byte: 1024] = [];
+    var y: Plane = try make_plane_view(&y_data[0] as &byte, 1024, 32, 32, 32, 0);
+    const thresholds: LoopFilterThresholds = LoopFilterThresholds{
+        enabled: true,
+        filter_level: 20 as u8,
+        limit: 40 as u8,
+        macroblock_blimit: 40 as u8,
+        subblock_blimit: 40 as u8,
+        thresh: 20 as u8
+    };
+
+    write_vertical_filter_window(&y_data[0] as &byte, 32, 20, 16);
+    write_horizontal_filter_window(&y_data[0] as &byte, 32, 20, 16);
+    loop_filter_simple_macroblock_edges_y(&y, 1, 1, &thresholds);
+
+    try assert_eq_i32(y_data[(20 * 32) + 15] as i32, 119);
+    try assert_eq_i32(y_data[(20 * 32) + 16] as i32, 126);
+    try assert_eq_i32(y_data[(15 * 32) + 20] as i32, 119);
+    try assert_eq_i32(y_data[(16 * 32) + 20] as i32, 126);
+
+    var sub_data: [byte: 1024] = [];
+    var sub_y: Plane = try make_plane_view(&sub_data[0] as &byte, 1024, 32, 32, 32, 0);
+    write_vertical_filter_window(&sub_data[0] as &byte, 32, 10, 4);
+    write_horizontal_filter_window(&sub_data[0] as &byte, 32, 10, 4);
+    loop_filter_simple_subblock_edges_y(&sub_y, 0, 0, &thresholds);
+
+    try assert_eq_i32(sub_data[(10 * 32) + 3] as i32, 119);
+    try assert_eq_i32(sub_data[(10 * 32) + 4] as i32, 126);
+    try assert_eq_i32(sub_data[(3 * 32) + 10] as i32, 119);
+    try assert_eq_i32(sub_data[(4 * 32) + 10] as i32, 126);
 }

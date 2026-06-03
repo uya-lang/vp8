@@ -403,3 +403,34 @@ test "row delayed loop filter applies previous rows and flushes final row" {
     try assert_eq_i32(current.v.plane.origin[(7 * current.v.plane.stride) + 6] as i32, 119);
     try assert_eq_i32(current.v.plane.origin[(8 * current.v.plane.stride) + 6] as i32, 126);
 }
+
+test "row delayed simple loop filter applies only luma edges" {
+    var context: DecoderContext = try allocate_decoder_context(32, 32, 32, 32, 4096);
+    defer free_decoder_context(&context);
+    const current: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.current_slot);
+    const loop_filter: Vp8LoopFilterHeader = Vp8LoopFilterHeader{
+        filter_type: 1,
+        level: 20 as u8,
+        sharpness: 0 as u8,
+        delta_enabled: false,
+        delta_update: false,
+        ref_delta: [ 0, 0, 0, 0 ],
+        mode_delta: [ 0, 0, 0, 0 ]
+    };
+
+    write_vertical_filter_window(current.y.plane.origin, current.y.plane.stride, 10, 16);
+    write_horizontal_filter_window(current.y.plane.origin, current.y.plane.stride, 10, 16);
+    write_vertical_filter_window(current.u.plane.origin, current.u.plane.stride, 6, 8);
+    write_horizontal_filter_window(current.v.plane.origin, current.v.plane.stride, 6, 8);
+
+    decoder_apply_row_delayed_loop_filter(current, context.grid.mb_cols, context.grid.mb_rows, &loop_filter, false);
+
+    try assert_eq_i32(current.y.plane.origin[(10 * current.y.plane.stride) + 15] as i32, 119);
+    try assert_eq_i32(current.y.plane.origin[(10 * current.y.plane.stride) + 16] as i32, 126);
+    try assert_eq_i32(current.y.plane.origin[(15 * current.y.plane.stride) + 10] as i32, 119);
+    try assert_eq_i32(current.y.plane.origin[(16 * current.y.plane.stride) + 10] as i32, 126);
+    try assert_eq_i32(current.u.plane.origin[(6 * current.u.plane.stride) + 7] as i32, 120);
+    try assert_eq_i32(current.u.plane.origin[(6 * current.u.plane.stride) + 8] as i32, 125);
+    try assert_eq_i32(current.v.plane.origin[(7 * current.v.plane.stride) + 6] as i32, 120);
+    try assert_eq_i32(current.v.plane.origin[(8 * current.v.plane.stride) + 6] as i32, 125);
+}

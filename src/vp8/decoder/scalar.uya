@@ -49,6 +49,8 @@ use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
 use vp8.kernels.scalar.loop_filter_normal_macroblock_edges_yuv;
 use vp8.kernels.scalar.loop_filter_normal_subblock_edges_yuv;
+use vp8.kernels.scalar.loop_filter_simple_macroblock_edges_y;
+use vp8.kernels.scalar.loop_filter_simple_subblock_edges_y;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_uv8x8_dc;
 use vp8.kernels.scalar.predict_uv8x8_horizontal;
@@ -248,6 +250,10 @@ fn loop_filter_normal_enabled(loop_filter: &Vp8LoopFilterHeader, thresholds: &Lo
     return thresholds.enabled && loop_filter.filter_type == (0 as u8);
 }
 
+fn loop_filter_simple_enabled(loop_filter: &Vp8LoopFilterHeader, thresholds: &LoopFilterThresholds) bool {
+    return thresholds.enabled && loop_filter.filter_type != (0 as u8);
+}
+
 fn apply_normal_loop_filter_row(frame: &FrameBuffer, mb_cols: usize, mb_y: usize, thresholds: &LoopFilterThresholds) void {
     var mb_x: usize = 0;
     while mb_x < mb_cols {
@@ -257,27 +263,38 @@ fn apply_normal_loop_filter_row(frame: &FrameBuffer, mb_cols: usize, mb_y: usize
     }
 }
 
+fn apply_simple_loop_filter_row(frame: &FrameBuffer, mb_cols: usize, mb_y: usize, thresholds: &LoopFilterThresholds) void {
+    var mb_x: usize = 0;
+    while mb_x < mb_cols {
+        loop_filter_simple_macroblock_edges_y(&frame.y.plane, mb_x, mb_y, thresholds);
+        loop_filter_simple_subblock_edges_y(&frame.y.plane, mb_x, mb_y, thresholds);
+        mb_x = mb_x + 1;
+    }
+}
+
 fn apply_completed_loop_filter_row(frame: &FrameBuffer, mb_cols: usize, mb_y: usize, loop_filter: &Vp8LoopFilterHeader, thresholds: &LoopFilterThresholds) void {
     if loop_filter_normal_enabled(loop_filter, thresholds) {
         apply_normal_loop_filter_row(frame, mb_cols, mb_y, thresholds);
+    } else if loop_filter_simple_enabled(loop_filter, thresholds) {
+        apply_simple_loop_filter_row(frame, mb_cols, mb_y, thresholds);
     }
 }
 
 export fn decoder_apply_row_delayed_loop_filter(frame: &FrameBuffer, mb_cols: usize, mb_rows: usize, loop_filter: &Vp8LoopFilterHeader, key_frame: bool) void {
     const thresholds: LoopFilterThresholds = build_loop_filter_thresholds(loop_filter.level as i32, loop_filter.sharpness, key_frame);
-    if !loop_filter_normal_enabled(loop_filter, &thresholds) {
+    if !thresholds.enabled {
         return;
     }
 
     var mb_y: usize = 0;
     while mb_y < mb_rows {
         if mb_y > 0 {
-            apply_normal_loop_filter_row(frame, mb_cols, mb_y - 1, &thresholds);
+            apply_completed_loop_filter_row(frame, mb_cols, mb_y - 1, loop_filter, &thresholds);
         }
         mb_y = mb_y + 1;
     }
     if mb_rows > 0 {
-        apply_normal_loop_filter_row(frame, mb_cols, mb_rows - 1, &thresholds);
+        apply_completed_loop_filter_row(frame, mb_cols, mb_rows - 1, loop_filter, &thresholds);
     }
 }
 
