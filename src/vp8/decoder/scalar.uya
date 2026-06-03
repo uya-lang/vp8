@@ -26,7 +26,8 @@ use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.simd_detect_capabilities;
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.decoder_context_begin_frame;
-use vp8.common.decode_context.decoder_context_begin_row;
+use vp8.common.decode_context.decoder_context_begin_worker_row;
+use vp8.common.decode_context.decoder_context_worker_scratch;
 use vp8.common.coeff_context.AboveLeftCoeffContext;
 use vp8.common.coeff_context.CoeffContextPair;
 use vp8.common.coeff_context.allocate_above_left_coeff_context;
@@ -51,6 +52,7 @@ use vp8.common.frame.frame_pool_refresh_references;
 use vp8.common.mb_info.make_macroblock_coeff_summary;
 use vp8.common.mb_info.macroblock_coeff_summary_dc_only;
 use vp8.common.mb_info.macroblock_coeff_summary_has_coeff;
+use vp8.common.scratch.RowScratchArena;
 use vp8.common.scratch.TokenDecodeRowOutput;
 use vp8.common.scratch.TokenDecodeRowScratch;
 use vp8.common.scratch.allocate_token_decode_row_output;
@@ -847,15 +849,16 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
     var loop_filter_pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(decoder.context.grid.mb_rows);
     while !row_reconstruct_pipeline_is_complete(&reconstruct_pipeline) {
         const mb_y: usize = try row_reconstruct_pipeline_next_row(&reconstruct_pipeline);
-        try decoder_context_begin_row(decoder.context);
+        try decoder_context_begin_worker_row(decoder.context, 0);
+        const row_scratch: &RowScratchArena = try decoder_context_worker_scratch(decoder.context, 0);
         try coeff_context_start_row(&coeff_ctx);
         const token_reader: &BoolReader = try decoder_token_reader_for_mb_row(token_readers, mb_y, token_partition_count);
-        const row_output: TokenDecodeRowOutput = try allocate_token_decode_row_output(&decoder.context.scratch, decoder.context.grid.mb_cols);
-        const temp_scratch: TokenDecodeRowScratch = try allocate_token_decode_row_scratch(&decoder.context.scratch);
+        const row_output: TokenDecodeRowOutput = try allocate_token_decode_row_output(row_scratch, decoder.context.grid.mb_cols);
+        const temp_scratch: TokenDecodeRowScratch = try allocate_token_decode_row_scratch(row_scratch);
         try decode_key_frame_token_row(decoder, &factors, &coeff_ctx, token_reader, mb_y, &row_output, &temp_scratch);
-        try coeff_scratch_note_bytes_written(&decoder.context.scratch, row_output_bytes);
+        try coeff_scratch_note_bytes_written(row_scratch, row_output_bytes);
         try reconstruct_key_frame_token_row(decoder, frame, &factors, mb_y, &row_output);
-        try coeff_scratch_note_bytes_read(&decoder.context.scratch, row_output_bytes);
+        try coeff_scratch_note_bytes_read(row_scratch, row_output_bytes);
         try row_reconstruct_pipeline_mark_row_reconstructed(&reconstruct_pipeline, mb_y);
         const ready_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_mark_row_reconstructed(&loop_filter_pipeline, mb_y);
         if ready_filter_row.has_row {
@@ -1071,14 +1074,15 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
     var loop_filter_pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(decoder.context.grid.mb_rows);
     while !row_reconstruct_pipeline_is_complete(&reconstruct_pipeline) {
         const mb_y: usize = try row_reconstruct_pipeline_next_row(&reconstruct_pipeline);
-        try decoder_context_begin_row(decoder.context);
+        try decoder_context_begin_worker_row(decoder.context, 0);
+        const row_scratch: &RowScratchArena = try decoder_context_worker_scratch(decoder.context, 0);
         try coeff_context_start_row(&coeff_ctx);
         const token_reader: &BoolReader = try decoder_token_reader_for_mb_row(token_readers, mb_y, token_partition_count);
-        const row_output: TokenDecodeRowOutput = try allocate_token_decode_row_output(&decoder.context.scratch, decoder.context.grid.mb_cols);
+        const row_output: TokenDecodeRowOutput = try allocate_token_decode_row_output(row_scratch, decoder.context.grid.mb_cols);
         try decode_inter_token_row(decoder, &coeff_ctx, token_reader, mb_y, &row_output);
-        try coeff_scratch_note_bytes_written(&decoder.context.scratch, row_output_bytes);
+        try coeff_scratch_note_bytes_written(row_scratch, row_output_bytes);
         try reconstruct_inter_token_row(decoder, frame, &factors, mb_y, &row_output);
-        try coeff_scratch_note_bytes_read(&decoder.context.scratch, row_output_bytes);
+        try coeff_scratch_note_bytes_read(row_scratch, row_output_bytes);
         try row_reconstruct_pipeline_mark_row_reconstructed(&reconstruct_pipeline, mb_y);
         const ready_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_mark_row_reconstructed(&loop_filter_pipeline, mb_y);
         if ready_filter_row.has_row {

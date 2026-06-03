@@ -1,3 +1,6 @@
+use libc.free;
+use libc.malloc;
+
 use vp8.common.frame.FramePool;
 use vp8.common.frame.allocate_frame_pool;
 use vp8.common.frame.empty_frame_pool;
@@ -18,6 +21,7 @@ use vp8.common.scratch.row_scratch_alloc_bytes;
 use vp8.common.scratch.row_scratch_reset;
 
 error ErrDecoderContextInvalidGeometry;
+error ErrDecoderContextInvalidWorker;
 
 export struct DecoderContext {
     width: usize,
@@ -26,6 +30,10 @@ export struct DecoderContext {
     frame_pool: FramePool,
     mb_info: MacroblockInfoArrays,
     scratch: RowScratchArena,
+    thread_scratch: &RowScratchArena,
+    thread_scratch_worker_count: usize,
+    thread_scratch_capacity: usize,
+    thread_scratch_alignment: usize,
     init_heap_allocation_count: usize,
     hot_loop_heap_allocation_count: usize
 }
@@ -48,13 +56,84 @@ export fn empty_decoder_context() DecoderContext {
         frame_pool: empty_frame_pool(),
         mb_info: empty_macroblock_info_arrays(),
         scratch: empty_row_scratch_arena(),
+        thread_scratch: null as &RowScratchArena,
+        thread_scratch_worker_count: 0,
+        thread_scratch_capacity: 0,
+        thread_scratch_alignment: 0,
         init_heap_allocation_count: 0,
         hot_loop_heap_allocation_count: 0
     };
 }
 
 export fn allocate_decoder_context(width: usize, height: usize, border: usize, alignment: usize, row_scratch_capacity: usize) !DecoderContext {
-    if width == 0 || height == 0 || row_scratch_capacity == 0 {
+    return try allocate_decoder_context_with_thread_scratch(width, height, border, alignment, row_scratch_capacity, 1);
+}
+
+fn decoder_context_checked_bytes(count: usize, elem_size: usize) !usize {
+    if count == 0 || elem_size == 0 {
+        return error.ErrDecoderContextInvalidGeometry;
+    }
+    const bytes: usize = count * elem_size;
+    if (bytes / elem_size) != count {
+        return error.ErrDecoderContextInvalidGeometry;
+    }
+    return bytes;
+}
+
+fn free_decoder_thread_scratch(context: &DecoderContext) void {
+    if context.thread_scratch != null {
+        var index: usize = 0;
+        while index + 1 < context.thread_scratch_worker_count {
+            free_row_scratch_arena(&context.thread_scratch[index] as &RowScratchArena);
+            index = index + 1;
+        }
+        free(context.thread_scratch as &void);
+    }
+
+    context.thread_scratch = null as &RowScratchArena;
+    context.thread_scratch_worker_count = 0;
+    context.thread_scratch_capacity = 0;
+    context.thread_scratch_alignment = 0;
+}
+
+fn allocate_decoder_thread_scratch(context: &DecoderContext, worker_count: usize, row_scratch_capacity: usize, alignment: usize) !void {
+    if worker_count == 0 {
+        return error.ErrDecoderContextInvalidGeometry;
+    }
+    context.thread_scratch_worker_count = worker_count;
+    context.thread_scratch_capacity = row_scratch_capacity;
+    context.thread_scratch_alignment = alignment;
+    if worker_count == 1 {
+        return;
+    }
+
+    const extra_count: usize = worker_count - 1;
+    const bytes: usize = try decoder_context_checked_bytes(extra_count, @size_of(RowScratchArena) as usize);
+    context.thread_scratch = malloc(bytes) as &RowScratchArena;
+    if context.thread_scratch == null {
+        return error.ErrDecoderContextInvalidGeometry;
+    }
+    context.init_heap_allocation_count = context.init_heap_allocation_count + 1;
+
+    var index: usize = 0;
+    while index < extra_count {
+        context.thread_scratch[index] = empty_row_scratch_arena();
+        index = index + 1;
+    }
+
+    index = 0;
+    while index < extra_count {
+        context.thread_scratch[index] = allocate_row_scratch_arena(row_scratch_capacity, alignment) catch {
+            free_decoder_thread_scratch(context);
+            return error.ErrDecoderContextInvalidGeometry;
+        };
+        context.init_heap_allocation_count = context.init_heap_allocation_count + 1;
+        index = index + 1;
+    }
+}
+
+export fn allocate_decoder_context_with_thread_scratch(width: usize, height: usize, border: usize, alignment: usize, row_scratch_capacity: usize, worker_count: usize) !DecoderContext {
+    if width == 0 || height == 0 || row_scratch_capacity == 0 || worker_count == 0 {
         return error.ErrDecoderContextInvalidGeometry;
     }
 
@@ -83,10 +162,18 @@ export fn allocate_decoder_context(width: usize, height: usize, border: usize, a
     };
     context.init_heap_allocation_count = context.init_heap_allocation_count + 1;
 
+    allocate_decoder_thread_scratch(&context, worker_count, row_scratch_capacity, alignment) catch {
+        free_row_scratch_arena(&context.scratch);
+        free_macroblock_info_arrays(&context.mb_info);
+        free_frame_pool(&context.frame_pool);
+        return error.ErrDecoderContextInvalidGeometry;
+    };
+
     return context;
 }
 
 export fn free_decoder_context(context: &DecoderContext) void {
+    free_decoder_thread_scratch(context);
     free_row_scratch_arena(&context.scratch);
     free_macroblock_info_arrays(&context.mb_info);
     free_frame_pool(&context.frame_pool);
@@ -97,16 +184,48 @@ export fn free_decoder_context(context: &DecoderContext) void {
     context.hot_loop_heap_allocation_count = 0;
 }
 
+export fn decoder_context_worker_scratch(context: &DecoderContext, worker_index: usize) !&RowScratchArena {
+    if context.thread_scratch_worker_count == 0 {
+        return error.ErrDecoderContextInvalidWorker;
+    }
+    if worker_index >= context.thread_scratch_worker_count {
+        return error.ErrDecoderContextInvalidWorker;
+    }
+    if worker_index == 0 {
+        return &context.scratch;
+    }
+    if context.thread_scratch == null {
+        return error.ErrDecoderContextInvalidWorker;
+    }
+    return &context.thread_scratch[worker_index - 1] as &RowScratchArena;
+}
+
 export fn decoder_context_begin_frame(context: &DecoderContext) !void {
     try frame_pool_begin_frame(&context.frame_pool);
     try frame_scratch_reset(&context.scratch);
+    var worker_index: usize = 1;
+    while worker_index < context.thread_scratch_worker_count {
+        const scratch: &RowScratchArena = try decoder_context_worker_scratch(context, worker_index);
+        try frame_scratch_reset(scratch);
+        worker_index = worker_index + 1;
+    }
     context.hot_loop_heap_allocation_count = 0;
 }
 
 export fn decoder_context_begin_row(context: &DecoderContext) !void {
-    try row_scratch_reset(&context.scratch);
+    try decoder_context_begin_worker_row(context, 0);
+}
+
+export fn decoder_context_begin_worker_row(context: &DecoderContext, worker_index: usize) !void {
+    const scratch: &RowScratchArena = try decoder_context_worker_scratch(context, worker_index);
+    try row_scratch_reset(scratch);
 }
 
 export fn decoder_context_hot_loop_alloc_bytes(context: &DecoderContext, size: usize, alignment: usize) !&byte {
-    return try row_scratch_alloc_bytes(&context.scratch, size, alignment);
+    return try decoder_context_worker_hot_loop_alloc_bytes(context, 0, size, alignment);
+}
+
+export fn decoder_context_worker_hot_loop_alloc_bytes(context: &DecoderContext, worker_index: usize, size: usize, alignment: usize) !&byte {
+    const scratch: &RowScratchArena = try decoder_context_worker_scratch(context, worker_index);
+    return try row_scratch_alloc_bytes(scratch, size, alignment);
 }

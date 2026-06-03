@@ -266,7 +266,7 @@
   - [x] 将并行 token decode 输出接入现有 reconstruct/loop-filter 串行路径。
 - [x] 实现 row reconstruct pipeline。
 - [x] 实现 row-delayed loopfilter pipeline。
-- [ ] 实现 thread-local scratch。
+- [x] 实现 thread-local scratch。
 - [ ] 实现有界 `MbCoeffScratchRing`，ring depth 与 row fence 绑定。
 - [ ] 实现 deterministic error merge。
 - [ ] 实现 per-frame performance stats。

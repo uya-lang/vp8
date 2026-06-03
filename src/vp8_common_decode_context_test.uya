@@ -3,10 +3,15 @@ use std.testing.expect;
 
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.allocate_decoder_context;
+use vp8.common.decode_context.allocate_decoder_context_with_thread_scratch;
 use vp8.common.decode_context.decoder_context_begin_frame;
 use vp8.common.decode_context.decoder_context_begin_row;
+use vp8.common.decode_context.decoder_context_begin_worker_row;
 use vp8.common.decode_context.decoder_context_hot_loop_alloc_bytes;
+use vp8.common.decode_context.decoder_context_worker_hot_loop_alloc_bytes;
+use vp8.common.decode_context.decoder_context_worker_scratch;
 use vp8.common.decode_context.free_decoder_context;
+use vp8.common.scratch.RowScratchArena;
 
 fn assert_aligned(ptr: &byte, alignment: usize) !void {
     try expect((@usize_from_ptr(ptr as &void) % alignment) == 0);
@@ -37,4 +42,53 @@ test "DecoderContext preallocates decode resources before the hot loop" {
     _ = try decoder_context_hot_loop_alloc_bytes(&context, 16, 16);
     try assert_eq_i32(context.hot_loop_heap_allocation_count as i32, 0);
     try assert_eq_i32(context.scratch.high_water as i32, 96);
+}
+
+test "DecoderContext allocates isolated thread-local scratch arenas" {
+    var context: DecoderContext = try allocate_decoder_context_with_thread_scratch(32, 32, 32, 32, 256, 3);
+    defer free_decoder_context(&context);
+
+    try assert_eq_i32(context.thread_scratch_worker_count as i32, 3);
+
+    try decoder_context_begin_frame(&context);
+
+    const worker0: &RowScratchArena = try decoder_context_worker_scratch(&context, 0);
+    const worker1: &RowScratchArena = try decoder_context_worker_scratch(&context, 1);
+    const worker2: &RowScratchArena = try decoder_context_worker_scratch(&context, 2);
+
+    try expect(worker0.data != worker1.data);
+    try expect(worker0.data != worker2.data);
+    try expect(worker1.data != worker2.data);
+
+    const first: &byte = try decoder_context_worker_hot_loop_alloc_bytes(&context, 0, 24, 16);
+    const second: &byte = try decoder_context_worker_hot_loop_alloc_bytes(&context, 1, 32, 32);
+
+    try assert_aligned(first, 16);
+    try assert_aligned(second, 32);
+    try assert_eq_i32(worker0.offset as i32, 24);
+    try assert_eq_i32(worker1.offset as i32, 32);
+    try assert_eq_i32(worker2.offset as i32, 0);
+    try assert_eq_i32(context.scratch.offset as i32, 24);
+
+    try decoder_context_begin_worker_row(&context, 1);
+    try assert_eq_i32(worker0.offset as i32, 24);
+    try assert_eq_i32(worker1.offset as i32, 0);
+    try assert_eq_i32(worker1.high_water as i32, 32);
+
+    try decoder_context_begin_frame(&context);
+    try assert_eq_i32(worker0.high_water as i32, 0);
+    try assert_eq_i32(worker1.high_water as i32, 0);
+    try assert_eq_i32(worker2.high_water as i32, 0);
+}
+
+test "DecoderContext rejects invalid thread-local scratch workers" {
+    var context: DecoderContext = try allocate_decoder_context_with_thread_scratch(16, 16, 32, 32, 128, 2);
+    defer free_decoder_context(&context);
+
+    var failed: i32 = 0;
+    _ = decoder_context_worker_scratch(&context, 2) catch {
+        failed = 1;
+        null as &RowScratchArena;
+    };
+    try assert_eq_i32(failed, 1);
 }
