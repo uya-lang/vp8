@@ -286,7 +286,7 @@
 - [x] 定义 `EncoderConfig`。
 - [x] 定义 `YuvFrameView`。
 - [x] 实现 IVF writer 集成。
-- [ ] 实现 key frame header writer。
+- [x] 实现 key frame header writer。
 - [ ] 实现 intra 16x16 mode search。
 - [ ] 实现 UV mode search。
 - [ ] 实现 forward DCT。

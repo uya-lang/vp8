@@ -9,6 +9,7 @@ use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.Vp8SkipCoeffHeader;
+use vp8.bitstream.header.VP8_KEY_FRAME_HEADER_BYTES;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
 use vp8.bitstream.header.parse_vp8_key_frame_header;
@@ -30,6 +31,8 @@ use vp8.bitstream.header.parse_vp8_frame_tag;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
 use vp8.bitstream.header.reset_vp8_key_frame_probs;
 use vp8.bitstream.header.vp8_default_probs;
+use vp8.bitstream.header.write_vp8_frame_tag;
+use vp8.bitstream.header.write_vp8_key_frame_header;
 use vp8.bitstream.bool_reader.BoolReader;
 use vp8.bitstream.bool_reader.bool_reader_error_byte_offset;
 use vp8.bitstream.bool_reader.bool_reader_error_partition_id;
@@ -715,6 +718,110 @@ test "parse tiny key frame header golden with all public fields" {
     try assert_eq_i32(header.height as i32, 19);
     try assert_eq_i32(header.horizontal_scale as i32, 2);
     try assert_eq_i32(header.vertical_scale as i32, 1);
+}
+
+test "write VP8 key frame header roundtrips through parser" {
+    var out: [byte: 12] = [];
+    const source: Vp8FrameHeader = Vp8FrameHeader{
+        frame_type: 0,
+        version: 0,
+        show_frame: true,
+        first_partition_size: 7,
+        width: 17,
+        height: 19,
+        horizontal_scale: 2,
+        vertical_scale: 1
+    };
+
+    const next_offset: usize = try write_vp8_key_frame_header(&out[0] as &byte, 12, 0, &source);
+    try assert_eq_i32(next_offset as i32, VP8_KEY_FRAME_HEADER_BYTES as i32);
+    try assert_eq_i32(out[0] as i32, 0xf0);
+    try assert_eq_i32(out[1] as i32, 0x00);
+    try assert_eq_i32(out[2] as i32, 0x00);
+    try assert_eq_i32(out[3] as i32, 0x9d);
+    try assert_eq_i32(out[4] as i32, 0x01);
+    try assert_eq_i32(out[5] as i32, 0x2a);
+    try assert_eq_i32(out[6] as i32, 0x11);
+    try assert_eq_i32(out[7] as i32, 0x80);
+    try assert_eq_i32(out[8] as i32, 0x13);
+    try assert_eq_i32(out[9] as i32, 0x40);
+
+    const parsed: Vp8FrameHeader = try parse_vp8_key_frame_header(&out[0] as &byte, 10);
+    try assert_eq_i32(parsed.frame_type as i32, 0);
+    try assert_eq_i32(parsed.version as i32, 0);
+    try assert_eq_i32(parsed.show_frame as i32, true as i32);
+    try assert_eq_i32(parsed.first_partition_size as i32, 7);
+    try assert_eq_i32(parsed.width as i32, 17);
+    try assert_eq_i32(parsed.height as i32, 19);
+    try assert_eq_i32(parsed.horizontal_scale as i32, 2);
+    try assert_eq_i32(parsed.vertical_scale as i32, 1);
+}
+
+test "write VP8 frame tag supports offset patching" {
+    var out: [byte: 8] = [];
+    const source: Vp8FrameTag = Vp8FrameTag{
+        frame_type: 1,
+        version: 2,
+        show_frame: false,
+        first_partition_size: 292
+    };
+
+    try write_vp8_frame_tag(&out[0] as &byte, 8, 2, &source);
+
+    try assert_eq_i32(out[0] as i32, 0);
+    try assert_eq_i32(out[1] as i32, 0);
+    const parsed: Vp8FrameTag = try parse_vp8_frame_tag(&out[2] as &byte, 3);
+    try assert_eq_i32(parsed.frame_type as i32, 1);
+    try assert_eq_i32(parsed.version as i32, 2);
+    try assert_eq_i32(parsed.show_frame as i32, false as i32);
+    try assert_eq_i32(parsed.first_partition_size as i32, 292);
+}
+
+test "write VP8 key frame header rejects short buffers and invalid fields" {
+    var out: [byte: 10] = [];
+    var source: Vp8FrameHeader = Vp8FrameHeader{
+        frame_type: 0,
+        version: 0,
+        show_frame: true,
+        first_partition_size: 2,
+        width: 16,
+        height: 16,
+        horizontal_scale: 0,
+        vertical_scale: 0
+    };
+    var failed: i32 = 0;
+
+    _ = write_vp8_key_frame_header(&out[0] as &byte, 9, 0, &source) catch {
+        failed = 1;
+        0 as usize;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    source.width = 0;
+    _ = write_vp8_key_frame_header(&out[0] as &byte, 10, 0, &source) catch {
+        failed = 1;
+        0 as usize;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    source.width = 16;
+    source.horizontal_scale = 4;
+    _ = write_vp8_key_frame_header(&out[0] as &byte, 10, 0, &source) catch {
+        failed = 1;
+        0 as usize;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    source.horizontal_scale = 0;
+    source.first_partition_size = 524288 as u32;
+    _ = write_vp8_key_frame_header(&out[0] as &byte, 10, 0, &source) catch {
+        failed = 1;
+        0 as usize;
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "reject short VP8 frame tag" {
