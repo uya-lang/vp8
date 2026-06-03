@@ -1,0 +1,42 @@
+error ErrRowReconstructPipelineInvalidRows;
+error ErrRowReconstructPipelineOutOfOrder;
+error ErrRowReconstructPipelineComplete;
+
+export struct RowReconstructPipeline {
+    mb_rows: usize,
+    next_row: usize,
+    reconstructed_rows: usize
+}
+
+export fn make_row_reconstruct_pipeline(mb_rows: usize) !RowReconstructPipeline {
+    if mb_rows == 0 {
+        return error.ErrRowReconstructPipelineInvalidRows;
+    }
+    return RowReconstructPipeline{
+        mb_rows: mb_rows,
+        next_row: 0,
+        reconstructed_rows: 0
+    };
+}
+
+export fn row_reconstruct_pipeline_is_complete(pipeline: &RowReconstructPipeline) bool {
+    return pipeline.reconstructed_rows >= pipeline.mb_rows;
+}
+
+export fn row_reconstruct_pipeline_next_row(pipeline: &RowReconstructPipeline) !usize {
+    if row_reconstruct_pipeline_is_complete(pipeline) {
+        return error.ErrRowReconstructPipelineComplete;
+    }
+    return pipeline.next_row;
+}
+
+export fn row_reconstruct_pipeline_mark_row_reconstructed(pipeline: &RowReconstructPipeline, mb_row: usize) !void {
+    if row_reconstruct_pipeline_is_complete(pipeline) {
+        return error.ErrRowReconstructPipelineComplete;
+    }
+    if mb_row != pipeline.next_row {
+        return error.ErrRowReconstructPipelineOutOfOrder;
+    }
+    pipeline.reconstructed_rows = pipeline.reconstructed_rows + 1;
+    pipeline.next_row = pipeline.next_row + 1;
+}

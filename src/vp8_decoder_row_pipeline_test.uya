@@ -1,0 +1,54 @@
+use std.testing.assert_eq_i32;
+
+use vp8.decoder.row_pipeline.RowReconstructPipeline;
+use vp8.decoder.row_pipeline.make_row_reconstruct_pipeline;
+use vp8.decoder.row_pipeline.row_reconstruct_pipeline_is_complete;
+use vp8.decoder.row_pipeline.row_reconstruct_pipeline_mark_row_reconstructed;
+use vp8.decoder.row_pipeline.row_reconstruct_pipeline_next_row;
+
+test "row reconstruct pipeline advances rows in deterministic order" {
+    var pipeline: RowReconstructPipeline = try make_row_reconstruct_pipeline(3);
+
+    try assert_eq_i32((try row_reconstruct_pipeline_next_row(&pipeline)) as i32, 0);
+    try row_reconstruct_pipeline_mark_row_reconstructed(&pipeline, 0);
+    try assert_eq_i32(pipeline.reconstructed_rows as i32, 1);
+
+    try assert_eq_i32((try row_reconstruct_pipeline_next_row(&pipeline)) as i32, 1);
+    try row_reconstruct_pipeline_mark_row_reconstructed(&pipeline, 1);
+    try assert_eq_i32((try row_reconstruct_pipeline_next_row(&pipeline)) as i32, 2);
+    try row_reconstruct_pipeline_mark_row_reconstructed(&pipeline, 2);
+
+    try assert_eq_i32(row_reconstruct_pipeline_is_complete(&pipeline) as i32, true as i32);
+}
+
+test "row reconstruct pipeline rejects out of order completion" {
+    var pipeline: RowReconstructPipeline = try make_row_reconstruct_pipeline(2);
+
+    var failed: i32 = 0;
+    _ = row_reconstruct_pipeline_mark_row_reconstructed(&pipeline, 1) catch {
+        failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
+    try assert_eq_i32(pipeline.reconstructed_rows as i32, 0);
+    try assert_eq_i32((try row_reconstruct_pipeline_next_row(&pipeline)) as i32, 0);
+}
+
+test "row reconstruct pipeline rejects invalid and completed rows" {
+    var invalid_failed: i32 = 0;
+    _ = make_row_reconstruct_pipeline(0) catch {
+        invalid_failed = 1;
+        RowReconstructPipeline{ mb_rows: 1, next_row: 0, reconstructed_rows: 0 };
+    };
+    try assert_eq_i32(invalid_failed, 1);
+
+    var pipeline: RowReconstructPipeline = try make_row_reconstruct_pipeline(1);
+    try row_reconstruct_pipeline_mark_row_reconstructed(&pipeline, 0);
+
+    var complete_failed: i32 = 0;
+    _ = row_reconstruct_pipeline_next_row(&pipeline) catch {
+        complete_failed = 1;
+        0 as usize;
+    };
+    try assert_eq_i32(complete_failed, 1);
+}

@@ -264,7 +264,7 @@
   - [x] 抽取 row-local token decode scratch 结构，避免整帧 coefficient materialization。
   - [x] 实现 token partition worker 调度与 deterministic error merge。
   - [x] 将并行 token decode 输出接入现有 reconstruct/loop-filter 串行路径。
-- [ ] 实现 row reconstruct pipeline。
+- [x] 实现 row reconstruct pipeline。
 - [ ] 实现 row-delayed loopfilter pipeline。
 - [ ] 实现 thread-local scratch。
 - [ ] 实现有界 `MbCoeffScratchRing`，ring depth 与 row fence 绑定。
