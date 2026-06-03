@@ -4,6 +4,8 @@ use std.testing.expect;
 use vp8.common.plane.Plane;
 use vp8.common.plane.extend_plane_border;
 use vp8.common.plane.make_plane_view;
+use vp8.kernels.scalar.add_residual_4x4_clamped;
+use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
@@ -237,6 +239,53 @@ test "SIMD border extension matches scalar plane extension byte exact" {
     index = 0;
     while index < 2304 {
         try assert_eq_i32(simd[index] as i32, scalar[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD residual add clamp matches scalar byte exact across stride" {
+    var scalar_dst: [byte: 40] = [];
+    var simd_dst: [byte: 40] = [];
+    var residual: [i16: 16] = [
+        -1000, -20, 0, 1,
+        10, 120, 30000, -30000,
+        255, -255, 400, -400,
+        32, -32, 512, -512
+    ];
+    const initial: [byte: 16] = [
+        0 as byte, 10 as byte, 128 as byte, 255 as byte,
+        15 as byte, 120 as byte, 1 as byte, 250 as byte,
+        200 as byte, 10 as byte, 240 as byte, 30 as byte,
+        99 as byte, 33 as byte, 128 as byte, 250 as byte
+    ];
+    const stride: usize = 8;
+
+    var index: usize = 0;
+    while index < 40 {
+        scalar_dst[index] = 203 as byte;
+        simd_dst[index] = 203 as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            const src_index: usize = (row * 4) + col;
+            const dst_index: usize = (row * stride) + col;
+            scalar_dst[dst_index] = initial[src_index];
+            simd_dst[dst_index] = initial[src_index];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    add_residual_4x4_clamped(&scalar_dst[0] as &byte, stride, &residual[0] as &i16);
+    add_residual_4x4_clamped_u8x16(&simd_dst[0] as &byte, stride, &residual[0] as &i16);
+
+    index = 0;
+    while index < 40 {
+        try assert_eq_i32(simd_dst[index] as i32, scalar_dst[index] as i32);
         index = index + 1;
     }
 }

@@ -234,7 +234,7 @@
 
 - [x] SIMD plane copy/fill。
 - [x] SIMD border extension。
-- [ ] SIMD residual add/clamp。
+- [x] SIMD residual add/clamp。
 - [ ] SIMD DC-only inverse transform。
 - [ ] SIMD 4x4 inverse DCT batch。
 - [ ] SIMD intra 16x16 predictors。
