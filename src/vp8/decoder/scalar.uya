@@ -61,7 +61,12 @@ use vp8.common.scratch.token_decode_row_block_coefficients;
 use vp8.common.scratch.token_decode_row_block_summary_ptr;
 use vp8.common.scratch.token_decode_row_output_bytes;
 use vp8.decoder.row_pipeline.RowReconstructPipeline;
+use vp8.decoder.row_pipeline.RowLoopFilterPipeline;
+use vp8.decoder.row_pipeline.RowLoopFilterReady;
+use vp8.decoder.row_pipeline.make_row_loop_filter_pipeline;
 use vp8.decoder.row_pipeline.make_row_reconstruct_pipeline;
+use vp8.decoder.row_pipeline.row_loop_filter_pipeline_flush;
+use vp8.decoder.row_pipeline.row_loop_filter_pipeline_mark_row_reconstructed;
 use vp8.decoder.row_pipeline.row_reconstruct_pipeline_is_complete;
 use vp8.decoder.row_pipeline.row_reconstruct_pipeline_mark_row_reconstructed;
 use vp8.decoder.row_pipeline.row_reconstruct_pipeline_next_row;
@@ -839,6 +844,7 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
     const row_output_bytes: usize = try token_decode_row_output_bytes(decoder.context.grid.mb_cols);
 
     var reconstruct_pipeline: RowReconstructPipeline = try make_row_reconstruct_pipeline(decoder.context.grid.mb_rows);
+    var loop_filter_pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(decoder.context.grid.mb_rows);
     while !row_reconstruct_pipeline_is_complete(&reconstruct_pipeline) {
         const mb_y: usize = try row_reconstruct_pipeline_next_row(&reconstruct_pipeline);
         try decoder_context_begin_row(decoder.context);
@@ -851,12 +857,14 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
         try reconstruct_key_frame_token_row(decoder, frame, &factors, mb_y, &row_output);
         try coeff_scratch_note_bytes_read(&decoder.context.scratch, row_output_bytes);
         try row_reconstruct_pipeline_mark_row_reconstructed(&reconstruct_pipeline, mb_y);
-        if mb_y > 0 {
-            apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, mb_y - 1, loop_filter, &loop_filter_thresholds);
+        const ready_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_mark_row_reconstructed(&loop_filter_pipeline, mb_y);
+        if ready_filter_row.has_row {
+            apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, ready_filter_row.mb_row, loop_filter, &loop_filter_thresholds);
         }
     }
-    if decoder.context.grid.mb_rows > 0 {
-        apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, decoder.context.grid.mb_rows - 1, loop_filter, &loop_filter_thresholds);
+    const flushed_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_flush(&loop_filter_pipeline);
+    if flushed_filter_row.has_row {
+        apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, flushed_filter_row.mb_row, loop_filter, &loop_filter_thresholds);
     }
 }
 
@@ -1060,6 +1068,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
     const row_output_bytes: usize = try token_decode_row_output_bytes(decoder.context.grid.mb_cols);
 
     var reconstruct_pipeline: RowReconstructPipeline = try make_row_reconstruct_pipeline(decoder.context.grid.mb_rows);
+    var loop_filter_pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(decoder.context.grid.mb_rows);
     while !row_reconstruct_pipeline_is_complete(&reconstruct_pipeline) {
         const mb_y: usize = try row_reconstruct_pipeline_next_row(&reconstruct_pipeline);
         try decoder_context_begin_row(decoder.context);
@@ -1071,12 +1080,14 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
         try reconstruct_inter_token_row(decoder, frame, &factors, mb_y, &row_output);
         try coeff_scratch_note_bytes_read(&decoder.context.scratch, row_output_bytes);
         try row_reconstruct_pipeline_mark_row_reconstructed(&reconstruct_pipeline, mb_y);
-        if mb_y > 0 {
-            apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, mb_y - 1, loop_filter, &loop_filter_thresholds);
+        const ready_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_mark_row_reconstructed(&loop_filter_pipeline, mb_y);
+        if ready_filter_row.has_row {
+            apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, ready_filter_row.mb_row, loop_filter, &loop_filter_thresholds);
         }
     }
-    if decoder.context.grid.mb_rows > 0 {
-        apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, decoder.context.grid.mb_rows - 1, loop_filter, &loop_filter_thresholds);
+    const flushed_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_flush(&loop_filter_pipeline);
+    if flushed_filter_row.has_row {
+        apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, flushed_filter_row.mb_row, loop_filter, &loop_filter_thresholds);
     }
 }
 

@@ -1,7 +1,13 @@
 use std.testing.assert_eq_i32;
 
 use vp8.decoder.row_pipeline.RowReconstructPipeline;
+use vp8.decoder.row_pipeline.RowLoopFilterPipeline;
+use vp8.decoder.row_pipeline.RowLoopFilterReady;
+use vp8.decoder.row_pipeline.make_row_loop_filter_pipeline;
 use vp8.decoder.row_pipeline.make_row_reconstruct_pipeline;
+use vp8.decoder.row_pipeline.row_loop_filter_pipeline_flush;
+use vp8.decoder.row_pipeline.row_loop_filter_pipeline_is_complete;
+use vp8.decoder.row_pipeline.row_loop_filter_pipeline_mark_row_reconstructed;
 use vp8.decoder.row_pipeline.row_reconstruct_pipeline_is_complete;
 use vp8.decoder.row_pipeline.row_reconstruct_pipeline_mark_row_reconstructed;
 use vp8.decoder.row_pipeline.row_reconstruct_pipeline_next_row;
@@ -51,4 +57,42 @@ test "row reconstruct pipeline rejects invalid and completed rows" {
         0 as usize;
     };
     try assert_eq_i32(complete_failed, 1);
+}
+
+test "row delayed loop filter pipeline releases previous rows and flushes final row" {
+    var pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(3);
+
+    var ready: RowLoopFilterReady = try row_loop_filter_pipeline_mark_row_reconstructed(&pipeline, 0);
+    try assert_eq_i32(ready.has_row as i32, false as i32);
+
+    ready = try row_loop_filter_pipeline_mark_row_reconstructed(&pipeline, 1);
+    try assert_eq_i32(ready.has_row as i32, true as i32);
+    try assert_eq_i32(ready.mb_row as i32, 0);
+
+    ready = try row_loop_filter_pipeline_mark_row_reconstructed(&pipeline, 2);
+    try assert_eq_i32(ready.has_row as i32, true as i32);
+    try assert_eq_i32(ready.mb_row as i32, 1);
+
+    ready = try row_loop_filter_pipeline_flush(&pipeline);
+    try assert_eq_i32(ready.has_row as i32, true as i32);
+    try assert_eq_i32(ready.mb_row as i32, 2);
+    try assert_eq_i32(row_loop_filter_pipeline_is_complete(&pipeline) as i32, true as i32);
+}
+
+test "row delayed loop filter pipeline rejects out of order and early flush" {
+    var pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(2);
+
+    var failed_out_of_order: i32 = 0;
+    _ = row_loop_filter_pipeline_mark_row_reconstructed(&pipeline, 1) catch {
+        failed_out_of_order = 1;
+        RowLoopFilterReady{ has_row: false, mb_row: 0 };
+    };
+    try assert_eq_i32(failed_out_of_order, 1);
+
+    var failed_early_flush: i32 = 0;
+    _ = row_loop_filter_pipeline_flush(&pipeline) catch {
+        failed_early_flush = 1;
+        RowLoopFilterReady{ has_row: false, mb_row: 0 };
+    };
+    try assert_eq_i32(failed_early_flush, 1);
 }

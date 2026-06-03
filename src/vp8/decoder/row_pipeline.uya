@@ -1,11 +1,27 @@
 error ErrRowReconstructPipelineInvalidRows;
 error ErrRowReconstructPipelineOutOfOrder;
 error ErrRowReconstructPipelineComplete;
+error ErrRowLoopFilterPipelineInvalidRows;
+error ErrRowLoopFilterPipelineOutOfOrder;
+error ErrRowLoopFilterPipelineIncomplete;
+error ErrRowLoopFilterPipelineComplete;
 
 export struct RowReconstructPipeline {
     mb_rows: usize,
     next_row: usize,
     reconstructed_rows: usize
+}
+
+export struct RowLoopFilterReady {
+    has_row: bool,
+    mb_row: usize
+}
+
+export struct RowLoopFilterPipeline {
+    mb_rows: usize,
+    reconstructed_rows: usize,
+    filtered_rows: usize,
+    flushed: bool
 }
 
 export fn make_row_reconstruct_pipeline(mb_rows: usize) !RowReconstructPipeline {
@@ -39,4 +55,64 @@ export fn row_reconstruct_pipeline_mark_row_reconstructed(pipeline: &RowReconstr
     }
     pipeline.reconstructed_rows = pipeline.reconstructed_rows + 1;
     pipeline.next_row = pipeline.next_row + 1;
+}
+
+fn row_loop_filter_not_ready() RowLoopFilterReady {
+    return RowLoopFilterReady{ has_row: false, mb_row: 0 };
+}
+
+fn row_loop_filter_ready(mb_row: usize) RowLoopFilterReady {
+    return RowLoopFilterReady{ has_row: true, mb_row: mb_row };
+}
+
+export fn make_row_loop_filter_pipeline(mb_rows: usize) !RowLoopFilterPipeline {
+    if mb_rows == 0 {
+        return error.ErrRowLoopFilterPipelineInvalidRows;
+    }
+    return RowLoopFilterPipeline{
+        mb_rows: mb_rows,
+        reconstructed_rows: 0,
+        filtered_rows: 0,
+        flushed: false
+    };
+}
+
+export fn row_loop_filter_pipeline_is_complete(pipeline: &RowLoopFilterPipeline) bool {
+    return pipeline.flushed && pipeline.filtered_rows >= pipeline.mb_rows;
+}
+
+export fn row_loop_filter_pipeline_mark_row_reconstructed(pipeline: &RowLoopFilterPipeline, mb_row: usize) !RowLoopFilterReady {
+    if row_loop_filter_pipeline_is_complete(pipeline) {
+        return error.ErrRowLoopFilterPipelineComplete;
+    }
+    if mb_row != pipeline.reconstructed_rows {
+        return error.ErrRowLoopFilterPipelineOutOfOrder;
+    }
+
+    pipeline.reconstructed_rows = pipeline.reconstructed_rows + 1;
+    if mb_row == 0 {
+        return row_loop_filter_not_ready();
+    }
+
+    const ready_row: usize = mb_row - 1;
+    pipeline.filtered_rows = pipeline.filtered_rows + 1;
+    return row_loop_filter_ready(ready_row);
+}
+
+export fn row_loop_filter_pipeline_flush(pipeline: &RowLoopFilterPipeline) !RowLoopFilterReady {
+    if row_loop_filter_pipeline_is_complete(pipeline) {
+        return error.ErrRowLoopFilterPipelineComplete;
+    }
+    if pipeline.reconstructed_rows < pipeline.mb_rows {
+        return error.ErrRowLoopFilterPipelineIncomplete;
+    }
+
+    pipeline.flushed = true;
+    if pipeline.filtered_rows < pipeline.mb_rows {
+        const ready_row: usize = pipeline.mb_rows - 1;
+        pipeline.filtered_rows = pipeline.filtered_rows + 1;
+        return row_loop_filter_ready(ready_row);
+    }
+
+    return row_loop_filter_not_ready();
 }
