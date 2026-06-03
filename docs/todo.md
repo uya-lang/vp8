@@ -246,7 +246,8 @@
 - [x] SIMD simple loop filter。
 - [x] SIMD normal loop filter。
 - [x] 可选 `@asm` x86 sub-pixel microkernel。
-- [ ] 可选 `@asm` ARM NEON sub-pixel microkernel。
+- [f] 可选 `@asm` ARM NEON sub-pixel microkernel。
+  - 失败原因（2026-06-03）：当前主机为 `x86_64`，未安装 `qemu-arm`、`qemu-aarch64`、`qemu-arm-static` 或 `qemu-aarch64-static`；仅发现 `arm-linux-gnueabihf-gcc`，只能做交叉汇编/编译，无法运行 byte-exact 测试验证 ARM NEON microkernel，不能诚实标记完成。
 
 验收标准：
 
