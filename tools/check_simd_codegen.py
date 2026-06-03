@@ -72,6 +72,18 @@ SIMD_KERNELS = (
         "symbol": "vp8_kernels_simd_extend_plane_border_u8x16",
     },
     {
+        "name": "predict_inter_copy_16x16_u8x16",
+        "symbol": "vp8_kernels_simd_predict_inter_copy_16x16_u8x16",
+    },
+    {
+        "name": "predict_inter_copy_8x8_u8x16",
+        "symbol": "vp8_kernels_simd_predict_inter_copy_8x8_u8x16",
+    },
+    {
+        "name": "predict_inter_copy_4x4_u8x16",
+        "symbol": "vp8_kernels_simd_predict_inter_copy_4x4_u8x16",
+    },
+    {
         "name": "add_residual_4x4_clamped_u8x16",
         "symbol": "vp8_kernels_simd_add_residual_4x4_clamped_u8x16",
     },
@@ -299,10 +311,11 @@ def write_report(
 
 检查结果：
 
-- 当前 plane copy/fill/border extension/residual add clamp/DC-only inverse transform/4x4 inverse DCT batch/Y16x16/Y4x4/UV8x8 predictor SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
+- 当前 plane copy/fill/border extension/inter copy/residual add clamp/DC-only inverse transform/4x4 inverse DCT batch/Y16x16/Y4x4/UV8x8 predictor SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
 - `plane_copy_u8x16` 以 16 字节 vector load/store 处理整块，尾部保留 scalar copy。
 - `plane_fill_u8x16` 以 `@vector.splat` + 16 字节 vector store 处理整块，尾部保留 scalar fill。
 - `extend_plane_border_u8x16` 复用 16 字节 plane fill/copy helper 处理左右边界和顶部/底部复制。
+- `predict_inter_copy_16x16/8x8/4x4_u8x16` 覆盖 VP8 integer-pixel inter copy block 尺寸；16x16 复用 plane copy，8x8 两行一组，4x4 单块表达。
 - `add_residual_4x4_clamped_u8x16` 使用 `i16x16` signed saturating vector add，因当前缺少 narrow-to-u8 vector path，最终 clamp/store 仍逐 lane 完成。
 - `inverse_transform_dc_only_4x4_i16x16` 使用 `i16x16` splat/store 填充 4x4 residual block。
 - `inverse_transform_4x4_batch_i32x4` 使用 `i32x4` 执行两阶段 inverse DCT 算术；因当前缺少 shuffle/transpose，4x4 转置仍通过小数组 gather/scatter 完成。

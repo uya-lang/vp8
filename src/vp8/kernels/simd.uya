@@ -142,6 +142,57 @@ fn fill_8x8_u8x16(dst: &byte, dst_stride: usize, value: byte) void {
     }
 }
 
+export fn predict_inter_copy_16x16_u8x16(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize) void {
+    plane_copy_u8x16(dst, dst_stride, src, src_stride, 16, 16);
+}
+
+export fn predict_inter_copy_8x8_u8x16(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize) void {
+    var pair: usize = 0;
+    while pair < 4 {
+        const dst_base: usize = (pair * 2) * dst_stride;
+        const src_base: usize = (pair * 2) * src_stride;
+        if src_stride == 8 {
+            write_8x8_pair_u8x16(&dst[dst_base] as &byte, dst_stride, &src[src_base] as &byte);
+        } else {
+            var values: [byte: 16] = [];
+            var row: usize = 0;
+            while row < 2 {
+                const value_base: usize = row * 8;
+                const row_base: usize = src_base + (row * src_stride);
+                var col: usize = 0;
+                while col < 8 {
+                    values[value_base + col] = src[row_base + col];
+                    col = col + 1;
+                }
+                row = row + 1;
+            }
+            write_8x8_pair_u8x16(&dst[dst_base] as &byte, dst_stride, &values[0] as &byte);
+        }
+        pair = pair + 1;
+    }
+}
+
+export fn predict_inter_copy_4x4_u8x16(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize) void {
+    if src_stride == 4 {
+        write_4x4_values_u8x16(dst, dst_stride, src);
+        return;
+    }
+
+    var values: [byte: 16] = [];
+    var row: usize = 0;
+    while row < 4 {
+        const value_base: usize = row * 4;
+        const src_base: usize = row * src_stride;
+        var col: usize = 0;
+        while col < 4 {
+            values[value_base + col] = src[src_base + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
 fn avg2_u8(a: byte, b: byte) byte {
     return (((a as i32) + (b as i32) + 1) >> 1) as byte;
 }

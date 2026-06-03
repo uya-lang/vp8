@@ -7,6 +7,7 @@ use vp8.common.plane.make_plane_view;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
+use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_y16x16_dc;
 use vp8.kernels.scalar.predict_y16x16_horizontal;
 use vp8.kernels.scalar.predict_y16x16_true_motion;
@@ -34,6 +35,9 @@ use vp8.kernels.simd.load_u8x16;
 use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.plane_copy_u8x16;
 use vp8.kernels.simd.plane_fill_u8x16;
+use vp8.kernels.simd.predict_inter_copy_16x16_u8x16;
+use vp8.kernels.simd.predict_inter_copy_8x8_u8x16;
+use vp8.kernels.simd.predict_inter_copy_4x4_u8x16;
 use vp8.kernels.simd.predict_y16x16_dc_u8x16;
 use vp8.kernels.simd.predict_y16x16_horizontal_u8x16;
 use vp8.kernels.simd.predict_y16x16_true_motion_u8x16;
@@ -570,4 +574,56 @@ test "SIMD UV 8x8 intra predictors match scalar byte exact" {
     predict_uv8x8_true_motion(&scalar_dst[0] as &byte, stride, &above[0] as &byte, &left[0] as &byte, above_left);
     predict_uv8x8_true_motion_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte, &left[0] as &byte, above_left);
     try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 96);
+}
+
+test "SIMD inter copy fixed block predictors match scalar byte exact" {
+    var src16: [byte: 400] = [];
+    var scalar16: [byte: 400] = [];
+    var simd16: [byte: 400] = [];
+    var index: usize = 0;
+    while index < 400 {
+        src16[index] = ((index * 13 + 17) % (256 as usize)) as byte;
+        scalar16[index] = 211 as byte;
+        simd16[index] = 211 as byte;
+        index = index + 1;
+    }
+    predict_inter_copy(&scalar16[3] as &byte, 20, &src16[5] as &byte, 20, 16, 16);
+    predict_inter_copy_16x16_u8x16(&simd16[3] as &byte, 20, &src16[5] as &byte, 20);
+    try assert_y16_buffers_equal(&scalar16[0] as &byte, &simd16[0] as &byte, 400);
+
+    var src8: [byte: 160] = [];
+    var scalar8: [byte: 128] = [];
+    var simd8: [byte: 128] = [];
+    index = 0;
+    while index < 160 {
+        src8[index] = ((index * 9 + 101) % (256 as usize)) as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 128 {
+        scalar8[index] = 37 as byte;
+        simd8[index] = 37 as byte;
+        index = index + 1;
+    }
+    predict_inter_copy(&scalar8[2] as &byte, 13, &src8[4] as &byte, 15, 8, 8);
+    predict_inter_copy_8x8_u8x16(&simd8[2] as &byte, 13, &src8[4] as &byte, 15);
+    try assert_y16_buffers_equal(&scalar8[0] as &byte, &simd8[0] as &byte, 128);
+
+    var src4: [byte: 96] = [];
+    var scalar4: [byte: 64] = [];
+    var simd4: [byte: 64] = [];
+    index = 0;
+    while index < 96 {
+        src4[index] = ((index * 19 + 3) % (256 as usize)) as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 64 {
+        scalar4[index] = 129 as byte;
+        simd4[index] = 129 as byte;
+        index = index + 1;
+    }
+    predict_inter_copy(&scalar4[1] as &byte, 7, &src4[3] as &byte, 9, 4, 4);
+    predict_inter_copy_4x4_u8x16(&simd4[1] as &byte, 7, &src4[3] as &byte, 9);
+    try assert_y16_buffers_equal(&scalar4[0] as &byte, &simd4[0] as &byte, 64);
 }
