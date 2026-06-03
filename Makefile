@@ -38,7 +38,7 @@ SRC_FILES := $(shell find src -name '*.uya' -print)
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
 VECTOR_CAPABILITY_TEST := src/vp8_vector_capability_test.uya
 ASM_X86_TEST := src/vp8_kernels_asm_x86_test.uya
-UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_common_cpu_test.uya src/vp8_encoder_config_test.uya src/vp8_encoder_keyframe_test.uya src/vp8_encoder_reference_pool_test.uya src/vp8_encoder_inter_prediction_test.uya src/vp8_encoder_motion_search_test.uya src/vp8_encoder_mv_cost_test.uya src/vp8_encoder_mode_decision_test.uya src/vp8_encoder_skip_decision_test.uya src/vp8_encoder_refresh_policy_test.uya src/vp8_encoder_segmentation_policy_test.uya src/vp8_encoder_token_partition_packing_test.uya src/vp8_encoder_inter_reconstruct_test.uya src/vp8_encoder_mode_search_test.uya src/vp8_encoder_transform_test.uya src/vp8_encoder_partition_output_test.uya src/vp8_encoder_reconstruct_test.uya src/vp8_encoder_loop_filter_test.uya $(VECTOR_CAPABILITY_TEST) src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_kernels_dispatch_test.uya src/vp8_kernels_simd_test.uya src/vp8_decoder_error_merge_test.uya src/vp8_decoder_token_partition_test.uya src/vp8_decoder_row_pipeline_test.uya src/vp8_decoder_scalar_test.uya
+UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_common_cpu_test.uya src/vp8_encoder_config_test.uya src/vp8_encoder_rate_control_test.uya src/vp8_encoder_keyframe_test.uya src/vp8_encoder_reference_pool_test.uya src/vp8_encoder_inter_prediction_test.uya src/vp8_encoder_motion_search_test.uya src/vp8_encoder_mv_cost_test.uya src/vp8_encoder_mode_decision_test.uya src/vp8_encoder_skip_decision_test.uya src/vp8_encoder_refresh_policy_test.uya src/vp8_encoder_segmentation_policy_test.uya src/vp8_encoder_token_partition_packing_test.uya src/vp8_encoder_inter_reconstruct_test.uya src/vp8_encoder_mode_search_test.uya src/vp8_encoder_transform_test.uya src/vp8_encoder_partition_output_test.uya src/vp8_encoder_reconstruct_test.uya src/vp8_encoder_loop_filter_test.uya $(VECTOR_CAPABILITY_TEST) src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_kernels_dispatch_test.uya src/vp8_kernels_simd_test.uya src/vp8_decoder_error_merge_test.uya src/vp8_decoder_token_partition_test.uya src/vp8_decoder_row_pipeline_test.uya src/vp8_decoder_scalar_test.uya
 SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
@@ -94,12 +94,17 @@ test: build check-toolchain $(SAMPLE_IVF)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out-repeat.ivf
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 16 --out $(ENCODE_CLI_DIR)/out-q16.ivf
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 128 --out $(ENCODE_CLI_DIR)/bad-q.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf
+	cmp -s $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-q16.ivf; test $$? -eq 1
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.frame_count=1'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.width=16'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.height=16'
 	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
+	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded.yuv)" -eq 384
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-q16.yuv)" -eq 384
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2

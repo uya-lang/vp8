@@ -1,0 +1,83 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderRateControlMode;
+use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.rate_control.EncoderRateControl;
+use vp8.encoder.rate_control.EncoderRateControlDecision;
+use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
+use vp8.encoder.rate_control.encoder_rate_control_finish_frame;
+use vp8.encoder.rate_control.make_encoder_rate_control;
+
+fn dummy_rate_control() EncoderRateControl {
+    return EncoderRateControl{
+        mode: EncoderRateControlMode.constant_quantizer,
+        cqp_quantizer: 0 as u8,
+        frame_index: 0,
+        last_actual_bits: 0
+    };
+}
+
+fn dummy_rate_control_decision() EncoderRateControlDecision {
+    return EncoderRateControlDecision{
+        frame_index: 0,
+        quantizer: 0 as u8,
+        target_bits: 0,
+        is_keyframe: false
+    };
+}
+
+test "CQP rate control keeps fixed quantizer across feedback" {
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.quantizer = 47 as u8;
+
+    var control: EncoderRateControl = try make_encoder_rate_control(&config);
+    const first: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&control, true);
+    try assert_eq_i32(first.frame_index as i32, 0);
+    try assert_eq_i32(first.quantizer as i32, 47);
+    try assert_eq_i32(first.target_bits as i32, 0);
+    try assert_eq_i32(first.is_keyframe as i32, true as i32);
+
+    try encoder_rate_control_finish_frame(&control, 99999);
+    const second: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&control, false);
+    try assert_eq_i32(second.frame_index as i32, 1);
+    try assert_eq_i32(second.quantizer as i32, 47);
+    try assert_eq_i32(second.target_bits as i32, 0);
+    try assert_eq_i32(second.is_keyframe as i32, false as i32);
+    try assert_eq_i32(control.last_actual_bits as i32, 99999);
+}
+
+test "CQP rate control rejects invalid config and unsupported modes" {
+    var failed: i32 = 0;
+    _ = make_encoder_rate_control(null as &EncoderConfig) catch {
+        failed = 1;
+        dummy_rate_control();
+    };
+    try assert_eq_i32(failed, 1);
+
+    var invalid_quantizer: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_quantizer.quantizer = 128 as u8;
+    failed = 0;
+    _ = make_encoder_rate_control(&invalid_quantizer) catch {
+        failed = 1;
+        dummy_rate_control();
+    };
+    try assert_eq_i32(failed, 1);
+
+    var unsupported: EncoderConfig = make_default_encoder_config(16, 16);
+    unsupported.rate_control_mode = EncoderRateControlMode.target_bitrate;
+    unsupported.target_bitrate_bps = 100000;
+    failed = 0;
+    _ = make_encoder_rate_control(&unsupported) catch {
+        failed = 1;
+        dummy_rate_control();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_rate_control_decide_frame(null as &EncoderRateControl, false) catch {
+        failed = 1;
+        dummy_rate_control_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}
