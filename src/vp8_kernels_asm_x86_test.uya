@@ -1,0 +1,54 @@
+use std.testing.assert_eq_i32;
+
+use vp8.kernels.asm_x86.predict_luma_subpixel_horizontal_x86_asm;
+use vp8.kernels.scalar.predict_luma_subpixel;
+
+fn assert_buffers_equal(expected: &byte, actual: &byte, len: usize) !void {
+    var index: usize = 0;
+    while index < len {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
+
+fn fill_subpixel_source(src: &byte, stride: usize, rows: usize) void {
+    var row: usize = 0;
+    while row < rows {
+        var col: usize = 0;
+        while col < stride {
+            src[(row * stride) + col] = (((row * 29) + (col * 11) + ((row * col) % (17 as usize)) + 5) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+test "x86 asm luma horizontal sub-pixel microkernel matches scalar byte exact" {
+    var src: [byte: 260] = [];
+    var scalar_dst: [byte: 144] = [];
+    var asm_dst: [byte: 144] = [];
+
+    fill_subpixel_source(&src[0] as &byte, 20, 13);
+
+    var index: usize = 0;
+    while index < 144 {
+        scalar_dst[index] = 199 as byte;
+        asm_dst[index] = 199 as byte;
+        index = index + 1;
+    }
+
+    predict_luma_subpixel(&scalar_dst[0] as &byte, 18, &src[0] as &byte, 20, 16, 8, 4 as u8, 0 as u8);
+    predict_luma_subpixel_horizontal_x86_asm(&asm_dst[0] as &byte, 18, &src[0] as &byte, 20, 16, 8, 4 as u8);
+    try assert_buffers_equal(&scalar_dst[0] as &byte, &asm_dst[0] as &byte, 144);
+
+    index = 0;
+    while index < 144 {
+        scalar_dst[index] = 41 as byte;
+        asm_dst[index] = 41 as byte;
+        index = index + 1;
+    }
+
+    predict_luma_subpixel(&scalar_dst[2] as &byte, 18, &src[3] as &byte, 20, 8, 8, 7 as u8, 0 as u8);
+    predict_luma_subpixel_horizontal_x86_asm(&asm_dst[2] as &byte, 18, &src[3] as &byte, 20, 8, 8, 7 as u8);
+    try assert_buffers_equal(&scalar_dst[0] as &byte, &asm_dst[0] as &byte, 144);
+}
