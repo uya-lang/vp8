@@ -1,0 +1,139 @@
+use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT1;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT2;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT3;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT4;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT5;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT6;
+use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
+use vp8.token.parse.VP8_COEFF_TOKEN_FOUR;
+use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
+use vp8.token.parse.VP8_COEFF_TOKEN_THREE;
+use vp8.token.parse.VP8_COEFF_TOKEN_TWO;
+use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
+use vp8.token.parse.coefficient_band;
+
+error ErrEncoderTokenStatsInvalidInput;
+error ErrEncoderTokenStatsOverflow;
+
+const ENCODER_TOKEN_STATS_U32_MAX: u32 = 4294967295 as u32;
+
+export struct EncoderTokenBranchStats {
+    zero_count: u32,
+    one_count: u32
+}
+
+export struct EncoderTokenProbabilityStats {
+    branches: [EncoderTokenBranchStats: 1056] = [],
+    total_tokens: u32,
+    nonzero_tokens: u32,
+    eob_tokens: u32
+}
+
+export fn make_encoder_token_probability_stats() EncoderTokenProbabilityStats {
+    return EncoderTokenProbabilityStats{
+        total_tokens: 0 as u32,
+        nonzero_tokens: 0 as u32,
+        eob_tokens: 0 as u32
+    };
+}
+
+export fn encoder_token_stats_branch_offset(block_type: usize, position: usize, context: byte, tree_index: usize) !usize {
+    if block_type >= 4 || position >= 16 || context >= (3 as byte) || tree_index >= 11 {
+        return error.ErrEncoderTokenStatsInvalidInput;
+    }
+    const band: byte = try coefficient_band(position);
+    return (((((block_type * (8 as usize)) + (band as usize)) * (3 as usize)) + (context as usize)) * (11 as usize)) + tree_index;
+}
+
+fn encoder_token_stats_increment(value: u32) !u32 {
+    if value == ENCODER_TOKEN_STATS_U32_MAX {
+        return error.ErrEncoderTokenStatsOverflow;
+    }
+    return (value + (1 as u32)) as u32;
+}
+
+fn encoder_token_stats_record_branch(stats: &EncoderTokenProbabilityStats, block_type: usize, position: usize, context: byte, tree_index: usize, bit: u8) !void {
+    if stats == null {
+        return error.ErrEncoderTokenStatsInvalidInput;
+    }
+    const offset: usize = try encoder_token_stats_branch_offset(block_type, position, context, tree_index);
+    if offset >= VP8_COEFF_PROB_COUNT {
+        return error.ErrEncoderTokenStatsInvalidInput;
+    }
+
+    if bit == (0 as u8) {
+        stats.branches[offset].zero_count = try encoder_token_stats_increment(stats.branches[offset].zero_count);
+        return;
+    }
+    if bit == (1 as u8) {
+        stats.branches[offset].one_count = try encoder_token_stats_increment(stats.branches[offset].one_count);
+        return;
+    }
+    return error.ErrEncoderTokenStatsInvalidInput;
+}
+
+fn encoder_token_stats_terminal_zero_index(token: byte) !usize {
+    if token == VP8_COEFF_TOKEN_EOB {
+        return 0 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_ZERO {
+        return 1 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_ONE {
+        return 2 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_TWO {
+        return 3 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_THREE {
+        return 4 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_FOUR {
+        return 5 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_CAT1 {
+        return 6 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_CAT2 {
+        return 7 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_CAT3 {
+        return 8 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_CAT4 {
+        return 9 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_CAT5 {
+        return 10 as usize;
+    }
+    if token == VP8_COEFF_TOKEN_CAT6 {
+        return 11 as usize;
+    }
+    return error.ErrEncoderTokenStatsInvalidInput;
+}
+
+export fn encoder_token_stats_record_token(stats: &EncoderTokenProbabilityStats, block_type: usize, position: usize, context: byte, token: byte) !void {
+    if stats == null {
+        return error.ErrEncoderTokenStatsInvalidInput;
+    }
+
+    const terminal_zero_index: usize = try encoder_token_stats_terminal_zero_index(token);
+    var tree_index: usize = 0;
+    while tree_index < terminal_zero_index {
+        try encoder_token_stats_record_branch(stats, block_type, position, context, tree_index, 1 as u8);
+        tree_index = tree_index + 1;
+    }
+    if terminal_zero_index < 11 {
+        try encoder_token_stats_record_branch(stats, block_type, position, context, terminal_zero_index, 0 as u8);
+    }
+
+    stats.total_tokens = try encoder_token_stats_increment(stats.total_tokens);
+    if token == VP8_COEFF_TOKEN_EOB {
+        stats.eob_tokens = try encoder_token_stats_increment(stats.eob_tokens);
+        return;
+    }
+    if token != VP8_COEFF_TOKEN_ZERO {
+        stats.nonzero_tokens = try encoder_token_stats_increment(stats.nonzero_tokens);
+    }
+}

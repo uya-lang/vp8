@@ -1,0 +1,71 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.token_stats.EncoderTokenProbabilityStats;
+use vp8.encoder.token_stats.encoder_token_stats_branch_offset;
+use vp8.encoder.token_stats.encoder_token_stats_record_token;
+use vp8.encoder.token_stats.make_encoder_token_probability_stats;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT3;
+use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
+use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
+
+test "encoder token stats use VP8 coefficient probability layout" {
+    try assert_eq_i32((try encoder_token_stats_branch_offset(0, 0, 0 as byte, 0)) as i32, 0);
+    try assert_eq_i32((try encoder_token_stats_branch_offset(0, 1, 2 as byte, 10)) as i32, 65);
+    try assert_eq_i32((try encoder_token_stats_branch_offset(2, 4, 1 as byte, 3)) as i32, 740);
+}
+
+test "encoder token stats record eob and zero token paths" {
+    var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+
+    try encoder_token_stats_record_token(&stats, 0, 0, 0 as byte, VP8_COEFF_TOKEN_EOB);
+    try assert_eq_i32(stats.branches[0].zero_count as i32, 1);
+    try assert_eq_i32(stats.branches[0].one_count as i32, 0);
+    try assert_eq_i32(stats.total_tokens as i32, 1);
+    try assert_eq_i32(stats.eob_tokens as i32, 1);
+
+    try encoder_token_stats_record_token(&stats, 0, 1, 2 as byte, VP8_COEFF_TOKEN_ZERO);
+    const base: usize = try encoder_token_stats_branch_offset(0, 1, 2 as byte, 0);
+    try assert_eq_i32(stats.branches[base].one_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 1].zero_count as i32, 1);
+    try assert_eq_i32(stats.total_tokens as i32, 2);
+    try assert_eq_i32(stats.nonzero_tokens as i32, 0);
+}
+
+test "encoder token stats record category token tree path" {
+    var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+
+    try encoder_token_stats_record_token(&stats, 3, 7, 1 as byte, VP8_COEFF_TOKEN_CAT3);
+    const base: usize = try encoder_token_stats_branch_offset(3, 7, 1 as byte, 0);
+    var index: usize = 0;
+    while index < 8 {
+        try assert_eq_i32(stats.branches[base + index].one_count as i32, 1);
+        index = index + 1;
+    }
+    try assert_eq_i32(stats.branches[base + 8].zero_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 9].zero_count as i32, 0);
+    try assert_eq_i32(stats.total_tokens as i32, 1);
+    try assert_eq_i32(stats.nonzero_tokens as i32, 1);
+}
+
+test "encoder token stats reject invalid inputs" {
+    var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+    var failed: i32 = 0;
+
+    _ = encoder_token_stats_branch_offset(4, 0, 0 as byte, 0) catch {
+        failed = 1;
+        0 as usize;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_token_stats_record_token(null as &EncoderTokenProbabilityStats, 0, 0, 0 as byte, VP8_COEFF_TOKEN_EOB) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_token_stats_record_token(&stats, 0, 0, 0 as byte, 99 as byte) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+}
