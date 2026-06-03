@@ -1,0 +1,117 @@
+use libc.INFINITY;
+use libc.log10;
+
+use vp8.common.frame.FrameVisibleView;
+use vp8.common.plane.Plane;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.YuvPlaneView;
+use vp8.encoder.context.validate_yuv_frame_view;
+
+error ErrEncoderQualityInvalidInput;
+
+export struct EncoderPsnrMetric {
+    sse: u64,
+    sample_count: usize,
+    mse: f64,
+    psnr: f64,
+    psnr_x100: i32,
+    infinite: bool
+}
+
+export struct EncoderPsnrReport {
+    y: EncoderPsnrMetric,
+    u: EncoderPsnrMetric,
+    v: EncoderPsnrMetric,
+    all: EncoderPsnrMetric
+}
+
+fn encoder_quality_plane_sample_count(width: usize, height: usize) !usize {
+    if width == 0 || height == 0 {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    const count: usize = width * height;
+    if (count / width) != height {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    return count;
+}
+
+fn encoder_quality_validate_plane(reference: &YuvPlaneView, reconstructed: &Plane) !usize {
+    if reference == null || reconstructed == null || reference.data == null || reconstructed.origin == null {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    if reference.width != reconstructed.width || reference.height != reconstructed.height {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    if reference.stride < reference.width || reconstructed.stride < reconstructed.width {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    return try encoder_quality_plane_sample_count(reference.width, reference.height);
+}
+
+fn encoder_quality_metric_from_sse(sse: u64, sample_count: usize) !EncoderPsnrMetric {
+    if sample_count == 0 {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    if sse == (0 as u64) {
+        return EncoderPsnrMetric{
+            sse: sse,
+            sample_count: sample_count,
+            mse: 0.0,
+            psnr: INFINITY,
+            psnr_x100: 0,
+            infinite: true
+        };
+    }
+
+    const mse: f64 = (sse as f64) / (sample_count as f64);
+    const psnr: f64 = (10.0 as f64) * log10((65025.0 as f64) / mse);
+    return EncoderPsnrMetric{
+        sse: sse,
+        sample_count: sample_count,
+        mse: mse,
+        psnr: psnr,
+        psnr_x100: ((psnr * (100.0 as f64)) + (0.5 as f64)) as i32,
+        infinite: false
+    };
+}
+
+export fn calculate_encoder_plane_psnr(reference: &YuvPlaneView, reconstructed: &Plane) !EncoderPsnrMetric {
+    const sample_count: usize = try encoder_quality_validate_plane(reference, reconstructed);
+    var sse: u64 = 0 as u64;
+    var row: usize = 0;
+    while row < reference.height {
+        const reference_row: usize = row * reference.stride;
+        const reconstructed_row: usize = row * reconstructed.stride;
+        var col: usize = 0;
+        while col < reference.width {
+            const diff: i32 = (reference.data[reference_row + col] as i32) - (reconstructed.origin[reconstructed_row + col] as i32);
+            sse = sse + ((diff * diff) as u64);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return try encoder_quality_metric_from_sse(sse, sample_count);
+}
+
+export fn calculate_encoder_psnr_yuv_to_visible(reference: &YuvFrameView, reconstructed: &FrameVisibleView) !EncoderPsnrReport {
+    if reference == null || reconstructed == null {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    try validate_yuv_frame_view(reference);
+    if reference.width != reconstructed.width || reference.height != reconstructed.height {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+
+    const y: EncoderPsnrMetric = try calculate_encoder_plane_psnr(&reference.y, &reconstructed.y);
+    const u: EncoderPsnrMetric = try calculate_encoder_plane_psnr(&reference.u, &reconstructed.u);
+    const v: EncoderPsnrMetric = try calculate_encoder_plane_psnr(&reference.v, &reconstructed.v);
+    const total_sse: u64 = y.sse + u.sse + v.sse;
+    const total_samples: usize = y.sample_count + u.sample_count + v.sample_count;
+    return EncoderPsnrReport{
+        y: y,
+        u: u,
+        v: v,
+        all: try encoder_quality_metric_from_sse(total_sse, total_samples)
+    };
+}

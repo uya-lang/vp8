@@ -340,7 +340,7 @@
 - [x] inter mode RD refine。
 - [x] token probability stats。
 - [x] probability update decision。
-- [ ] 输出 PSNR。
+- [x] 输出 PSNR。
 - [ ] 输出 SSIM 或预留 hook。
 
 验收标准：

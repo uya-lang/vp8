@@ -43,6 +43,9 @@ use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.context.yuv420_frame_view_size;
 use vp8.encoder.keyframe.encode_keyframe_ivf;
 use vp8.encoder.keyframe.estimate_keyframe_ivf_size;
+use vp8.encoder.quality.EncoderPsnrMetric;
+use vp8.encoder.quality.EncoderPsnrReport;
+use vp8.encoder.quality.calculate_encoder_psnr_yuv_to_visible;
 use vp8.encoder.rate_control.EncoderRateControl;
 use vp8.encoder.rate_control.EncoderRateControlDecision;
 use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
@@ -57,6 +60,7 @@ error ErrOutOfMemory;
 error ErrReadFile;
 error ErrWriteFile;
 error ErrCliScratchCapacityOverflow;
+error ErrEncodeQualityUnavailable;
 
 const CLI_MIN_ROW_SCRATCH_CAPACITY: usize = 65536;
 
@@ -197,6 +201,24 @@ fn write_result_stats(result: &DecoderFrameResult, frame_index: u32, fp: &FILE) 
     if written < 0 {
         return error.ErrWriteFile;
     }
+}
+
+fn print_encode_psnr_metric(name: &byte, metric: &EncoderPsnrMetric) void {
+    if metric.infinite {
+        _ = printf("encode.psnr.%s=inf\n", name);
+        return;
+    }
+
+    const whole: i32 = metric.psnr_x100 / 100;
+    const fraction: i32 = metric.psnr_x100 % 100;
+    _ = printf("encode.psnr.%s=%d.%02d\n", name, whole, fraction);
+}
+
+fn print_encode_psnr_report(report: &EncoderPsnrReport) void {
+    print_encode_psnr_metric("y\0" as &byte, &report.y);
+    print_encode_psnr_metric("u\0" as &byte, &report.u);
+    print_encode_psnr_metric("v\0" as &byte, &report.v);
+    print_encode_psnr_metric("all\0" as &byte, &report.all);
 }
 
 fn env_flag_enabled(name: &const byte) bool {
@@ -423,6 +445,28 @@ fn run_decode_frame(input_path: &byte, frame_index: u32, output_path: &byte, for
     return 2;
 }
 
+fn calculate_encoded_keyframe_psnr(reference: &YuvFrameView, encoded: &byte, encoded_len: usize, width: usize, height: usize) !EncoderPsnrReport {
+    const header: IvfHeader = try parse_ivf_header(encoded, encoded_len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(encoded, encoded_len, &header);
+    if !ivf_frame_iterator_has_next(&iterator) {
+        return error.ErrEncodeQualityUnavailable;
+    }
+    const frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+
+    const row_scratch_capacity: usize = try cli_row_scratch_capacity(width);
+    var context: DecoderContext = try allocate_decoder_context_with_thread_scratch(width, height, 32, 32, row_scratch_capacity, 1);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+    var result: DecoderFrameResult = try decoder_decode_frame(&decoder, frame.payload.data, frame.payload.len);
+    defer decoded_frame_release(&result.output) catch {};
+    if !result.has_output {
+        return error.ErrEncodeQualityUnavailable;
+    }
+
+    const report: EncoderPsnrReport = try calculate_encoder_psnr_yuv_to_visible(reference, &result.output.view);
+    return report;
+}
+
 fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override: i32, target_bitrate_bps: u32, output_path: &byte) i32 {
     if width == 0 || height == 0 {
         _ = printf("error: encode width and height must be positive\n");
@@ -477,6 +521,10 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
         _ = printf("error: failed to encode keyframe IVF\n");
         return 2;
     };
+    const psnr_report: EncoderPsnrReport = calculate_encoded_keyframe_psnr(&frame, out_data, written_len, width, height) catch {
+        _ = printf("error: failed to compute encode PSNR\n");
+        return 2;
+    };
 
     const out: &FILE = fopen(output_path as *byte, "wb\0" as &byte);
     if out == null {
@@ -489,6 +537,7 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
         _ = printf("error: failed to write encode output file\n");
         return 2;
     }
+    print_encode_psnr_report(&psnr_report);
     return 0;
 }
 

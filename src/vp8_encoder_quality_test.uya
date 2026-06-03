@@ -1,0 +1,105 @@
+use std.testing.assert_eq_i32;
+
+use vp8.common.frame.FrameVisibleView;
+use vp8.common.plane.Plane;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.quality.EncoderPsnrMetric;
+use vp8.encoder.quality.EncoderPsnrReport;
+use vp8.encoder.quality.calculate_encoder_psnr_yuv_to_visible;
+
+fn make_test_plane(data: &byte, len: usize, width: usize, height: usize, stride: usize) Plane {
+    return Plane{
+        data: data,
+        origin: data,
+        width: width,
+        height: height,
+        stride: stride,
+        border: 0,
+        storage_len: len
+    };
+}
+
+fn dummy_psnr_metric() EncoderPsnrMetric {
+    return EncoderPsnrMetric{
+        sse: 0 as u64,
+        sample_count: 0,
+        mse: 0.0,
+        psnr: 0.0,
+        psnr_x100: 0,
+        infinite: false
+    };
+}
+
+fn dummy_psnr_report() EncoderPsnrReport {
+    const metric: EncoderPsnrMetric = dummy_psnr_metric();
+    return EncoderPsnrReport{
+        y: metric,
+        u: metric,
+        v: metric,
+        all: metric
+    };
+}
+
+test "encoder PSNR reports infinity for identical frames" {
+    var input: [byte: 6] = [ 10, 20, 30, 40, 50, 60 ];
+    const reference: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6, 2, 2);
+    const visible: FrameVisibleView = FrameVisibleView{
+        width: 2,
+        height: 2,
+        y: make_test_plane(&input[0] as &byte, 4, 2, 2, 2),
+        u: make_test_plane(&input[4] as &byte, 1, 1, 1, 1),
+        v: make_test_plane(&input[5] as &byte, 1, 1, 1, 1)
+    };
+
+    const report: EncoderPsnrReport = try calculate_encoder_psnr_yuv_to_visible(&reference, &visible);
+
+    try assert_eq_i32(report.y.sse as i32, 0);
+    try assert_eq_i32(report.u.sse as i32, 0);
+    try assert_eq_i32(report.v.sse as i32, 0);
+    try assert_eq_i32(report.all.infinite as i32, true as i32);
+}
+
+test "encoder PSNR computes per-plane and aggregate scaled values" {
+    var reference_data: [byte: 6] = [ 0, 0, 0, 0, 0, 0 ];
+    var reconstructed_data: [byte: 6] = [ 1, 1, 1, 1, 0, 255 ];
+    const reference: YuvFrameView = try make_i420_frame_view(&reference_data[0] as &byte, 6, 2, 2);
+    const visible: FrameVisibleView = FrameVisibleView{
+        width: 2,
+        height: 2,
+        y: make_test_plane(&reconstructed_data[0] as &byte, 4, 2, 2, 2),
+        u: make_test_plane(&reconstructed_data[4] as &byte, 1, 1, 1, 1),
+        v: make_test_plane(&reconstructed_data[5] as &byte, 1, 1, 1, 1)
+    };
+
+    const report: EncoderPsnrReport = try calculate_encoder_psnr_yuv_to_visible(&reference, &visible);
+
+    try assert_eq_i32(report.y.sse as i32, 4);
+    try assert_eq_i32(report.y.psnr_x100 > 4800, true as i32);
+    try assert_eq_i32(report.y.psnr_x100 < 4820, true as i32);
+    try assert_eq_i32(report.u.infinite as i32, true as i32);
+    try assert_eq_i32(report.v.psnr_x100 as i32, 0);
+    try assert_eq_i32(report.all.sse as i32, 65029);
+    try assert_eq_i32(report.all.infinite as i32, false as i32);
+}
+
+test "encoder PSNR rejects mismatched geometry" {
+    var reference_data: [byte: 6] = [];
+    var reconstructed_data: [byte: 6] = [];
+    const reference: YuvFrameView = try make_i420_frame_view(&reference_data[0] as &byte, 6, 2, 2);
+    const visible: FrameVisibleView = FrameVisibleView{
+        width: 2,
+        height: 2,
+        y: make_test_plane(&reconstructed_data[0] as &byte, 4, 1, 4, 1),
+        u: make_test_plane(&reconstructed_data[4] as &byte, 1, 1, 1, 1),
+        v: make_test_plane(&reconstructed_data[5] as &byte, 1, 1, 1, 1)
+    };
+    var failed: i32 = 0;
+
+    _ = calculate_encoder_psnr_yuv_to_visible(&reference, &visible) catch {
+        failed = 1;
+        dummy_psnr_report();
+    };
+
+    try assert_eq_i32(failed, 1);
+}
