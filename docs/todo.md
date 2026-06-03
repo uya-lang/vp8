@@ -301,7 +301,8 @@
 验收标准：
 
 - [x] UYA decoder 能 decode 自己编码的 keyframe IVF。
-- [ ] vpxdec 能 decode UYA encoder 输出。
+- [~] vpxdec 能 decode UYA encoder 输出。
+  - blocked: 2026-06-04 本机 PATH 中没有 `vpxdec`，`command -v vpxdec` 返回 1；无法执行真实 libvpx 解码验收。
 - [ ] 固定输入输出 deterministic。
 
 ## Phase 13: Inter Encoder
