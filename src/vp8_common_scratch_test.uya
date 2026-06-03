@@ -2,15 +2,22 @@ use std.testing.assert_eq_i32;
 use std.testing.expect;
 
 use vp8.common.scratch.RowScratchArena;
+use vp8.common.scratch.MbCoeffScratchRing;
 use vp8.common.scratch.TokenDecodeRowOutput;
 use vp8.common.scratch.TokenDecodeRowScratch;
 use vp8.common.scratch.allocate_row_scratch_arena;
+use vp8.common.scratch.allocate_mb_coeff_scratch_ring;
 use vp8.common.scratch.allocate_token_decode_row_output;
 use vp8.common.scratch.allocate_token_decode_row_scratch;
 use vp8.common.scratch.coeff_scratch_note_bytes_read;
 use vp8.common.scratch.coeff_scratch_note_bytes_written;
+use vp8.common.scratch.free_mb_coeff_scratch_ring;
 use vp8.common.scratch.free_row_scratch_arena;
 use vp8.common.scratch.frame_scratch_reset;
+use vp8.common.scratch.mb_coeff_scratch_ring_acquire_decode_row;
+use vp8.common.scratch.mb_coeff_scratch_ring_bound_bytes;
+use vp8.common.scratch.mb_coeff_scratch_ring_in_flight_rows;
+use vp8.common.scratch.mb_coeff_scratch_ring_release_reconstructed_row;
 use vp8.common.scratch.row_scratch_alloc_bytes;
 use vp8.common.scratch.row_scratch_reset;
 use vp8.common.scratch.token_decode_row_block_coefficients;
@@ -156,4 +163,58 @@ test "RowScratchArena frame reset clears row state and coefficient stats" {
     try assert_eq_i32(arena.high_water as i32, 0);
     try assert_eq_i32(arena.coeff_bytes_read as i32, 0);
     try assert_eq_i32(arena.coeff_bytes_written as i32, 0);
+}
+
+test "MbCoeffScratchRing bounds decoded rows by reconstruct fence" {
+    var ring: MbCoeffScratchRing = try allocate_mb_coeff_scratch_ring(2, 2, 16);
+    defer free_mb_coeff_scratch_ring(&ring);
+
+    const row_bytes: usize = try token_decode_row_output_bytes(2);
+    try assert_eq_i32(mb_coeff_scratch_ring_bound_bytes(&ring) as i32, (row_bytes * 2) as i32);
+
+    const row0: &TokenDecodeRowOutput = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 0);
+    const coeff0: &i16 = try token_decode_row_block_coefficients(row0, 0, 0);
+    coeff0[0] = 33 as i16;
+
+    _ = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 1);
+    try assert_eq_i32(mb_coeff_scratch_ring_in_flight_rows(&ring) as i32, 2);
+
+    var failed_full: i32 = 0;
+    _ = mb_coeff_scratch_ring_acquire_decode_row(&ring, 2) catch {
+        failed_full = 1;
+        null as &TokenDecodeRowOutput;
+    };
+    try assert_eq_i32(failed_full, 1);
+
+    try mb_coeff_scratch_ring_release_reconstructed_row(&ring, 0);
+    const row2: &TokenDecodeRowOutput = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 2);
+    const coeff2: &i16 = try token_decode_row_block_coefficients(row2, 0, 0);
+
+    try assert_eq_i32(coeff2[0] as i32, 0);
+    try assert_eq_i32(mb_coeff_scratch_ring_in_flight_rows(&ring) as i32, 2);
+}
+
+test "MbCoeffScratchRing binds release order to row fence" {
+    var ring: MbCoeffScratchRing = try allocate_mb_coeff_scratch_ring(2, 2, 16);
+    defer free_mb_coeff_scratch_ring(&ring);
+
+    var failed_decode_order: i32 = 0;
+    _ = mb_coeff_scratch_ring_acquire_decode_row(&ring, 1) catch {
+        failed_decode_order = 1;
+        null as &TokenDecodeRowOutput;
+    };
+    try assert_eq_i32(failed_decode_order, 1);
+
+    _ = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 0);
+    _ = try mb_coeff_scratch_ring_acquire_decode_row(&ring, 1);
+
+    var failed_release_order: i32 = 0;
+    _ = mb_coeff_scratch_ring_release_reconstructed_row(&ring, 1) catch {
+        failed_release_order = 1;
+    };
+    try assert_eq_i32(failed_release_order, 1);
+
+    try mb_coeff_scratch_ring_release_reconstructed_row(&ring, 0);
+    try mb_coeff_scratch_ring_release_reconstructed_row(&ring, 1);
+    try assert_eq_i32(mb_coeff_scratch_ring_in_flight_rows(&ring) as i32, 0);
 }

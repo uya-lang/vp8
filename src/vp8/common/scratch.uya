@@ -7,10 +7,15 @@ error ErrScratchOverflow;
 error ErrScratchOutOfMemory;
 error ErrScratchCapacityExceeded;
 error ErrScratchOutOfBounds;
+error ErrMbCoeffScratchRingInvalidGeometry;
+error ErrMbCoeffScratchRingFull;
+error ErrMbCoeffScratchRingOutOfOrder;
+error ErrMbCoeffScratchRingRowNotReady;
 
 const TOKEN_DECODE_BLOCK_COEFFS: usize = 16;
 const TOKEN_DECODE_ROW_BLOCKS: usize = 4;
 const TOKEN_DECODE_MB_BLOCKS: usize = 25;
+const MB_COEFF_SCRATCH_RING_MAX_DEPTH: usize = 8;
 
 export struct RowScratchArena {
     raw: &byte,
@@ -37,6 +42,22 @@ export struct TokenDecodeRowOutput {
     summaries: &byte
 }
 
+export struct MbCoeffScratchRingSlot {
+    mb_row: usize,
+    occupied: bool,
+    arena: RowScratchArena,
+    output: TokenDecodeRowOutput
+}
+
+export struct MbCoeffScratchRing {
+    mb_cols: usize,
+    ring_depth: usize,
+    bound_bytes: usize,
+    next_decode_row: usize,
+    reconstruct_fence_row: usize,
+    slots: [MbCoeffScratchRingSlot: 8] = []
+}
+
 export fn empty_row_scratch_arena() RowScratchArena {
     return RowScratchArena{
         raw: null as &byte,
@@ -48,6 +69,33 @@ export fn empty_row_scratch_arena() RowScratchArena {
         alignment: 0,
         coeff_bytes_read: 0,
         coeff_bytes_written: 0
+    };
+}
+
+export fn empty_token_decode_row_output() TokenDecodeRowOutput {
+    return TokenDecodeRowOutput{
+        mb_cols: 0,
+        coefficients: null as &i16,
+        summaries: null as &byte
+    };
+}
+
+fn empty_mb_coeff_scratch_ring_slot() MbCoeffScratchRingSlot {
+    return MbCoeffScratchRingSlot{
+        mb_row: 0,
+        occupied: false,
+        arena: empty_row_scratch_arena(),
+        output: empty_token_decode_row_output()
+    };
+}
+
+export fn empty_mb_coeff_scratch_ring() MbCoeffScratchRing {
+    return MbCoeffScratchRing{
+        mb_cols: 0,
+        ring_depth: 0,
+        bound_bytes: 0,
+        next_decode_row: 0,
+        reconstruct_fence_row: 0
     };
 }
 
@@ -239,6 +287,112 @@ export fn allocate_token_decode_row_output(arena: &RowScratchArena, mb_cols: usi
         coefficients: raw_coefficients as &i16,
         summaries: raw_summaries
     };
+}
+
+export fn free_mb_coeff_scratch_ring(ring: &MbCoeffScratchRing) void {
+    var index: usize = 0;
+    while index < ring.ring_depth {
+        free_row_scratch_arena(&ring.slots[index].arena);
+        ring.slots[index] = empty_mb_coeff_scratch_ring_slot();
+        index = index + 1;
+    }
+    ring.mb_cols = 0;
+    ring.ring_depth = 0;
+    ring.bound_bytes = 0;
+    ring.next_decode_row = 0;
+    ring.reconstruct_fence_row = 0;
+}
+
+export fn allocate_mb_coeff_scratch_ring(mb_cols: usize, ring_depth: usize, alignment: usize) !MbCoeffScratchRing {
+    if mb_cols == 0 || ring_depth == 0 || ring_depth > MB_COEFF_SCRATCH_RING_MAX_DEPTH {
+        return error.ErrMbCoeffScratchRingInvalidGeometry;
+    }
+
+    const row_bytes: usize = try token_decode_row_output_bytes(mb_cols);
+    const bound_bytes: usize = try scratch_checked_mul(row_bytes, ring_depth);
+    var ring: MbCoeffScratchRing = empty_mb_coeff_scratch_ring();
+    ring.mb_cols = mb_cols;
+    ring.ring_depth = ring_depth;
+    ring.bound_bytes = bound_bytes;
+
+    var index: usize = 0;
+    while index < ring_depth {
+        ring.slots[index] = empty_mb_coeff_scratch_ring_slot();
+        index = index + 1;
+    }
+
+    index = 0;
+    while index < ring_depth {
+        ring.slots[index].arena = allocate_row_scratch_arena(row_bytes, alignment) catch {
+            free_mb_coeff_scratch_ring(&ring);
+            return error.ErrMbCoeffScratchRingInvalidGeometry;
+        };
+        index = index + 1;
+    }
+
+    return ring;
+}
+
+export fn mb_coeff_scratch_ring_bound_bytes(ring: &MbCoeffScratchRing) usize {
+    return ring.bound_bytes;
+}
+
+export fn mb_coeff_scratch_ring_in_flight_rows(ring: &MbCoeffScratchRing) usize {
+    if ring.next_decode_row < ring.reconstruct_fence_row {
+        return 0;
+    }
+    return ring.next_decode_row - ring.reconstruct_fence_row;
+}
+
+export fn mb_coeff_scratch_ring_acquire_decode_row(ring: &MbCoeffScratchRing, mb_row: usize) !&TokenDecodeRowOutput {
+    if ring.mb_cols == 0 || ring.ring_depth == 0 || ring.ring_depth > MB_COEFF_SCRATCH_RING_MAX_DEPTH {
+        return error.ErrMbCoeffScratchRingInvalidGeometry;
+    }
+    if mb_row != ring.next_decode_row {
+        return error.ErrMbCoeffScratchRingOutOfOrder;
+    }
+
+    const decode_limit: usize = try scratch_checked_add(ring.reconstruct_fence_row, ring.ring_depth);
+    if mb_row >= decode_limit {
+        return error.ErrMbCoeffScratchRingFull;
+    }
+
+    const slot_index: usize = mb_row % ring.ring_depth;
+    if slot_index >= MB_COEFF_SCRATCH_RING_MAX_DEPTH {
+        return error.ErrMbCoeffScratchRingInvalidGeometry;
+    }
+    if ring.slots[slot_index].occupied {
+        return error.ErrMbCoeffScratchRingFull;
+    }
+
+    try row_scratch_reset(&ring.slots[slot_index].arena);
+    ring.slots[slot_index].output = try allocate_token_decode_row_output(&ring.slots[slot_index].arena, ring.mb_cols);
+    ring.slots[slot_index].mb_row = mb_row;
+    ring.slots[slot_index].occupied = true;
+    ring.next_decode_row = try scratch_checked_add(ring.next_decode_row, 1);
+
+    return &ring.slots[slot_index].output as &TokenDecodeRowOutput;
+}
+
+export fn mb_coeff_scratch_ring_release_reconstructed_row(ring: &MbCoeffScratchRing, mb_row: usize) !void {
+    if ring.mb_cols == 0 || ring.ring_depth == 0 || ring.ring_depth > MB_COEFF_SCRATCH_RING_MAX_DEPTH {
+        return error.ErrMbCoeffScratchRingInvalidGeometry;
+    }
+    if mb_row != ring.reconstruct_fence_row {
+        return error.ErrMbCoeffScratchRingOutOfOrder;
+    }
+
+    const slot_index: usize = mb_row % ring.ring_depth;
+    if slot_index >= MB_COEFF_SCRATCH_RING_MAX_DEPTH {
+        return error.ErrMbCoeffScratchRingInvalidGeometry;
+    }
+    if !ring.slots[slot_index].occupied || ring.slots[slot_index].mb_row != mb_row {
+        return error.ErrMbCoeffScratchRingRowNotReady;
+    }
+
+    ring.slots[slot_index].occupied = false;
+    ring.slots[slot_index].mb_row = 0;
+    ring.reconstruct_fence_row = try scratch_checked_add(ring.reconstruct_fence_row, 1);
 }
 
 fn token_decode_row_output_index(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !usize {

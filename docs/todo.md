@@ -267,7 +267,7 @@
 - [x] 实现 row reconstruct pipeline。
 - [x] 实现 row-delayed loopfilter pipeline。
 - [x] 实现 thread-local scratch。
-- [ ] 实现有界 `MbCoeffScratchRing`，ring depth 与 row fence 绑定。
+- [x] 实现有界 `MbCoeffScratchRing`，ring depth 与 row fence 绑定。
 - [ ] 实现 deterministic error merge。
 - [ ] 实现 per-frame performance stats。
 - [ ] 优化 frame buffer reuse。
