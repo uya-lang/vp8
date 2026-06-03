@@ -4,6 +4,10 @@ use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.parse_vp8_key_frame_header;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
 use vp8.bitstream.header.Vp8FrameTag;
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.allocate_decoder_context;
+use vp8.common.decode_context.free_decoder_context;
+use vp8.common.frame.decoded_frame_release;
 use vp8.container.ivf.IvfFrame;
 use vp8.container.ivf.IvfFrameIterator;
 use vp8.container.ivf.IvfHeader;
@@ -11,6 +15,10 @@ use vp8.container.ivf.ivf_frame_iterator_has_next;
 use vp8.container.ivf.ivf_frame_iterator_next;
 use vp8.container.ivf.make_ivf_frame_iterator;
 use vp8.container.ivf.parse_ivf_header;
+use vp8.decoder.scalar.Decoder;
+use vp8.decoder.scalar.DecoderFrameResult;
+use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.decoder.scalar.make_decoder;
 use vp8.encoder.context.EncoderConfig;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_default_encoder_config;
@@ -54,4 +62,48 @@ test "encoder keyframe IVF API writes a parseable one-frame keyframe stream" {
     try assert_eq_i32(key_header.width as i32, 16);
     try assert_eq_i32(key_header.height as i32, 16);
     try assert_eq_i32(key_header.first_partition_size as i32 > 0, true as i32);
+}
+
+test "UYA decoder decodes encoder keyframe IVF output" {
+    var input: [byte: 384] = [];
+    var index: usize = 0;
+    while index < 256 {
+        input[index] = (48 + (((index * 29) % (128 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+    while index < 384 {
+        input[index] = (80 + (((index * 11) % (80 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+
+    var out: [byte: 4096] = [];
+    const config: EncoderConfig = make_default_encoder_config(16, 16);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const written: usize = try encode_keyframe_ivf(&config, &frame, &out[0] as &byte, 4096);
+
+    const ivf: IvfHeader = try parse_ivf_header(&out[0] as &byte, written);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, written, &ivf);
+    const ivf_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+
+    var context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 65536);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+    var result: DecoderFrameResult = try decoder_decode_frame(&decoder, ivf_frame.payload.data, ivf_frame.payload.len);
+    defer decoded_frame_release(&result.output) catch {};
+
+    try assert_eq_i32(result.has_output as i32, true as i32);
+    try assert_eq_i32(result.header.width as i32, 16);
+    try assert_eq_i32(result.header.height as i32, 16);
+    try assert_eq_i32(result.macroblock_count as i32, 1);
+    try assert_eq_i32(result.output.view.width as i32, 16);
+    try assert_eq_i32(result.output.view.height as i32, 16);
+    try assert_eq_i32(result.output.view.y.width as i32, 16);
+    try assert_eq_i32(result.output.view.y.height as i32, 16);
+    try assert_eq_i32(result.output.view.u.width as i32, 8);
+    try assert_eq_i32(result.output.view.u.height as i32, 8);
+    try assert_eq_i32(result.output.view.v.width as i32, 8);
+    try assert_eq_i32(result.output.view.v.height as i32, 8);
+    try assert_eq_i32((result.output.view.y.origin != null) as i32, true as i32);
+    try assert_eq_i32((result.output.view.u.origin != null) as i32, true as i32);
+    try assert_eq_i32((result.output.view.v.origin != null) as i32, true as i32);
 }

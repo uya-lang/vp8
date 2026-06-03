@@ -300,7 +300,7 @@
 
 验收标准：
 
-- [ ] UYA decoder 能 decode 自己编码的 keyframe IVF。
+- [x] UYA decoder 能 decode 自己编码的 keyframe IVF。
 - [ ] vpxdec 能 decode UYA encoder 输出。
 - [ ] 固定输入输出 deterministic。
 
