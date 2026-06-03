@@ -77,3 +77,16 @@ test "UYA compiles i32 vector widths for VP8 SIMD planning" {
     try expect_i32x4(product4, 42);
     try expect_i32x8(sum8, 1015);
 }
+
+test "UYA compiles signed vector saturating arithmetic for VP8 SIMD planning" {
+    const add_i16: I16x8 = @vector.splat(30000) +| @vector.splat(10000);
+    const sub_i16: I16x16 = @vector.splat(-30000) -| @vector.splat(10000);
+    const big_i32: i32 = 2000000000;
+    const add_i32: I32x4 = @vector.splat(big_i32) +| @vector.splat(big_i32);
+    const sub_i32: I32x8 = @vector.splat(-2000000000) -| @vector.splat(big_i32);
+
+    try expect_i16x8(add_i16, 32767);
+    try expect_i16x16(sub_i16, -32768);
+    try expect_i32x4(add_i32, 2147483647);
+    try expect_i32x8(sub_i32, -2147483648);
+}

@@ -421,7 +421,7 @@ SimdLevel.asm_arm
 
 - `@vector.load` / `@vector.store` 语义允许 C99 后端用 `memcpy` 实现；热路径必须检查生成 C/汇编，不能假设一定是单条 load/store。
 - `@vector.select`、`reduce_*` 和宽通道 tile 可能降级为逐 lane helper；只有 benchmark 证明有收益时才默认启用。
-- `shuffle`、`widen/truncate/convert` 仍属于缺口。依赖这些能力的 SAD、sub-pixel、narrow-store kernel 必须保留 scalar tile fallback 或可选 `@asm` 微内核。
+- `shuffle`、`widen/truncate/convert`、unsigned/narrow saturating 仍属于缺口。依赖这些能力的 SAD、sub-pixel、narrow-store kernel 必须保留 scalar tile fallback 或可选 `@asm` 微内核。当前记录见 `docs/simd_gaps.md`。
 - portable SIMD 代码的第一目标是表达清晰和 bit-exact；性能合入由门禁决定，而不是由使用了 `@vector` 自动成立。
 
 编码规范：
@@ -471,7 +471,7 @@ Reconstruct add：
 - 转 `i16` 后相加。
 - clamp 到 `0..255`。
 - narrow/store。
-- 若缺少 narrow/saturate，保留 `@vector.select` 组合或局部标量收尾。
+- 若缺少 narrow/unsigned saturate，保留 `@vector.select` 组合或局部标量收尾。
 
 Loop filter：
 

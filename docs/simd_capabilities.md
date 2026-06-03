@@ -17,9 +17,10 @@
 | `i16` | 16 | `@vector(i16, 16)` | `@mask(16)` | `@vector.splat`, `+`, `==`, `@vector.all` |
 | `i32` | 4 | `@vector(i32, 4)` | `@mask(4)` | `@vector.splat`, `*`, `==`, `@vector.all` |
 | `i32` | 8 | `@vector(i32, 8)` | `@mask(8)` | `@vector.splat`, `+`, `==`, `@vector.all` |
+| signed `i16` / `i32` | 8 / 16 / 4 / 8 | `@vector(i16, N)`, `@vector(i32, N)` | matching `@mask(N)` | `+|`, `-|`, `==`, `@vector.all` |
 
 ## 当前结论
 
 - `@vector(u8,16/32/64)`、`@vector(i16,8/16)`、`@vector(i32,4/8)` 均可编译、生成 C、链接并通过运行时断言。
 - 该验证只证明这些 vector 宽度和基础逐 lane 运算可用，不证明宽 vector 一定会降低为真实硬件 SIMD 指令。
-- 宽 vector 的 load/store lowering、shuffle、widen/narrow、saturating arithmetic 仍需要后续专项记录。
+- 宽 vector 的 load/store lowering、shuffle、widen/narrow、unsigned 或 narrow saturating arithmetic 仍需要后续专项记录。
