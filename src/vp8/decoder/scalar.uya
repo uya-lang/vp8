@@ -42,9 +42,13 @@ use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.DequantFactors;
+use vp8.kernels.scalar.LoopFilterThresholds;
+use vp8.kernels.scalar.build_loop_filter_thresholds;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
+use vp8.kernels.scalar.loop_filter_normal_macroblock_edges_yuv;
+use vp8.kernels.scalar.loop_filter_normal_subblock_edges_yuv;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_uv8x8_dc;
 use vp8.kernels.scalar.predict_uv8x8_horizontal;
@@ -238,6 +242,43 @@ fn make_inter_header(tag: &Vp8FrameTag, context: &DecoderContext) Vp8FrameHeader
         horizontal_scale: 0,
         vertical_scale: 0
     };
+}
+
+fn loop_filter_normal_enabled(loop_filter: &Vp8LoopFilterHeader, thresholds: &LoopFilterThresholds) bool {
+    return thresholds.enabled && loop_filter.filter_type == (0 as u8);
+}
+
+fn apply_normal_loop_filter_row(frame: &FrameBuffer, mb_cols: usize, mb_y: usize, thresholds: &LoopFilterThresholds) void {
+    var mb_x: usize = 0;
+    while mb_x < mb_cols {
+        loop_filter_normal_macroblock_edges_yuv(&frame.y.plane, &frame.u.plane, &frame.v.plane, mb_x, mb_y, thresholds);
+        loop_filter_normal_subblock_edges_yuv(&frame.y.plane, &frame.u.plane, &frame.v.plane, mb_x, mb_y, thresholds);
+        mb_x = mb_x + 1;
+    }
+}
+
+fn apply_completed_loop_filter_row(frame: &FrameBuffer, mb_cols: usize, mb_y: usize, loop_filter: &Vp8LoopFilterHeader, thresholds: &LoopFilterThresholds) void {
+    if loop_filter_normal_enabled(loop_filter, thresholds) {
+        apply_normal_loop_filter_row(frame, mb_cols, mb_y, thresholds);
+    }
+}
+
+export fn decoder_apply_row_delayed_loop_filter(frame: &FrameBuffer, mb_cols: usize, mb_rows: usize, loop_filter: &Vp8LoopFilterHeader, key_frame: bool) void {
+    const thresholds: LoopFilterThresholds = build_loop_filter_thresholds(loop_filter.level as i32, loop_filter.sharpness, key_frame);
+    if !loop_filter_normal_enabled(loop_filter, &thresholds) {
+        return;
+    }
+
+    var mb_y: usize = 0;
+    while mb_y < mb_rows {
+        if mb_y > 0 {
+            apply_normal_loop_filter_row(frame, mb_cols, mb_y - 1, &thresholds);
+        }
+        mb_y = mb_y + 1;
+    }
+    if mb_rows > 0 {
+        apply_normal_loop_filter_row(frame, mb_cols, mb_rows - 1, &thresholds);
+    }
 }
 
 fn load_left_edge(src: &byte, stride: usize, height: usize, out: &byte) void {
@@ -499,11 +540,12 @@ fn predict_key_frame_uv(decoder: &Decoder, frame: &FrameBuffer, mb_x: usize, mb_
     }
 }
 
-fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8) !void {
+fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8, loop_filter: &Vp8LoopFilterHeader) !void {
     var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&decoder.context.grid);
     defer free_above_left_coeff_context(&coeff_ctx);
 
     const factors: DequantFactors = build_dequant_factors(quant);
+    const loop_filter_thresholds: LoopFilterThresholds = build_loop_filter_thresholds(loop_filter.level as i32, loop_filter.sharpness, true);
     var coefficients: [i16: 16] = [];
     var y2_coefficients: [i16: 16] = [];
     var y2_dequantized: [i16: 16] = [];
@@ -608,7 +650,13 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
             decoder.context.mb_info.coeff_summary[mb_index] = try make_macroblock_coeff_summary(total_has_coeff, total_has_coeff && total_dc_only, total_count);
             mb_x = mb_x + 1;
         }
+        if mb_y > 0 {
+            apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, mb_y - 1, loop_filter, &loop_filter_thresholds);
+        }
         mb_y = mb_y + 1;
+    }
+    if decoder.context.grid.mb_rows > 0 {
+        apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, decoder.context.grid.mb_rows - 1, loop_filter, &loop_filter_thresholds);
     }
 }
 
@@ -691,11 +739,12 @@ fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, m
     predict_inter_copy(&dst.v.plane.origin[dst_v_offset] as &byte, dst.v.plane.stride, &reference.v.plane.origin[src_v_offset] as &byte, reference.v.plane.stride, 8, 8);
 }
 
-fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8) !void {
+fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8, loop_filter: &Vp8LoopFilterHeader) !void {
     var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&decoder.context.grid);
     defer free_above_left_coeff_context(&coeff_ctx);
 
     const factors: DequantFactors = build_dequant_factors(quant);
+    const loop_filter_thresholds: LoopFilterThresholds = build_loop_filter_thresholds(loop_filter.level as i32, loop_filter.sharpness, false);
     var coefficients: [i16: 16] = [];
 
     var mb_y: usize = 0;
@@ -764,7 +813,13 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
             decoder.context.mb_info.coeff_summary[mb_index] = try make_macroblock_coeff_summary(total_has_coeff, total_has_coeff && total_dc_only, total_count);
             mb_x = mb_x + 1;
         }
+        if mb_y > 0 {
+            apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, mb_y - 1, loop_filter, &loop_filter_thresholds);
+        }
         mb_y = mb_y + 1;
+    }
+    if decoder.context.grid.mb_rows > 0 {
+        apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, decoder.context.grid.mb_rows - 1, loop_filter, &loop_filter_thresholds);
     }
 }
 
@@ -823,9 +878,9 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
 
     const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
     if key_frame {
-        try decode_key_frame_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count);
+        try decode_key_frame_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count, &loop_filter);
     } else {
-        try decode_inter_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count);
+        try decode_inter_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count, &loop_filter);
     }
     frame_buffer_mark_border_dirty(current);
     frame_buffer_extend_border(current);
