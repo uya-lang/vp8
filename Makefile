@@ -8,6 +8,8 @@ TINY_MD5_DIR := $(BUILD_DIR)/tiny-md5
 TINY_MD5_SCRIPT := tests/tiny_ivf_md5.py
 SCALAR_VS_SIMD_DIR := $(BUILD_DIR)/scalar-vs-simd
 SCALAR_VS_SIMD_SCRIPT := tests/scalar_vs_simd.py
+BENCH_DIR := $(BUILD_DIR)/bench
+BENCH_SCRIPT := bench/decode_bench.py
 KEYFRAME_MD5_DIR := $(BUILD_DIR)/keyframe-md5
 INTER_MD5_DIR := $(BUILD_DIR)/inter-md5
 NON16_MD5_DIR := $(BUILD_DIR)/non16-md5
@@ -29,7 +31,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 test-scalar-vs-simd test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff clean require-uya
+.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 test-scalar-vs-simd test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
 
 all: build
 
@@ -112,6 +114,14 @@ test-fuzz-smoke: build
 
 test-vpxdiff: build
 	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR) $(BIN)
+
+bench: bench-decode
+
+bench-decode: build
+	python3 $(BENCH_SCRIPT) $(BIN) $(BENCH_DIR)
+
+bench-smoke: build
+	python3 $(BENCH_SCRIPT) --repeats 1 --warmups 0 $(BIN) $(BENCH_DIR)
 
 require-uya:
 	@if ! command -v "$(UYA)" >/dev/null 2>&1 && ! test -x "$(UYA)"; then \

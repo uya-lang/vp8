@@ -216,7 +216,7 @@
 - [x] 实现 `--force-scalar`。
 - [x] 实现 `--force-simd`。
 - [x] 实现 scalar-vs-simd test harness。
-- [ ] 实现 benchmark harness。
+- [x] 实现 benchmark harness。
 - [ ] 实现 vector load/store helper。
 - [ ] 增加 SIMD kernel 生成 C/汇编检查记录。
 - [ ] 为 kernel benchmark 定义默认启用阈值。
