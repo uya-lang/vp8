@@ -20,6 +20,7 @@ use vp8.bitstream.header.parse_vp8_quant;
 use vp8.bitstream.header.parse_vp8_segmentation;
 use vp8.bitstream.header.parse_vp8_token_partition_count;
 use vp8.bitstream.header.parse_vp8_token_partition_readers;
+use vp8.bitstream.header.vp8_token_partition_for_row;
 use vp8.bitstream.header.vp8_default_probs;
 use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.simd_detect_capabilities;
@@ -311,6 +312,11 @@ export fn decoder_apply_row_delayed_loop_filter(frame: &FrameBuffer, mb_cols: us
     if mb_rows > 0 {
         apply_completed_loop_filter_row(frame, mb_cols, mb_rows - 1, loop_filter, &thresholds);
     }
+}
+
+export fn decoder_token_reader_for_mb_row(token_readers: &BoolReader, mb_row: usize, token_partition_count: u8) !&BoolReader {
+    const partition_index: usize = (try vp8_token_partition_for_row(mb_row, token_partition_count)) as usize;
+    return &token_readers[partition_index] as &BoolReader;
 }
 
 fn load_left_edge(src: &byte, stride: usize, height: usize, out: &byte) void {
@@ -613,8 +619,7 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
     var mb_y: usize = 0;
     while mb_y < decoder.context.grid.mb_rows {
         try coeff_context_start_row(&coeff_ctx);
-        const partition_index: usize = (mb_y % (token_partition_count as usize));
-        const token_reader: &BoolReader = &token_readers[partition_index] as &BoolReader;
+        const token_reader: &BoolReader = try decoder_token_reader_for_mb_row(token_readers, mb_y, token_partition_count);
 
         var mb_x: usize = 0;
         while mb_x < decoder.context.grid.mb_cols {
@@ -826,8 +831,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
     var mb_y: usize = 0;
     while mb_y < decoder.context.grid.mb_rows {
         try coeff_context_start_row(&coeff_ctx);
-        const partition_index: usize = (mb_y % (token_partition_count as usize));
-        const token_reader: &BoolReader = &token_readers[partition_index] as &BoolReader;
+        const token_reader: &BoolReader = try decoder_token_reader_for_mb_row(token_readers, mb_y, token_partition_count);
 
         var mb_x: usize = 0;
         while mb_x < decoder.context.grid.mb_cols {

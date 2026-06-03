@@ -1,6 +1,9 @@
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.bool_reader_partition_id;
+use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
 use vp8.bitstream.bool_writer.BoolWriter;
 use vp8.bitstream.bool_writer.bool_writer_byte_count;
 use vp8.bitstream.bool_writer.bool_writer_flush;
@@ -26,6 +29,7 @@ use vp8.decoder.scalar.decoder_apply_row_delayed_loop_filter;
 use vp8.decoder.scalar.make_decoder;
 use vp8.decoder.scalar.make_decoder_with_kernel_table;
 use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.decoder.scalar.decoder_token_reader_for_mb_row;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.token.parse.CoefficientBlockSummary;
@@ -83,6 +87,33 @@ test "Decoder can be constructed with a forced scalar kernel table" {
     try expect(decoder.kernels.active_level == SimdLevel.scalar);
     try expect(decoder.kernels.predict_inter_copy_fn != null);
     try expect(decoder.kernels.add_residual_4x4_clamped_fn != null);
+}
+
+test "small frame token partition row golden selects decoder token readers" {
+    var data: [byte: 16] = [];
+    var readers: [BoolReader: 8] = [];
+
+    var index: usize = 0;
+    while index < 8 {
+        readers[index] = try make_bool_reader_for_partition(&data[index * 2] as &byte, 2, index as i32);
+        index = index + 1;
+    }
+
+    const four_partition_rows: [i32: 8] = [ 0, 1, 2, 3, 0, 1, 2, 3 ];
+    var row: usize = 0;
+    while row < 8 {
+        const selected: &BoolReader = try decoder_token_reader_for_mb_row(&readers[0] as &BoolReader, row, 4 as u8);
+        try assert_eq_i32(bool_reader_partition_id(selected), four_partition_rows[row]);
+        row = row + 1;
+    }
+
+    const two_partition_rows: [i32: 4] = [ 0, 1, 0, 1 ];
+    row = 0;
+    while row < 4 {
+        const selected: &BoolReader = try decoder_token_reader_for_mb_row(&readers[0] as &BoolReader, row, 2 as u8);
+        try assert_eq_i32(bool_reader_partition_id(selected), two_partition_rows[row]);
+        row = row + 1;
+    }
 }
 
 fn write_eob_token(writer: &BoolWriter, coeff_probs: &byte, block_type: usize, position: usize, context: byte) !void {
