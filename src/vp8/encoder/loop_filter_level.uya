@@ -1,0 +1,67 @@
+use vp8.bitstream.header.Vp8LoopFilterHeader;
+
+error ErrEncoderLoopFilterLevelInvalidInput;
+
+export struct EncoderLoopFilterLevelDecision {
+    quantizer: u8,
+    base_level: u8,
+    adjusted_level: u8,
+    is_keyframe: bool,
+    loop_filter: Vp8LoopFilterHeader
+}
+
+fn encoder_loop_filter_level_from_quantizer(quantizer: u8) u8 {
+    return ((((quantizer as u32) * 63) + 63) / 127) as u8;
+}
+
+fn encoder_loop_filter_adjust_level(base_level: u8, is_keyframe: bool) u8 {
+    if base_level == (0 as u8) {
+        return 0 as u8;
+    }
+    if is_keyframe {
+        return (base_level - (1 as u8)) as u8;
+    }
+    if base_level >= (63 as u8) {
+        return 63 as u8;
+    }
+    return (base_level + (1 as u8)) as u8;
+}
+
+fn encoder_loop_filter_sharpness_for_level(level: u8) u8 {
+    if level >= (40 as u8) {
+        return 2 as u8;
+    }
+    if level >= (20 as u8) {
+        return 1 as u8;
+    }
+    return 0 as u8;
+}
+
+export fn decide_encoder_loop_filter_level(quantizer: u8, is_keyframe: bool, prefer_simple_filter: bool) !EncoderLoopFilterLevelDecision {
+    if quantizer > (127 as u8) {
+        return error.ErrEncoderLoopFilterLevelInvalidInput;
+    }
+
+    const base_level: u8 = encoder_loop_filter_level_from_quantizer(quantizer);
+    const adjusted_level: u8 = encoder_loop_filter_adjust_level(base_level, is_keyframe);
+    var filter_type: u8 = 0 as u8;
+    if prefer_simple_filter {
+        filter_type = 1 as u8;
+    }
+
+    return EncoderLoopFilterLevelDecision{
+        quantizer: quantizer,
+        base_level: base_level,
+        adjusted_level: adjusted_level,
+        is_keyframe: is_keyframe,
+        loop_filter: Vp8LoopFilterHeader{
+            filter_type: filter_type,
+            level: adjusted_level,
+            sharpness: encoder_loop_filter_sharpness_for_level(adjusted_level),
+            delta_enabled: false,
+            delta_update: false,
+            ref_delta: [ 0, 0, 0, 0 ],
+            mode_delta: [ 0, 0, 0, 0 ]
+        }
+    };
+}

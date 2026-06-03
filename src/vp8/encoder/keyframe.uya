@@ -7,6 +7,7 @@ use vp8.bitstream.bool_writer.make_bool_writer;
 use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
 use vp8.bitstream.header.VP8_KEY_FRAME_HEADER_BYTES;
 use vp8.bitstream.header.Vp8FrameHeader;
+use vp8.bitstream.header.Vp8LoopFilterHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.vp8_coeff_update_probability;
@@ -37,6 +38,8 @@ use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.YuvPlaneView;
 use vp8.encoder.context.validate_encoder_config;
 use vp8.encoder.context.validate_yuv_frame_view;
+use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
+use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
 use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
 use vp8.encoder.partition_output.write_encoder_bool_partition_output;
 use vp8.encoder.quant.EncoderCoefficientToken;
@@ -188,9 +191,11 @@ fn encoder_keyframe_write_fixed_header_bits(writer: &BoolWriter, config: &Encode
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
 
-    try bool_writer_write(writer, 0 as u8, 128 as byte);
-    try encoder_keyframe_write_literal(writer, 0 as u32, 6);
-    try encoder_keyframe_write_literal(writer, 0 as u32, 3);
+    const loop_filter_decision: EncoderLoopFilterLevelDecision = try decide_encoder_loop_filter_level(config.quantizer, true, false);
+    const loop_filter: Vp8LoopFilterHeader = loop_filter_decision.loop_filter;
+    try bool_writer_write(writer, loop_filter.filter_type, 128 as byte);
+    try encoder_keyframe_write_literal(writer, loop_filter.level as u32, 6);
+    try encoder_keyframe_write_literal(writer, loop_filter.sharpness as u32, 3);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
 
     try write_encoder_token_partition_count(writer, 1 as u8);

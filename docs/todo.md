@@ -334,7 +334,7 @@
 - [x] CBR buffer model。
 - [x] keyframe interval 控制。
 - [x] quantizer delta 调整。
-- [ ] loop filter level 自动选择。
+- [x] loop filter level 自动选择。
 - [ ] RD cost model。
 - [ ] 4x4 intra RD refine。
 - [ ] inter mode RD refine。

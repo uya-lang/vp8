@@ -1,0 +1,60 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
+use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
+
+fn dummy_loop_filter_level_decision() EncoderLoopFilterLevelDecision {
+    return EncoderLoopFilterLevelDecision{
+        quantizer: 0 as u8,
+        base_level: 0 as u8,
+        adjusted_level: 0 as u8,
+        is_keyframe: false,
+        loop_filter: Vp8LoopFilterHeader{
+            filter_type: 0 as u8,
+            level: 0 as u8,
+            sharpness: 0 as u8,
+            delta_enabled: false,
+            delta_update: false,
+            ref_delta: [ 0, 0, 0, 0 ],
+            mode_delta: [ 0, 0, 0, 0 ]
+        }
+    };
+}
+
+test "loop filter level selection maps quantizer to VP8 level range" {
+    const low: EncoderLoopFilterLevelDecision = try decide_encoder_loop_filter_level(0 as u8, true, false);
+    try assert_eq_i32(low.base_level as i32, 0);
+    try assert_eq_i32(low.adjusted_level as i32, 0);
+    try assert_eq_i32(low.loop_filter.level as i32, 0);
+    try assert_eq_i32(low.loop_filter.filter_type as i32, 0);
+
+    const key: EncoderLoopFilterLevelDecision = try decide_encoder_loop_filter_level(32 as u8, true, false);
+    try assert_eq_i32(key.base_level as i32, 16);
+    try assert_eq_i32(key.adjusted_level as i32, 15);
+    try assert_eq_i32(key.loop_filter.level as i32, 15);
+    try assert_eq_i32(key.loop_filter.sharpness as i32, 0);
+
+    const inter: EncoderLoopFilterLevelDecision = try decide_encoder_loop_filter_level(32 as u8, false, false);
+    try assert_eq_i32(inter.base_level as i32, 16);
+    try assert_eq_i32(inter.adjusted_level as i32, 17);
+    try assert_eq_i32(inter.loop_filter.level as i32, 17);
+}
+
+test "loop filter level selection clamps high quantizer and supports simple filter" {
+    const high: EncoderLoopFilterLevelDecision = try decide_encoder_loop_filter_level(127 as u8, false, true);
+    try assert_eq_i32(high.base_level as i32, 63);
+    try assert_eq_i32(high.adjusted_level as i32, 63);
+    try assert_eq_i32(high.loop_filter.level as i32, 63);
+    try assert_eq_i32(high.loop_filter.filter_type as i32, 1);
+    try assert_eq_i32(high.loop_filter.sharpness as i32, 2);
+}
+
+test "loop filter level selection rejects invalid qindex" {
+    var failed: i32 = 0;
+    _ = decide_encoder_loop_filter_level(128 as u8, true, false) catch {
+        failed = 1;
+        dummy_loop_filter_level_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}
