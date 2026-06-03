@@ -33,6 +33,7 @@ use vp8.kernels.scalar.predict_y4x4_true_motion;
 use vp8.kernels.scalar.predict_y4x4_vertical_edge;
 use vp8.kernels.scalar.predict_y4x4_vertical_left;
 use vp8.kernels.scalar.predict_y4x4_vertical_right;
+use vp8.kernels.scalar.sad_8x8;
 use vp8.kernels.scalar.sad_16x16;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
 use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
@@ -72,6 +73,7 @@ use vp8.kernels.simd.predict_y4x4_true_motion_u8x16;
 use vp8.kernels.simd.predict_y4x4_vertical_edge_u8x16;
 use vp8.kernels.simd.predict_y4x4_vertical_left_u8x16;
 use vp8.kernels.simd.predict_y4x4_vertical_right_u8x16;
+use vp8.kernels.simd.sad_8x8_u8x16;
 use vp8.kernels.simd.sad_16x16_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
@@ -678,6 +680,42 @@ test "SIMD SAD 16x16 matches scalar byte exact across stride" {
     const simd_sad: u32 = sad_16x16_u8x16(&src[3] as &byte, src_stride, &reference[7] as &byte, reference_stride);
 
     try assert_eq_i32(scalar_sad as i32, 32768);
+    try assert_eq_i32(simd_sad as i32, scalar_sad as i32);
+}
+
+test "SIMD SAD 8x8 matches scalar byte exact across stride" {
+    var src: [byte: 160] = [];
+    var reference: [byte: 176] = [];
+    const src_stride: usize = 13;
+    const reference_stride: usize = 15;
+
+    var index: usize = 0;
+    while index < 160 {
+        src[index] = 123 as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 176 {
+        reference[index] = 77 as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 8 {
+        var col: usize = 0;
+        while col < 8 {
+            const sample: usize = (row * 8) + col;
+            src[2 + (row * src_stride) + col] = sample as byte;
+            reference[5 + (row * reference_stride) + col] = (255 - sample) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar_sad: u32 = sad_8x8(&src[2] as &byte, src_stride, &reference[5] as &byte, reference_stride);
+    const simd_sad: u32 = sad_8x8_u8x16(&src[2] as &byte, src_stride, &reference[5] as &byte, reference_stride);
+
+    try assert_eq_i32(scalar_sad as i32, 12288);
     try assert_eq_i32(simd_sad as i32, scalar_sad as i32);
 }
 

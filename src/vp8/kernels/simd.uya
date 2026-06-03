@@ -98,6 +98,16 @@ fn load_u8_as_i16x16(src: &byte) I16x16 {
     return @vector.load(&lanes[0] as &i16);
 }
 
+fn load_u8_as_i16x8(src: &byte) I16x8 {
+    var lanes: [i16: 8] = [];
+    var index: usize = 0;
+    while index < 8 {
+        lanes[index] = src[index] as i16;
+        index = index + 1;
+    }
+    return @vector.load(&lanes[0] as &i16);
+}
+
 fn sad_row_16_u8x16(src: &byte, reference: &byte) u32 {
     const src_values: I16x16 = load_u8_as_i16x16(src);
     const reference_values: I16x16 = load_u8_as_i16x16(reference);
@@ -107,11 +117,30 @@ fn sad_row_16_u8x16(src: &byte, reference: &byte) u32 {
     return @vector.reduce_add(abs_diff) as u32;
 }
 
+fn sad_row_8_u8x16(src: &byte, reference: &byte) u32 {
+    const src_values: I16x8 = load_u8_as_i16x8(src);
+    const reference_values: I16x8 = load_u8_as_i16x8(reference);
+    const diff: I16x8 = src_values - reference_values;
+    const negative: I16Mask8 = diff < @vector.splat(0 as i16);
+    const abs_diff: I16x8 = @vector.select(negative, @vector.splat(0 as i16) - diff, diff);
+    return @vector.reduce_add(abs_diff) as u32;
+}
+
 export fn sad_16x16_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
     var distortion: u32 = 0;
     var row: usize = 0;
     while row < 16 {
         distortion = distortion + sad_row_16_u8x16(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
+        row = row + 1;
+    }
+    return distortion;
+}
+
+export fn sad_8x8_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    var distortion: u32 = 0;
+    var row: usize = 0;
+    while row < 8 {
+        distortion = distortion + sad_row_8_u8x16(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
         row = row + 1;
     }
     return distortion;

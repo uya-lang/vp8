@@ -352,7 +352,7 @@
 ## Phase 15: SIMD Encoder Kernels
 
 - [x] SIMD SAD 16x16。
-- [ ] SIMD SAD 8x8。
+- [x] SIMD SAD 8x8。
 - [ ] SIMD SAD 4x4。
 - [ ] SIMD SSE/variance。
 - [ ] SIMD SATD/Hadamard cost。
