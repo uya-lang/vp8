@@ -92,6 +92,20 @@
       "output_frames": 1,
       "yuv_bytes": 384,
       "yuv_md5": "02b5d5d5ba2a5de00017b31c40c527bc"
+    },
+    {
+      "name": "multi-token-4-16x64",
+      "source": "generated synthetic VP8 key frame with four token partitions from tests/tiny_ivf_md5.py",
+      "variant": "multi-token-4",
+      "groups": ["tiny", "key", "token-partition"],
+      "container": "ivf",
+      "width": 16,
+      "height": 64,
+      "frame_count": 1,
+      "output_frames": 1,
+      "token_partitions": 4,
+      "yuv_bytes": 1536,
+      "yuv_md5": "b8a24b9e33b5b90ed627a72133cb9d74"
     }
   ]
 }

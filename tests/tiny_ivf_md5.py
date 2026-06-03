@@ -167,6 +167,16 @@ def write_segmentation_header(writer: BoolWriter, sample: Sample) -> None:
         writer.write(0, 128)
 
 
+def token_partition_code(sample: Sample) -> int:
+    if sample.variant == "multi-token-4":
+        return 2
+    return 0
+
+
+def token_partition_count(sample: Sample) -> int:
+    return 1 << token_partition_code(sample)
+
+
 def write_one_then_eob(writer: BoolWriter, block_type: int, position: int, context: int) -> None:
     offset = coeff_prob_offset(block_type, position, context)
     writer.write(1, DEFAULT_COEFF_PROBS[offset])
@@ -188,7 +198,7 @@ def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
-    write_literal(writer, 0, 2)
+    write_literal(writer, token_partition_code(sample), 2)
 
     for probability in COEFF_UPDATE_PROBS:
         writer.write(0, probability)
@@ -274,17 +284,39 @@ def write_v_dc_mb_tokens(writer: BoolWriter) -> None:
     write_eob(writer, 2, 0, 0)
 
 
+def write_key_mb_tokens(writer: BoolWriter, sample: Sample, mb_index: int) -> None:
+    if mb_index == 0 and sample.variant == "u-dc":
+        write_u_dc_mb_tokens(writer)
+    elif mb_index == 0 and sample.variant == "v-dc":
+        write_v_dc_mb_tokens(writer)
+    else:
+        write_gray_mb_tokens(writer)
+
+
 def write_token_partition(sample: Sample, mb_count: int) -> bytes:
     writer = BoolWriter(4096)
     for mb_index in range(mb_count):
-        if mb_index == 0 and sample.variant == "u-dc":
-            write_u_dc_mb_tokens(writer)
-        elif mb_index == 0 and sample.variant == "v-dc":
-            write_v_dc_mb_tokens(writer)
-        else:
-            write_gray_mb_tokens(writer)
+        write_key_mb_tokens(writer, sample, mb_index)
     writer.flush()
     return writer.bytes()
+
+
+def write_token_partitions(sample: Sample, mb_cols: int, mb_rows: int) -> list[bytes]:
+    count = token_partition_count(sample)
+    if count == 1:
+        return [write_token_partition(sample, mb_cols * mb_rows)]
+
+    partitions = []
+    for partition_index in range(count):
+        writer = BoolWriter(4096)
+        for mb_y in range(mb_rows):
+            if mb_y % count != partition_index:
+                continue
+            for mb_x in range(mb_cols):
+                write_key_mb_tokens(writer, sample, (mb_y * mb_cols) + mb_x)
+        writer.flush()
+        partitions.append(writer.bytes())
+    return partitions
 
 
 def write_inter_token_partition(mb_count: int) -> bytes:
@@ -303,7 +335,7 @@ def make_vp8_key_frame(sample: Sample) -> bytes:
     mb_rows = math.ceil(sample.height / 16)
     mb_count = mb_cols * mb_rows
     first_partition = write_uncompressed_key_partition(sample, mb_count)
-    token_partition = write_token_partition(sample, mb_count)
+    token_partitions = write_token_partitions(sample, mb_cols, mb_rows)
     first_partition_size = 7 + len(first_partition)
     tag = (1 << 4) | (first_partition_size << 5)
     frame = bytearray()
@@ -312,7 +344,10 @@ def make_vp8_key_frame(sample: Sample) -> bytes:
     frame.extend(struct.pack("<H", sample.width))
     frame.extend(struct.pack("<H", sample.height))
     frame.extend(first_partition)
-    frame.extend(token_partition)
+    for token_partition in token_partitions[:-1]:
+        frame.extend(struct.pack("<I", len(token_partition))[:3])
+    for token_partition in token_partitions:
+        frame.extend(token_partition)
     return bytes(frame)
 
 

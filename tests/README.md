@@ -4,10 +4,10 @@ This directory is reserved for UYA unit tests, golden conformance checks, and
 malformed-input smoke tests.
 
 Current validation is driven by `make test`, which runs UYA unit tests and an
-end-to-end tiny IVF MD5 check. `tests/tiny_ivf_md5.py` generates seven built-in
-IVF samples, including key+inter and segmentation samples, under
-`build/tiny-md5/`, decodes them with `build/vp8uya`, and compares the YUV
-output with golden MD5 values.
+end-to-end tiny IVF MD5 check. `tests/tiny_ivf_md5.py` generates eight built-in
+IVF samples, including key+inter, segmentation, and multi-token partition
+samples, under `build/tiny-md5/`, decodes them with `build/vp8uya`, and
+compares the YUV output with golden MD5 values.
 `make test-decoder-scalar` runs the same decoder suite with
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
 Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
@@ -16,6 +16,8 @@ outputs remain under ignored build directories.
 `make test-inter-md5` filters the manifest to inter-frame MD5 samples.
 `make test-non16-md5` filters the manifest to non-16-aligned MD5 samples.
 `make test-segmentation-md5` filters the manifest to segmentation MD5 samples.
+`make test-token-partition-md5` filters the manifest to multi-token-partition
+MD5 samples.
 `make test-vpxdiff` optionally compares compatible manifest samples with
 `vpxdec`; it skips cleanly when libvpx tools are unavailable.
 
