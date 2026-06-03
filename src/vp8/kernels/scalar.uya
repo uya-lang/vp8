@@ -1,4 +1,5 @@
 use vp8.bitstream.header.Vp8QuantHeader;
+use vp8.common.plane.Plane;
 
 export struct DequantFactors {
     y1_dc: i16,
@@ -520,6 +521,89 @@ export fn loop_filter_normal_mb_horizontal_edge(base: &byte, stride: usize, edge
         apply_normal_mb_loop_filter_sample(base, ((edge_row - 4) * stride) + col, ((edge_row - 3) * stride) + col, ((edge_row - 2) * stride) + col, ((edge_row - 1) * stride) + col, (edge_row * stride) + col, ((edge_row + 1) * stride) + col, ((edge_row + 2) * stride) + col, ((edge_row + 3) * stride) + col, limit, blimit, thresh);
         col = col + 1;
     }
+}
+
+fn loop_filter_min_usize(a: usize, b: usize) usize {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+fn loop_filter_remaining_span(start: usize, total: usize, span: usize) usize {
+    if start >= total {
+        return 0;
+    }
+    return loop_filter_min_usize(span, total - start);
+}
+
+fn can_filter_vertical_edge(plane: &Plane, edge_col: usize) bool {
+    if edge_col < 4 {
+        return false;
+    }
+    return (edge_col + 3) < plane.width;
+}
+
+fn can_filter_horizontal_edge(plane: &Plane, edge_row: usize) bool {
+    if edge_row < 4 {
+        return false;
+    }
+    return (edge_row + 3) < plane.height;
+}
+
+fn dispatch_normal_macroblock_edges_plane(plane: &Plane, mb_col: usize, mb_row: usize, mb_size: usize, thresholds: &LoopFilterThresholds) void {
+    const block_x: usize = mb_col * mb_size;
+    const block_y: usize = mb_row * mb_size;
+    const rows: usize = loop_filter_remaining_span(block_y, plane.height, mb_size);
+    const cols: usize = loop_filter_remaining_span(block_x, plane.width, mb_size);
+
+    if rows > 0 && mb_col > 0 && can_filter_vertical_edge(plane, block_x) {
+        loop_filter_normal_mb_vertical_edge(&plane.origin[block_y * plane.stride] as &byte, plane.stride, block_x, rows, thresholds.limit, thresholds.macroblock_blimit, thresholds.thresh);
+    }
+    if cols > 0 && mb_row > 0 && can_filter_horizontal_edge(plane, block_y) {
+        loop_filter_normal_mb_horizontal_edge(&plane.origin[block_x] as &byte, plane.stride, block_y, cols, thresholds.limit, thresholds.macroblock_blimit, thresholds.thresh);
+    }
+}
+
+fn dispatch_normal_subblock_edges_plane(plane: &Plane, mb_col: usize, mb_row: usize, mb_size: usize, subblock_size: usize, thresholds: &LoopFilterThresholds) void {
+    const block_x: usize = mb_col * mb_size;
+    const block_y: usize = mb_row * mb_size;
+    const rows: usize = loop_filter_remaining_span(block_y, plane.height, mb_size);
+    const cols: usize = loop_filter_remaining_span(block_x, plane.width, mb_size);
+
+    var subblock: usize = 1;
+    const subblock_count: usize = mb_size / subblock_size;
+    while subblock < subblock_count {
+        const edge_col: usize = block_x + (subblock * subblock_size);
+        if rows > 0 && can_filter_vertical_edge(plane, edge_col) {
+            loop_filter_normal_vertical_edge(&plane.origin[block_y * plane.stride] as &byte, plane.stride, edge_col, rows, thresholds.limit, thresholds.subblock_blimit, thresholds.thresh);
+        }
+
+        const edge_row: usize = block_y + (subblock * subblock_size);
+        if cols > 0 && can_filter_horizontal_edge(plane, edge_row) {
+            loop_filter_normal_horizontal_edge(&plane.origin[block_x] as &byte, plane.stride, edge_row, cols, thresholds.limit, thresholds.subblock_blimit, thresholds.thresh);
+        }
+
+        subblock = subblock + 1;
+    }
+}
+
+export fn loop_filter_normal_macroblock_edges_yuv(y: &Plane, u: &Plane, v: &Plane, mb_col: usize, mb_row: usize, thresholds: &LoopFilterThresholds) void {
+    if !thresholds.enabled {
+        return;
+    }
+    dispatch_normal_macroblock_edges_plane(y, mb_col, mb_row, 16, thresholds);
+    dispatch_normal_macroblock_edges_plane(u, mb_col, mb_row, 8, thresholds);
+    dispatch_normal_macroblock_edges_plane(v, mb_col, mb_row, 8, thresholds);
+}
+
+export fn loop_filter_normal_subblock_edges_yuv(y: &Plane, u: &Plane, v: &Plane, mb_col: usize, mb_row: usize, thresholds: &LoopFilterThresholds) void {
+    if !thresholds.enabled {
+        return;
+    }
+    dispatch_normal_subblock_edges_plane(y, mb_col, mb_row, 16, 4, thresholds);
+    dispatch_normal_subblock_edges_plane(u, mb_col, mb_row, 8, 4, thresholds);
+    dispatch_normal_subblock_edges_plane(v, mb_col, mb_row, 8, 4, thresholds);
 }
 
 fn fill_16x16(dst: &byte, dst_stride: usize, value: byte) void {
