@@ -13,3 +13,11 @@ changes, allocation behavior, and memory bandwidth-sensitive paths.
 
 Use `make bench-smoke` for a quick single-repeat validation, or
 `make bench-decode` for the default repeated decode benchmark.
+
+`kernel_thresholds.json` defines the default-enable gates for future SIMD
+kernel benchmarks. `make check-kernel-thresholds` validates the table. The
+speedup metric is `scalar_median_ns / simd_median_ns`; memory-bound kernels must
+reach 1.10x, compute-heavy kernels must reach 1.25x, and the end-to-end decoder
+forced-SIMD path must not be more than 5% slower than forced scalar. Every
+default-enabled kernel also needs bit-exact output, codegen inspection, and
+benchmark evidence.

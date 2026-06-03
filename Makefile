@@ -10,6 +10,8 @@ SCALAR_VS_SIMD_DIR := $(BUILD_DIR)/scalar-vs-simd
 SCALAR_VS_SIMD_SCRIPT := tests/scalar_vs_simd.py
 BENCH_DIR := $(BUILD_DIR)/bench
 BENCH_SCRIPT := bench/decode_bench.py
+KERNEL_THRESHOLDS := bench/kernel_thresholds.json
+KERNEL_THRESHOLDS_SCRIPT := bench/check_kernel_thresholds.py
 SIMD_CODEGEN_DIR := $(BUILD_DIR)/simd-codegen
 SIMD_CODEGEN_SCRIPT := tools/check_simd_codegen.py
 KEYFRAME_MD5_DIR := $(BUILD_DIR)/keyframe-md5
@@ -33,7 +35,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen test test-decoder-scalar test-tiny-md5 test-scalar-vs-simd test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-tiny-md5 test-scalar-vs-simd test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
 
 all: build
 
@@ -60,7 +62,11 @@ check-toolchain: require-uya $(TOOLCHAIN_HELLO)
 check-simd-codegen: require-uya
 	python3 $(SIMD_CODEGEN_SCRIPT) --uya $(UYA) --out-dir $(SIMD_CODEGEN_DIR) --report docs/simd_codegen.md
 
+check-kernel-thresholds:
+	python3 $(KERNEL_THRESHOLDS_SCRIPT) $(KERNEL_THRESHOLDS)
+
 test: build check-toolchain $(SAMPLE_IVF)
+	$(MAKE) check-kernel-thresholds
 	$(MAKE) test-decoder-scalar
 	test -x $(BIN)
 	$(BIN) --help >/dev/null

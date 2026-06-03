@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "speedup_metric": "scalar_median_ns / simd_median_ns",
+  "policy": {
+    "default_dispatch": "disabled_until_threshold_passes",
+    "notes": [
+      "A kernel can be forced for diagnosis before it passes these thresholds.",
+      "Default dispatcher registration requires bit-exact output, codegen inspection, and benchmark evidence."
+    ]
+  },
+  "kernel_classes": {
+    "memory": {
+      "description": "Memory-bound copy, fill, predictor, and residual store kernels.",
+      "min_speedup_to_default_enable": 1.1,
+      "max_regression_percent": 0.0,
+      "min_repeats": 5,
+      "min_warmups": 1,
+      "required_checks": [
+        "bit_exact",
+        "codegen",
+        "benchmark"
+      ]
+    },
+    "compute": {
+      "description": "Transform, filter, SAD/SSE/SATD, and arithmetic-heavy kernels.",
+      "min_speedup_to_default_enable": 1.25,
+      "max_regression_percent": 0.0,
+      "min_repeats": 5,
+      "min_warmups": 1,
+      "required_checks": [
+        "bit_exact",
+        "codegen",
+        "benchmark"
+      ]
+    },
+    "end_to_end_decoder": {
+      "description": "Whole decoder forced-SIMD path measured against forced scalar.",
+      "min_speedup_to_default_enable": 0.95,
+      "max_regression_percent": 5.0,
+      "min_repeats": 5,
+      "min_warmups": 1,
+      "required_checks": [
+        "bit_exact",
+        "codegen",
+        "benchmark"
+      ]
+    }
+  },
+  "kernels": [
+    {
+      "name": "plane_copy_fill",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/byte",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "border_extension",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/byte",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "residual_add_clamp",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "dc_only_inverse_transform",
+      "phase": "Phase 10",
+      "class": "compute",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "inverse_dct_4x4_batch",
+      "phase": "Phase 10",
+      "class": "compute",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "intra_predict_16x16",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "intra_predict_4x4_hot",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "uv_predictor",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "inter_copy_predictor",
+      "phase": "Phase 10",
+      "class": "memory",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "subpixel_horizontal_filter",
+      "phase": "Phase 10",
+      "class": "compute",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "subpixel_vertical_filter",
+      "phase": "Phase 10",
+      "class": "compute",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "simple_loop_filter",
+      "phase": "Phase 10",
+      "class": "compute",
+      "bench_unit": "ns/edge",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "normal_loop_filter",
+      "phase": "Phase 10",
+      "class": "compute",
+      "bench_unit": "ns/edge",
+      "default_policy": "disabled_until_threshold_passes"
+    }
+  ]
+}

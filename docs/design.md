@@ -503,6 +503,7 @@ SIMD 的合入标准：
 - 记录对应 kernel 的生成 C/汇编检查结论，确认热操作没有明显退化为多余拷贝或逐 lane 临时对象风暴。
 - 对目标 workload 至少有可测收益；内存型 kernel 默认要求不慢于 scalar 且建议达到 1.10x，计算型 kernel 建议达到 1.25x。达不到阈值时保留代码但不默认启用。
 - decoder 端到端 SIMD 路径不能比 scalar 慢超过 5%；否则 `--force-simd` 可用但默认 dispatcher 回退 scalar。
+- 具体默认启用阈值以 `bench/kernel_thresholds.json` 为准，并由 `make check-kernel-thresholds` 校验。
 
 ## 8. 并行与调度
 
@@ -596,6 +597,7 @@ Encoder 可并行区域：
 - reference refresh 的整帧 copy 在正常样本中必须为 0 bytes；若 fallback 触发，stats 和 debug log 必须可见。
 - coefficient scratch 不允许整帧无界缓存；并行路径的 scratch 峰值应与 `ring_depth * mb_cols` 成正比。
 - SIMD 默认启用前必须有 scalar-vs-simd benchmark 和生成 C/汇编检查记录。
+- SIMD kernel 默认启用阈值表由 `bench/kernel_thresholds.json` 记录，阈值表变更必须通过 `make check-kernel-thresholds`。
 
 阶段性建议阈值：
 
