@@ -337,7 +337,7 @@
 - [x] loop filter level 自动选择。
 - [x] RD cost model。
 - [x] 4x4 intra RD refine。
-- [ ] inter mode RD refine。
+- [x] inter mode RD refine。
 - [ ] token probability stats。
 - [ ] probability update decision。
 - [ ] 输出 PSNR。

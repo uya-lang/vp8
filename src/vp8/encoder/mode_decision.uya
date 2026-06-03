@@ -203,13 +203,47 @@ export fn decide_last_frame_inter_or_intra(
 
     const intra_y: Intra16x16ModeSearchResult = try mode_decision_luma_intra(frame, mb_x, mb_y);
     const intra_uv: UvModeSearchResult = try mode_decision_uv_intra(frame, mb_x, mb_y);
-    const integer: IntegerPelMotionSearchResult = try search_last_frame_integer_pel(refs, frame, mb_x, mb_y, search_radius);
+    const zero_integer: IntegerPelMotionSearchResult = try search_last_frame_integer_pel(refs, frame, mb_x, mb_y, 0);
+    const zero_distortion: u32 = zero_integer.distortion;
+    const zero_candidates_evaluated: usize = zero_integer.candidates_evaluated;
+    const zero_border_extension_count: usize = zero_integer.border_extension_count;
+    var integer: IntegerPelMotionSearchResult = IntegerPelMotionSearchResult{
+        mv_x: zero_integer.mv_x,
+        mv_y: zero_integer.mv_y,
+        distortion: zero_integer.distortion,
+        candidates_evaluated: zero_integer.candidates_evaluated,
+        border_extension_count: zero_integer.border_extension_count
+    };
+    var candidates_evaluated: usize = zero_candidates_evaluated;
+    var border_extension_count: usize = zero_border_extension_count;
+    if search_radius != 0 {
+        integer = try search_last_frame_integer_pel(refs, frame, mb_x, mb_y, search_radius);
+        candidates_evaluated = candidates_evaluated + integer.candidates_evaluated;
+        border_extension_count = border_extension_count + integer.border_extension_count;
+    }
     const refined: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel(refs, frame, mb_x, mb_y, integer.mv_x, integer.mv_y);
+    candidates_evaluated = candidates_evaluated + refined.candidates_evaluated;
+    border_extension_count = border_extension_count + refined.border_extension_count;
 
-    const inter_mv_mode: byte = mode_decision_inter_mode_for_mv(refined.mv_x, refined.mv_y);
-    const inter_rate_cost_q8: u32 = try mode_decision_inter_rate_cost_q8(probs, refined.mv_x, refined.mv_y, inter_mv_mode);
     const intra_score_q8: u32 = try encoder_rd_distortion_score_q8(intra_y.distortion);
-    const inter_score_q8: u32 = try encoder_rd_score_q8(refined.distortion, inter_rate_cost_q8, lambda_q8);
+    var inter_mv_mode: byte = VP8_INTER_MV_MODE_ZERO;
+    var inter_mv_x: i16 = 0 as i16;
+    var inter_mv_y: i16 = 0 as i16;
+    var inter_luma_distortion: u32 = zero_distortion;
+    var inter_rate_cost_q8: u32 = try mode_decision_inter_rate_cost_q8(probs, 0 as i16, 0 as i16, VP8_INTER_MV_MODE_ZERO);
+    var inter_score_q8: u32 = try encoder_rd_score_q8(inter_luma_distortion, inter_rate_cost_q8, lambda_q8);
+
+    const refined_mode: byte = mode_decision_inter_mode_for_mv(refined.mv_x, refined.mv_y);
+    const refined_rate_cost_q8: u32 = try mode_decision_inter_rate_cost_q8(probs, refined.mv_x, refined.mv_y, refined_mode);
+    const refined_score_q8: u32 = try encoder_rd_score_q8(refined.distortion, refined_rate_cost_q8, lambda_q8);
+    if refined_score_q8 < inter_score_q8 {
+        inter_mv_mode = refined_mode;
+        inter_mv_x = refined.mv_x;
+        inter_mv_y = refined.mv_y;
+        inter_luma_distortion = refined.distortion;
+        inter_rate_cost_q8 = refined_rate_cost_q8;
+        inter_score_q8 = refined_score_q8;
+    }
 
     var mode_kind: byte = ENCODER_MODE_DECISION_INTRA;
     var ref_frame: byte = VP8_REF_CURRENT;
@@ -219,8 +253,8 @@ export fn decide_last_frame_inter_or_intra(
     if inter_score_q8 < intra_score_q8 {
         mode_kind = ENCODER_MODE_DECISION_INTER_LAST;
         ref_frame = VP8_REF_LAST;
-        mv_x = refined.mv_x;
-        mv_y = refined.mv_y;
+        mv_x = inter_mv_x;
+        mv_y = inter_mv_y;
         chosen_inter_mode = inter_mv_mode;
     }
 
@@ -234,11 +268,11 @@ export fn decide_last_frame_inter_or_intra(
         mv_y: mv_y,
         intra_luma_distortion: intra_y.distortion,
         intra_chroma_distortion: intra_uv.distortion,
-        inter_luma_distortion: refined.distortion,
+        inter_luma_distortion: inter_luma_distortion,
         inter_rate_cost_q8: inter_rate_cost_q8,
         intra_score_q8: intra_score_q8,
         inter_score_q8: inter_score_q8,
-        candidates_evaluated: integer.candidates_evaluated + refined.candidates_evaluated,
-        border_extension_count: integer.border_extension_count + refined.border_extension_count
+        candidates_evaluated: candidates_evaluated,
+        border_extension_count: border_extension_count
     };
 }
