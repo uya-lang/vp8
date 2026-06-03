@@ -1,0 +1,49 @@
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.FramePool;
+use vp8.common.frame.allocate_frame_pool;
+use vp8.common.frame.free_frame_pool;
+use vp8.common.frame.frame_pool_begin_frame;
+use vp8.common.frame.frame_pool_get_slot;
+use vp8.common.frame.frame_pool_refresh_references;
+
+export struct EncoderReferenceFramePool {
+    pool: FramePool
+}
+
+export fn allocate_encoder_reference_frame_pool(width: usize, height: usize, border: usize, alignment: usize) !EncoderReferenceFramePool {
+    return EncoderReferenceFramePool{
+        pool: try allocate_frame_pool(width, height, border, alignment)
+    };
+}
+
+export fn free_encoder_reference_frame_pool(refs: &EncoderReferenceFramePool) void {
+    free_frame_pool(&refs.pool);
+}
+
+export fn encoder_reference_begin_frame(refs: &EncoderReferenceFramePool) !void {
+    try frame_pool_begin_frame(&refs.pool);
+}
+
+export fn encoder_reference_current(refs: &EncoderReferenceFramePool) !&FrameBuffer {
+    return try frame_pool_get_slot(&refs.pool, refs.pool.current_slot);
+}
+
+export fn encoder_reference_last(refs: &EncoderReferenceFramePool) !&FrameBuffer {
+    return try frame_pool_get_slot(&refs.pool, refs.pool.last_slot);
+}
+
+export fn encoder_reference_golden(refs: &EncoderReferenceFramePool) !&FrameBuffer {
+    return try frame_pool_get_slot(&refs.pool, refs.pool.golden_slot);
+}
+
+export fn encoder_reference_altref(refs: &EncoderReferenceFramePool) !&FrameBuffer {
+    return try frame_pool_get_slot(&refs.pool, refs.pool.altref_slot);
+}
+
+export fn encoder_reference_refresh(refs: &EncoderReferenceFramePool, refresh_last: bool, refresh_golden: bool, refresh_altref: bool) !void {
+    try frame_pool_refresh_references(&refs.pool, refresh_last, refresh_golden, refresh_altref);
+}
+
+export fn encoder_reference_bytes_copied(refs: &EncoderReferenceFramePool) usize {
+    return refs.pool.bytes_copied_for_ref_refresh;
+}

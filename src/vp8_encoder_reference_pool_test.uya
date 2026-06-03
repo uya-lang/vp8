@@ -1,0 +1,57 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.frame.FrameBuffer;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_altref;
+use vp8.encoder.reference_pool.encoder_reference_begin_frame;
+use vp8.encoder.reference_pool.encoder_reference_bytes_copied;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_golden;
+use vp8.encoder.reference_pool.encoder_reference_last;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+
+test "encoder reference frame pool allocates current and logical references" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(17, 17, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    const last: &FrameBuffer = try encoder_reference_last(&refs);
+    const golden: &FrameBuffer = try encoder_reference_golden(&refs);
+    const altref: &FrameBuffer = try encoder_reference_altref(&refs);
+
+    try assert_eq_i32(current.width as i32, 17);
+    try assert_eq_i32(current.height as i32, 17);
+    try assert_eq_i32(last.u.plane.width as i32, 9);
+    try assert_eq_i32(golden.v.plane.height as i32, 9);
+    try assert_eq_i32(altref.y.plane.border as i32, 32);
+}
+
+test "encoder reference frame pool refresh aliases reconstructed current without copies" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const current_slot: usize = refs.pool.current_slot;
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    current.y.plane.origin[0] = 77 as byte;
+    current.u.plane.origin[0] = 88 as byte;
+    current.v.plane.origin[0] = 99 as byte;
+
+    try encoder_reference_refresh(&refs, true, true, false);
+
+    try assert_eq_i32(refs.pool.last_slot as i32, current_slot as i32);
+    try assert_eq_i32(refs.pool.golden_slot as i32, current_slot as i32);
+    try assert_eq_i32(encoder_reference_bytes_copied(&refs) as i32, 0);
+    const refreshed_last: &FrameBuffer = try encoder_reference_last(&refs);
+    const refreshed_golden: &FrameBuffer = try encoder_reference_golden(&refs);
+    try assert_eq_i32(refreshed_last.y.plane.origin[0] as i32, 77);
+    try assert_eq_i32(refreshed_golden.u.plane.origin[0] as i32, 88);
+
+    try encoder_reference_begin_frame(&refs);
+    try expect(refs.pool.current_slot != current_slot);
+    const next_frame_last: &FrameBuffer = try encoder_reference_last(&refs);
+    try assert_eq_i32(next_frame_last.v.plane.origin[0] as i32, 99);
+    try assert_eq_i32(encoder_reference_bytes_copied(&refs) as i32, 0);
+}
