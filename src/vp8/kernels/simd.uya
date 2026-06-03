@@ -3,6 +3,7 @@ export type U8Mask16 = @mask(16);
 export type I16x8 = @vector(i16, 8);
 export type I16Mask8 = @mask(8);
 type I16x16 = @vector(i16, 16);
+type I16Mask16 = @mask(16);
 export type I32x4 = @vector(i32, 4);
 export type I32Mask4 = @mask(4);
 
@@ -43,7 +44,7 @@ export fn store_i32x4(dst: &i32, value: I32x4) void {
     @vector.store(dst, value);
 }
 
-fn clip_i16_to_u8(value: i16) byte {
+fn simd_clip_i16_to_u8(value: i16) byte {
     if value < (0 as i16) {
         return 0 as byte;
     }
@@ -53,7 +54,7 @@ fn clip_i16_to_u8(value: i16) byte {
     return value as byte;
 }
 
-fn clip_i32_to_u8(value: i32) byte {
+fn simd_clip_i32_to_u8(value: i32) byte {
     if value < 0 {
         return 0 as byte;
     }
@@ -63,14 +64,14 @@ fn clip_i32_to_u8(value: i32) byte {
     return value as byte;
 }
 
-fn abs_i32(value: i32) i32 {
+fn simd_abs_i32(value: i32) i32 {
     if value < 0 {
         return 0 - value;
     }
     return value;
 }
 
-fn signed_char_clamp(value: i32) i32 {
+fn simd_signed_char_clamp(value: i32) i32 {
     if value < -128 {
         return -128;
     }
@@ -80,7 +81,7 @@ fn signed_char_clamp(value: i32) i32 {
     return value;
 }
 
-fn subpixel_offset_index(offset: u8) usize {
+fn simd_subpixel_offset_index(offset: u8) usize {
     if offset > (7 as u8) {
         return 7;
     }
@@ -97,13 +98,32 @@ fn load_u8_as_i16x16(src: &byte) I16x16 {
     return @vector.load(&lanes[0] as &i16);
 }
 
+fn sad_row_16_u8x16(src: &byte, reference: &byte) u32 {
+    const src_values: I16x16 = load_u8_as_i16x16(src);
+    const reference_values: I16x16 = load_u8_as_i16x16(reference);
+    const diff: I16x16 = src_values - reference_values;
+    const negative: I16Mask16 = diff < @vector.splat(0 as i16);
+    const abs_diff: I16x16 = @vector.select(negative, @vector.splat(0 as i16) - diff, diff);
+    return @vector.reduce_add(abs_diff) as u32;
+}
+
+export fn sad_16x16_u8x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    var distortion: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        distortion = distortion + sad_row_16_u8x16(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
+        row = row + 1;
+    }
+    return distortion;
+}
+
 fn store_clipped_i16x16_to_u8(dst: &byte, values: I16x16) void {
     var lanes: [i16: 16] = [];
     @vector.store(&lanes[0] as &i16, values);
 
     var index: usize = 0;
     while index < 16 {
-        dst[index] = clip_i16_to_u8(lanes[index]);
+        dst[index] = simd_clip_i16_to_u8(lanes[index]);
         index = index + 1;
     }
 }
@@ -237,11 +257,11 @@ export fn predict_inter_copy_4x4_u8x16(dst: &byte, dst_stride: usize, src: &byte
     write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
 }
 
-fn avg2_u8(a: byte, b: byte) byte {
+fn simd_avg2_u8(a: byte, b: byte) byte {
     return (((a as i32) + (b as i32) + 1) >> 1) as byte;
 }
 
-fn avg3_u8(a: byte, b: byte, c: byte) byte {
+fn simd_avg3_u8(a: byte, b: byte, c: byte) byte {
     return (((a as i32) + ((b as i32) * 2) + (c as i32) + 2) >> 2) as byte;
 }
 
@@ -265,7 +285,7 @@ fn luma_horizontal_filter_sample(src: &byte, start: usize, filter_base: usize) b
         sum = sum + ((src[start + tap] as i32) * (SIMD_VP8_SUBPIXEL_FILTERS[filter_base + tap] as i32));
         tap = tap + 1;
     }
-    return clip_i32_to_u8((sum + 64) >> 7);
+    return simd_clip_i32_to_u8((sum + 64) >> 7);
 }
 
 fn luma_vertical_filter_sample(src: &byte, start: usize, src_stride: usize, filter_base: usize) byte {
@@ -275,7 +295,7 @@ fn luma_vertical_filter_sample(src: &byte, start: usize, src_stride: usize, filt
         sum = sum + ((src[start + (tap * src_stride)] as i32) * (SIMD_VP8_SUBPIXEL_FILTERS[filter_base + tap] as i32));
         tap = tap + 1;
     }
-    return clip_i32_to_u8((sum + 64) >> 7);
+    return simd_clip_i32_to_u8((sum + 64) >> 7);
 }
 
 fn luma_horizontal_filter_4_u8x16(dst: &byte, src: &byte, start: usize, filter_base: usize) void {
@@ -294,7 +314,7 @@ fn luma_horizontal_filter_4_u8x16(dst: &byte, src: &byte, start: usize, filter_b
 
     var index: usize = 0;
     while index < 4 {
-        dst[index] = clip_i32_to_u8(lanes[index]);
+        dst[index] = simd_clip_i32_to_u8(lanes[index]);
         index = index + 1;
     }
 }
@@ -315,7 +335,7 @@ fn luma_vertical_filter_4_u8x16(dst: &byte, src: &byte, start: usize, src_stride
 
     var index: usize = 0;
     while index < 4 {
-        dst[index] = clip_i32_to_u8(lanes[index]);
+        dst[index] = simd_clip_i32_to_u8(lanes[index]);
         index = index + 1;
     }
 }
@@ -329,7 +349,7 @@ fn idct_round_shift_3_i32x4(value: I32x4) I32x4 {
 }
 
 export fn predict_luma_subpixel_horizontal_u8x16(dst: &byte, dst_stride: usize, src_window: &byte, src_stride: usize, width: usize, height: usize, xoffset: u8) void {
-    const offset: usize = subpixel_offset_index(xoffset);
+    const offset: usize = simd_subpixel_offset_index(xoffset);
     if offset == 0 {
         var copy_row: usize = 0;
         while copy_row < height {
@@ -360,7 +380,7 @@ export fn predict_luma_subpixel_horizontal_u8x16(dst: &byte, dst_stride: usize, 
 }
 
 export fn predict_luma_subpixel_vertical_u8x16(dst: &byte, dst_stride: usize, src_window: &byte, src_stride: usize, width: usize, height: usize, yoffset: u8) void {
-    const offset: usize = subpixel_offset_index(yoffset);
+    const offset: usize = simd_subpixel_offset_index(yoffset);
     if offset == 0 {
         var copy_row: usize = 0;
         while copy_row < height {
@@ -390,27 +410,27 @@ export fn predict_luma_subpixel_vertical_u8x16(dst: &byte, dst_stride: usize, sr
     }
 }
 
-fn simple_loop_filter_passes(p1: byte, p0: byte, q0: byte, q1: byte, limit: u8) bool {
-    const score: i32 = (abs_i32((p0 as i32) - (q0 as i32)) * 2) + (abs_i32((p1 as i32) - (q1 as i32)) >> 1);
+fn simd_simple_loop_filter_passes(p1: byte, p0: byte, q0: byte, q1: byte, limit: u8) bool {
+    const score: i32 = (simd_abs_i32((p0 as i32) - (q0 as i32)) * 2) + (simd_abs_i32((p1 as i32) - (q1 as i32)) >> 1);
     return score <= (limit as i32);
 }
 
 fn apply_simple_loop_filter_values(p1: byte, p0: &byte, q0: &byte, q1: byte, limit: u8) void {
     const p0_value: byte = p0[0];
     const q0_value: byte = q0[0];
-    if !simple_loop_filter_passes(p1, p0_value, q0_value, q1, limit) {
+    if !simd_simple_loop_filter_passes(p1, p0_value, q0_value, q1, limit) {
         return;
     }
 
-    const outer: i32 = signed_char_clamp((p1 as i32) - (q1 as i32));
-    const filter_value: i32 = signed_char_clamp(outer + (3 * ((q0_value as i32) - (p0_value as i32))));
-    const filter1: i32 = signed_char_clamp(filter_value + 4) >> 3;
-    const filter2: i32 = signed_char_clamp(filter_value + 3) >> 3;
-    q0[0] = clip_i32_to_u8((q0_value as i32) - filter1);
-    p0[0] = clip_i32_to_u8((p0_value as i32) + filter2);
+    const outer: i32 = simd_signed_char_clamp((p1 as i32) - (q1 as i32));
+    const filter_value: i32 = simd_signed_char_clamp(outer + (3 * ((q0_value as i32) - (p0_value as i32))));
+    const filter1: i32 = simd_signed_char_clamp(filter_value + 4) >> 3;
+    const filter2: i32 = simd_signed_char_clamp(filter_value + 3) >> 3;
+    q0[0] = simd_clip_i32_to_u8((q0_value as i32) - filter1);
+    p0[0] = simd_clip_i32_to_u8((p0_value as i32) + filter2);
 }
 
-fn apply_simple_loop_filter_sample(base: &byte, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, limit: u8) void {
+fn simd_apply_simple_loop_filter_sample(base: &byte, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, limit: u8) void {
     apply_simple_loop_filter_values(base[p1_index], &base[p0_index] as &byte, &base[q0_index] as &byte, base[q1_index], limit);
 }
 
@@ -456,7 +476,7 @@ export fn loop_filter_simple_vertical_edge_u8x16(base: &byte, stride: usize, edg
 
     while row < rows {
         const row_base: usize = row * stride;
-        apply_simple_loop_filter_sample(base, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, limit);
+        simd_apply_simple_loop_filter_sample(base, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, limit);
         row = row + 1;
     }
 }
@@ -493,48 +513,48 @@ export fn loop_filter_simple_horizontal_edge_u8x16(base: &byte, stride: usize, e
     }
 
     while col < cols {
-        apply_simple_loop_filter_sample(base, p1_base + col, p0_base + col, q0_base + col, q1_base + col, limit);
+        simd_apply_simple_loop_filter_sample(base, p1_base + col, p0_base + col, q0_base + col, q1_base + col, limit);
         col = col + 1;
     }
 }
 
-fn u8_to_signed_char(value: byte) i32 {
+fn simd_u8_to_signed_char(value: byte) i32 {
     return (value as i32) - 128;
 }
 
-fn signed_char_to_u8(value: i32) byte {
-    return (signed_char_clamp(value) + 128) as byte;
+fn simd_signed_char_to_u8(value: i32) byte {
+    return (simd_signed_char_clamp(value) + 128) as byte;
 }
 
-fn normal_loop_filter_passes(p3: byte, p2: byte, p1: byte, p0: byte, q0: byte, q1: byte, q2: byte, q3: byte, limit: u8, blimit: u8) bool {
-    if abs_i32((p3 as i32) - (p2 as i32)) > (limit as i32) {
+fn simd_normal_loop_filter_passes(p3: byte, p2: byte, p1: byte, p0: byte, q0: byte, q1: byte, q2: byte, q3: byte, limit: u8, blimit: u8) bool {
+    if simd_abs_i32((p3 as i32) - (p2 as i32)) > (limit as i32) {
         return false;
     }
-    if abs_i32((p2 as i32) - (p1 as i32)) > (limit as i32) {
+    if simd_abs_i32((p2 as i32) - (p1 as i32)) > (limit as i32) {
         return false;
     }
-    if abs_i32((p1 as i32) - (p0 as i32)) > (limit as i32) {
+    if simd_abs_i32((p1 as i32) - (p0 as i32)) > (limit as i32) {
         return false;
     }
-    if abs_i32((q1 as i32) - (q0 as i32)) > (limit as i32) {
+    if simd_abs_i32((q1 as i32) - (q0 as i32)) > (limit as i32) {
         return false;
     }
-    if abs_i32((q2 as i32) - (q1 as i32)) > (limit as i32) {
+    if simd_abs_i32((q2 as i32) - (q1 as i32)) > (limit as i32) {
         return false;
     }
-    if abs_i32((q3 as i32) - (q2 as i32)) > (limit as i32) {
+    if simd_abs_i32((q3 as i32) - (q2 as i32)) > (limit as i32) {
         return false;
     }
 
-    const edge_score: i32 = (abs_i32((p0 as i32) - (q0 as i32)) * 2) + (abs_i32((p1 as i32) - (q1 as i32)) >> 1);
+    const edge_score: i32 = (simd_abs_i32((p0 as i32) - (q0 as i32)) * 2) + (simd_abs_i32((p1 as i32) - (q1 as i32)) >> 1);
     return edge_score <= (blimit as i32);
 }
 
-fn normal_loop_filter_hev(p1: byte, p0: byte, q0: byte, q1: byte, thresh: u8) bool {
-    if abs_i32((p1 as i32) - (p0 as i32)) > (thresh as i32) {
+fn simd_normal_loop_filter_hev(p1: byte, p0: byte, q0: byte, q1: byte, thresh: u8) bool {
+    if simd_abs_i32((p1 as i32) - (p0 as i32)) > (thresh as i32) {
         return true;
     }
-    return abs_i32((q1 as i32) - (q0 as i32)) > (thresh as i32);
+    return simd_abs_i32((q1 as i32) - (q0 as i32)) > (thresh as i32);
 }
 
 fn apply_normal_loop_filter_values(p3: byte, p2: byte, p1: &byte, p0: &byte, q0: &byte, q1: &byte, q2: byte, q3: byte, limit: u8, blimit: u8, thresh: u8) void {
@@ -542,31 +562,31 @@ fn apply_normal_loop_filter_values(p3: byte, p2: byte, p1: &byte, p0: &byte, q0:
     const p0_value: byte = p0[0];
     const q0_value: byte = q0[0];
     const q1_value: byte = q1[0];
-    if !normal_loop_filter_passes(p3, p2, p1_value, p0_value, q0_value, q1_value, q2, q3, limit, blimit) {
+    if !simd_normal_loop_filter_passes(p3, p2, p1_value, p0_value, q0_value, q1_value, q2, q3, limit, blimit) {
         return;
     }
 
-    const hev: bool = normal_loop_filter_hev(p1_value, p0_value, q0_value, q1_value, thresh);
-    const ps1: i32 = u8_to_signed_char(p1_value);
-    const ps0: i32 = u8_to_signed_char(p0_value);
-    const qs0: i32 = u8_to_signed_char(q0_value);
-    const qs1: i32 = u8_to_signed_char(q1_value);
+    const hev: bool = simd_normal_loop_filter_hev(p1_value, p0_value, q0_value, q1_value, thresh);
+    const ps1: i32 = simd_u8_to_signed_char(p1_value);
+    const ps0: i32 = simd_u8_to_signed_char(p0_value);
+    const qs0: i32 = simd_u8_to_signed_char(q0_value);
+    const qs1: i32 = simd_u8_to_signed_char(q1_value);
 
     var filter_value: i32 = 0;
     if hev {
-        filter_value = signed_char_clamp(ps1 - qs1);
+        filter_value = simd_signed_char_clamp(ps1 - qs1);
     }
-    filter_value = signed_char_clamp(filter_value + (3 * (qs0 - ps0)));
+    filter_value = simd_signed_char_clamp(filter_value + (3 * (qs0 - ps0)));
 
-    const filter1: i32 = signed_char_clamp(filter_value + 4) >> 3;
-    const filter2: i32 = signed_char_clamp(filter_value + 3) >> 3;
-    q0[0] = signed_char_to_u8(qs0 - filter1);
-    p0[0] = signed_char_to_u8(ps0 + filter2);
+    const filter1: i32 = simd_signed_char_clamp(filter_value + 4) >> 3;
+    const filter2: i32 = simd_signed_char_clamp(filter_value + 3) >> 3;
+    q0[0] = simd_signed_char_to_u8(qs0 - filter1);
+    p0[0] = simd_signed_char_to_u8(ps0 + filter2);
 
     if !hev {
         const outer_adjust: i32 = (filter1 + 1) >> 1;
-        q1[0] = signed_char_to_u8(qs1 - outer_adjust);
-        p1[0] = signed_char_to_u8(ps1 + outer_adjust);
+        q1[0] = simd_signed_char_to_u8(qs1 - outer_adjust);
+        p1[0] = simd_signed_char_to_u8(ps1 + outer_adjust);
     }
 }
 
@@ -577,49 +597,49 @@ fn apply_normal_mb_loop_filter_values(p3: byte, p2: &byte, p1: &byte, p0: &byte,
     const q0_value: byte = q0[0];
     const q1_value: byte = q1[0];
     const q2_value: byte = q2[0];
-    if !normal_loop_filter_passes(p3, p2_value, p1_value, p0_value, q0_value, q1_value, q2_value, q3, limit, blimit) {
+    if !simd_normal_loop_filter_passes(p3, p2_value, p1_value, p0_value, q0_value, q1_value, q2_value, q3, limit, blimit) {
         return;
     }
 
-    const hev: bool = normal_loop_filter_hev(p1_value, p0_value, q0_value, q1_value, thresh);
-    const ps2: i32 = u8_to_signed_char(p2_value);
-    const ps1: i32 = u8_to_signed_char(p1_value);
-    var ps0: i32 = u8_to_signed_char(p0_value);
-    var qs0: i32 = u8_to_signed_char(q0_value);
-    const qs1: i32 = u8_to_signed_char(q1_value);
-    const qs2: i32 = u8_to_signed_char(q2_value);
+    const hev: bool = simd_normal_loop_filter_hev(p1_value, p0_value, q0_value, q1_value, thresh);
+    const ps2: i32 = simd_u8_to_signed_char(p2_value);
+    const ps1: i32 = simd_u8_to_signed_char(p1_value);
+    var ps0: i32 = simd_u8_to_signed_char(p0_value);
+    var qs0: i32 = simd_u8_to_signed_char(q0_value);
+    const qs1: i32 = simd_u8_to_signed_char(q1_value);
+    const qs2: i32 = simd_u8_to_signed_char(q2_value);
 
-    const filter_value: i32 = signed_char_clamp(signed_char_clamp(ps1 - qs1) + (3 * (qs0 - ps0)));
+    const filter_value: i32 = simd_signed_char_clamp(simd_signed_char_clamp(ps1 - qs1) + (3 * (qs0 - ps0)));
 
     if hev {
-        const filter1: i32 = signed_char_clamp(filter_value + 4) >> 3;
-        const filter2: i32 = signed_char_clamp(filter_value + 3) >> 3;
-        q0[0] = signed_char_to_u8(qs0 - filter1);
-        p0[0] = signed_char_to_u8(ps0 + filter2);
+        const filter1: i32 = simd_signed_char_clamp(filter_value + 4) >> 3;
+        const filter2: i32 = simd_signed_char_clamp(filter_value + 3) >> 3;
+        q0[0] = simd_signed_char_to_u8(qs0 - filter1);
+        p0[0] = simd_signed_char_to_u8(ps0 + filter2);
         return;
     }
 
     const wide_filter: i32 = filter_value;
-    const adjust0: i32 = signed_char_clamp(63 + (wide_filter * 27)) >> 7;
-    qs0 = signed_char_clamp(qs0 - adjust0);
-    ps0 = signed_char_clamp(ps0 + adjust0);
-    q0[0] = signed_char_to_u8(qs0);
-    p0[0] = signed_char_to_u8(ps0);
+    const adjust0: i32 = simd_signed_char_clamp(63 + (wide_filter * 27)) >> 7;
+    qs0 = simd_signed_char_clamp(qs0 - adjust0);
+    ps0 = simd_signed_char_clamp(ps0 + adjust0);
+    q0[0] = simd_signed_char_to_u8(qs0);
+    p0[0] = simd_signed_char_to_u8(ps0);
 
-    const adjust1: i32 = signed_char_clamp(63 + (wide_filter * 18)) >> 7;
-    q1[0] = signed_char_to_u8(qs1 - adjust1);
-    p1[0] = signed_char_to_u8(ps1 + adjust1);
+    const adjust1: i32 = simd_signed_char_clamp(63 + (wide_filter * 18)) >> 7;
+    q1[0] = simd_signed_char_to_u8(qs1 - adjust1);
+    p1[0] = simd_signed_char_to_u8(ps1 + adjust1);
 
-    const adjust2: i32 = signed_char_clamp(63 + (wide_filter * 9)) >> 7;
-    q2[0] = signed_char_to_u8(qs2 - adjust2);
-    p2[0] = signed_char_to_u8(ps2 + adjust2);
+    const adjust2: i32 = simd_signed_char_clamp(63 + (wide_filter * 9)) >> 7;
+    q2[0] = simd_signed_char_to_u8(qs2 - adjust2);
+    p2[0] = simd_signed_char_to_u8(ps2 + adjust2);
 }
 
-fn apply_normal_loop_filter_sample(base: &byte, p3_index: usize, p2_index: usize, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, q2_index: usize, q3_index: usize, limit: u8, blimit: u8, thresh: u8) void {
+fn simd_apply_normal_loop_filter_sample(base: &byte, p3_index: usize, p2_index: usize, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, q2_index: usize, q3_index: usize, limit: u8, blimit: u8, thresh: u8) void {
     apply_normal_loop_filter_values(base[p3_index], base[p2_index], &base[p1_index] as &byte, &base[p0_index] as &byte, &base[q0_index] as &byte, &base[q1_index] as &byte, base[q2_index], base[q3_index], limit, blimit, thresh);
 }
 
-fn apply_normal_mb_loop_filter_sample(base: &byte, p3_index: usize, p2_index: usize, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, q2_index: usize, q3_index: usize, limit: u8, blimit: u8, thresh: u8) void {
+fn simd_apply_normal_mb_loop_filter_sample(base: &byte, p3_index: usize, p2_index: usize, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, q2_index: usize, q3_index: usize, limit: u8, blimit: u8, thresh: u8) void {
     apply_normal_mb_loop_filter_values(base[p3_index], &base[p2_index] as &byte, &base[p1_index] as &byte, &base[p0_index] as &byte, &base[q0_index] as &byte, &base[q1_index] as &byte, &base[q2_index] as &byte, base[q3_index], limit, blimit, thresh);
 }
 
@@ -683,7 +703,7 @@ export fn loop_filter_normal_vertical_edge_u8x16(base: &byte, stride: usize, edg
 
     while row < rows {
         const row_base: usize = row * stride;
-        apply_normal_loop_filter_sample(base, row_base + edge_col - 4, row_base + edge_col - 3, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, row_base + edge_col + 2, row_base + edge_col + 3, limit, blimit, thresh);
+        simd_apply_normal_loop_filter_sample(base, row_base + edge_col - 4, row_base + edge_col - 3, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, row_base + edge_col + 2, row_base + edge_col + 3, limit, blimit, thresh);
         row = row + 1;
     }
 }
@@ -734,7 +754,7 @@ export fn loop_filter_normal_mb_vertical_edge_u8x16(base: &byte, stride: usize, 
 
     while row < rows {
         const row_base: usize = row * stride;
-        apply_normal_mb_loop_filter_sample(base, row_base + edge_col - 4, row_base + edge_col - 3, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, row_base + edge_col + 2, row_base + edge_col + 3, limit, blimit, thresh);
+        simd_apply_normal_mb_loop_filter_sample(base, row_base + edge_col - 4, row_base + edge_col - 3, row_base + edge_col - 2, row_base + edge_col - 1, row_base + edge_col, row_base + edge_col + 1, row_base + edge_col + 2, row_base + edge_col + 3, limit, blimit, thresh);
         row = row + 1;
     }
 }
@@ -776,7 +796,7 @@ export fn loop_filter_normal_horizontal_edge_u8x16(base: &byte, stride: usize, e
     }
 
     while col < cols {
-        apply_normal_loop_filter_sample(base, p3_base + col, p2_base + col, p1_base + col, p0_base + col, q0_base + col, q1_base + col, q2_base + col, q3_base + col, limit, blimit, thresh);
+        simd_apply_normal_loop_filter_sample(base, p3_base + col, p2_base + col, p1_base + col, p0_base + col, q0_base + col, q1_base + col, q2_base + col, q3_base + col, limit, blimit, thresh);
         col = col + 1;
     }
 }
@@ -820,7 +840,7 @@ export fn loop_filter_normal_mb_horizontal_edge_u8x16(base: &byte, stride: usize
     }
 
     while col < cols {
-        apply_normal_mb_loop_filter_sample(base, p3_base + col, p2_base + col, p1_base + col, p0_base + col, q0_base + col, q1_base + col, q2_base + col, q3_base + col, limit, blimit, thresh);
+        simd_apply_normal_mb_loop_filter_sample(base, p3_base + col, p2_base + col, p1_base + col, p0_base + col, q0_base + col, q1_base + col, q2_base + col, q3_base + col, limit, blimit, thresh);
         col = col + 1;
     }
 }
@@ -1003,7 +1023,7 @@ export fn predict_y4x4_true_motion_u8x16(dst: &byte, dst_stride: usize, above: &
 
     var index: usize = 0;
     while index < 16 {
-        values[index] = clip_i16_to_u8(predicted_lanes[index]);
+        values[index] = simd_clip_i16_to_u8(predicted_lanes[index]);
         index = index + 1;
     }
     write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
@@ -1011,45 +1031,45 @@ export fn predict_y4x4_true_motion_u8x16(dst: &byte, dst_stride: usize, above: &
 
 export fn predict_y4x4_vertical_edge_u8x16(dst: &byte, dst_stride: usize, above: &byte, above_left: byte) void {
     var values: [byte: 16] = [
-        avg3_u8(above_left, above[0], above[1]),
-        avg3_u8(above[0], above[1], above[2]),
-        avg3_u8(above[1], above[2], above[3]),
-        avg3_u8(above[2], above[3], above[4]),
-        avg3_u8(above_left, above[0], above[1]),
-        avg3_u8(above[0], above[1], above[2]),
-        avg3_u8(above[1], above[2], above[3]),
-        avg3_u8(above[2], above[3], above[4]),
-        avg3_u8(above_left, above[0], above[1]),
-        avg3_u8(above[0], above[1], above[2]),
-        avg3_u8(above[1], above[2], above[3]),
-        avg3_u8(above[2], above[3], above[4]),
-        avg3_u8(above_left, above[0], above[1]),
-        avg3_u8(above[0], above[1], above[2]),
-        avg3_u8(above[1], above[2], above[3]),
-        avg3_u8(above[2], above[3], above[4])
+        simd_avg3_u8(above_left, above[0], above[1]),
+        simd_avg3_u8(above[0], above[1], above[2]),
+        simd_avg3_u8(above[1], above[2], above[3]),
+        simd_avg3_u8(above[2], above[3], above[4]),
+        simd_avg3_u8(above_left, above[0], above[1]),
+        simd_avg3_u8(above[0], above[1], above[2]),
+        simd_avg3_u8(above[1], above[2], above[3]),
+        simd_avg3_u8(above[2], above[3], above[4]),
+        simd_avg3_u8(above_left, above[0], above[1]),
+        simd_avg3_u8(above[0], above[1], above[2]),
+        simd_avg3_u8(above[1], above[2], above[3]),
+        simd_avg3_u8(above[2], above[3], above[4]),
+        simd_avg3_u8(above_left, above[0], above[1]),
+        simd_avg3_u8(above[0], above[1], above[2]),
+        simd_avg3_u8(above[1], above[2], above[3]),
+        simd_avg3_u8(above[2], above[3], above[4])
     ];
     write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
 }
 
 export fn predict_y4x4_horizontal_edge_u8x16(dst: &byte, dst_stride: usize, left: &byte, above_left: byte) void {
     var values: [byte: 16] = [
-        avg3_u8(above_left, left[0], left[1]), avg3_u8(above_left, left[0], left[1]), avg3_u8(above_left, left[0], left[1]), avg3_u8(above_left, left[0], left[1]),
-        avg3_u8(left[0], left[1], left[2]), avg3_u8(left[0], left[1], left[2]), avg3_u8(left[0], left[1], left[2]), avg3_u8(left[0], left[1], left[2]),
-        avg3_u8(left[1], left[2], left[3]), avg3_u8(left[1], left[2], left[3]), avg3_u8(left[1], left[2], left[3]), avg3_u8(left[1], left[2], left[3]),
-        avg3_u8(left[2], left[3], left[3]), avg3_u8(left[2], left[3], left[3]), avg3_u8(left[2], left[3], left[3]), avg3_u8(left[2], left[3], left[3])
+        simd_avg3_u8(above_left, left[0], left[1]), simd_avg3_u8(above_left, left[0], left[1]), simd_avg3_u8(above_left, left[0], left[1]), simd_avg3_u8(above_left, left[0], left[1]),
+        simd_avg3_u8(left[0], left[1], left[2]), simd_avg3_u8(left[0], left[1], left[2]), simd_avg3_u8(left[0], left[1], left[2]), simd_avg3_u8(left[0], left[1], left[2]),
+        simd_avg3_u8(left[1], left[2], left[3]), simd_avg3_u8(left[1], left[2], left[3]), simd_avg3_u8(left[1], left[2], left[3]), simd_avg3_u8(left[1], left[2], left[3]),
+        simd_avg3_u8(left[2], left[3], left[3]), simd_avg3_u8(left[2], left[3], left[3]), simd_avg3_u8(left[2], left[3], left[3]), simd_avg3_u8(left[2], left[3], left[3])
     ];
     write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
 }
 
 export fn predict_y4x4_down_left_u8x16(dst: &byte, dst_stride: usize, above: &byte) void {
     var p: [byte: 7] = [
-        avg3_u8(above[0], above[1], above[2]),
-        avg3_u8(above[1], above[2], above[3]),
-        avg3_u8(above[2], above[3], above[4]),
-        avg3_u8(above[3], above[4], above[5]),
-        avg3_u8(above[4], above[5], above[6]),
-        avg3_u8(above[5], above[6], above[7]),
-        avg3_u8(above[6], above[7], above[7])
+        simd_avg3_u8(above[0], above[1], above[2]),
+        simd_avg3_u8(above[1], above[2], above[3]),
+        simd_avg3_u8(above[2], above[3], above[4]),
+        simd_avg3_u8(above[3], above[4], above[5]),
+        simd_avg3_u8(above[4], above[5], above[6]),
+        simd_avg3_u8(above[5], above[6], above[7]),
+        simd_avg3_u8(above[6], above[7], above[7])
     ];
     var values: [byte: 16] = [
         p[0], p[1], p[2], p[3],
@@ -1061,13 +1081,13 @@ export fn predict_y4x4_down_left_u8x16(dst: &byte, dst_stride: usize, above: &by
 }
 
 export fn predict_y4x4_down_right_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
-    const p0: byte = avg3_u8(left[0], above_left, above[0]);
-    const p1: byte = avg3_u8(above_left, above[0], above[1]);
-    const p2: byte = avg3_u8(above[0], above[1], above[2]);
-    const p3: byte = avg3_u8(above[1], above[2], above[3]);
-    const p4: byte = avg3_u8(left[1], left[0], above_left);
-    const p5: byte = avg3_u8(left[2], left[1], left[0]);
-    const p6: byte = avg3_u8(left[3], left[2], left[1]);
+    const p0: byte = simd_avg3_u8(left[0], above_left, above[0]);
+    const p1: byte = simd_avg3_u8(above_left, above[0], above[1]);
+    const p2: byte = simd_avg3_u8(above[0], above[1], above[2]);
+    const p3: byte = simd_avg3_u8(above[1], above[2], above[3]);
+    const p4: byte = simd_avg3_u8(left[1], left[0], above_left);
+    const p5: byte = simd_avg3_u8(left[2], left[1], left[0]);
+    const p6: byte = simd_avg3_u8(left[3], left[2], left[1]);
     var values: [byte: 16] = [
         p0, p1, p2, p3,
         p4, p0, p1, p2,
@@ -1078,16 +1098,16 @@ export fn predict_y4x4_down_right_u8x16(dst: &byte, dst_stride: usize, above: &b
 }
 
 export fn predict_y4x4_vertical_right_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
-    const p0: byte = avg2_u8(above_left, above[0]);
-    const p1: byte = avg2_u8(above[0], above[1]);
-    const p2: byte = avg2_u8(above[1], above[2]);
-    const p3: byte = avg2_u8(above[2], above[3]);
-    const p4: byte = avg3_u8(left[0], above_left, above[0]);
-    const p5: byte = avg3_u8(above_left, above[0], above[1]);
-    const p6: byte = avg3_u8(above[0], above[1], above[2]);
-    const p7: byte = avg3_u8(above[1], above[2], above[3]);
-    const p8: byte = avg3_u8(left[1], left[0], above_left);
-    const p9: byte = avg3_u8(left[2], left[1], left[0]);
+    const p0: byte = simd_avg2_u8(above_left, above[0]);
+    const p1: byte = simd_avg2_u8(above[0], above[1]);
+    const p2: byte = simd_avg2_u8(above[1], above[2]);
+    const p3: byte = simd_avg2_u8(above[2], above[3]);
+    const p4: byte = simd_avg3_u8(left[0], above_left, above[0]);
+    const p5: byte = simd_avg3_u8(above_left, above[0], above[1]);
+    const p6: byte = simd_avg3_u8(above[0], above[1], above[2]);
+    const p7: byte = simd_avg3_u8(above[1], above[2], above[3]);
+    const p8: byte = simd_avg3_u8(left[1], left[0], above_left);
+    const p9: byte = simd_avg3_u8(left[2], left[1], left[0]);
     var values: [byte: 16] = [
         p0, p1, p2, p3,
         p4, p5, p6, p7,
@@ -1098,16 +1118,16 @@ export fn predict_y4x4_vertical_right_u8x16(dst: &byte, dst_stride: usize, above
 }
 
 export fn predict_y4x4_vertical_left_u8x16(dst: &byte, dst_stride: usize, above: &byte) void {
-    const p0: byte = avg2_u8(above[0], above[1]);
-    const p1: byte = avg2_u8(above[1], above[2]);
-    const p2: byte = avg2_u8(above[2], above[3]);
-    const p3: byte = avg2_u8(above[3], above[4]);
-    const p4: byte = avg3_u8(above[0], above[1], above[2]);
-    const p5: byte = avg3_u8(above[1], above[2], above[3]);
-    const p6: byte = avg3_u8(above[2], above[3], above[4]);
-    const p7: byte = avg3_u8(above[3], above[4], above[5]);
-    const p8: byte = avg3_u8(above[4], above[5], above[6]);
-    const p9: byte = avg3_u8(above[5], above[6], above[7]);
+    const p0: byte = simd_avg2_u8(above[0], above[1]);
+    const p1: byte = simd_avg2_u8(above[1], above[2]);
+    const p2: byte = simd_avg2_u8(above[2], above[3]);
+    const p3: byte = simd_avg2_u8(above[3], above[4]);
+    const p4: byte = simd_avg3_u8(above[0], above[1], above[2]);
+    const p5: byte = simd_avg3_u8(above[1], above[2], above[3]);
+    const p6: byte = simd_avg3_u8(above[2], above[3], above[4]);
+    const p7: byte = simd_avg3_u8(above[3], above[4], above[5]);
+    const p8: byte = simd_avg3_u8(above[4], above[5], above[6]);
+    const p9: byte = simd_avg3_u8(above[5], above[6], above[7]);
     var values: [byte: 16] = [
         p0, p1, p2, p3,
         p4, p5, p6, p7,
@@ -1118,16 +1138,16 @@ export fn predict_y4x4_vertical_left_u8x16(dst: &byte, dst_stride: usize, above:
 }
 
 export fn predict_y4x4_horizontal_down_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
-    const p0: byte = avg2_u8(left[0], above_left);
-    const p1: byte = avg3_u8(left[0], above_left, above[0]);
-    const p2: byte = avg3_u8(above_left, above[0], above[1]);
-    const p3: byte = avg3_u8(above[0], above[1], above[2]);
-    const p4: byte = avg2_u8(left[1], left[0]);
-    const p5: byte = avg3_u8(left[1], left[0], above_left);
-    const p6: byte = avg2_u8(left[2], left[1]);
-    const p7: byte = avg3_u8(left[2], left[1], left[0]);
-    const p8: byte = avg2_u8(left[3], left[2]);
-    const p9: byte = avg3_u8(left[3], left[2], left[1]);
+    const p0: byte = simd_avg2_u8(left[0], above_left);
+    const p1: byte = simd_avg3_u8(left[0], above_left, above[0]);
+    const p2: byte = simd_avg3_u8(above_left, above[0], above[1]);
+    const p3: byte = simd_avg3_u8(above[0], above[1], above[2]);
+    const p4: byte = simd_avg2_u8(left[1], left[0]);
+    const p5: byte = simd_avg3_u8(left[1], left[0], above_left);
+    const p6: byte = simd_avg2_u8(left[2], left[1]);
+    const p7: byte = simd_avg3_u8(left[2], left[1], left[0]);
+    const p8: byte = simd_avg2_u8(left[3], left[2]);
+    const p9: byte = simd_avg3_u8(left[3], left[2], left[1]);
     var values: [byte: 16] = [
         p0, p1, p2, p3,
         p4, p5, p0, p1,
@@ -1138,12 +1158,12 @@ export fn predict_y4x4_horizontal_down_u8x16(dst: &byte, dst_stride: usize, abov
 }
 
 export fn predict_y4x4_horizontal_up_u8x16(dst: &byte, dst_stride: usize, left: &byte) void {
-    const p0: byte = avg2_u8(left[0], left[1]);
-    const p1: byte = avg3_u8(left[0], left[1], left[2]);
-    const p2: byte = avg2_u8(left[1], left[2]);
-    const p3: byte = avg3_u8(left[1], left[2], left[3]);
-    const p4: byte = avg2_u8(left[2], left[3]);
-    const p5: byte = avg3_u8(left[2], left[3], left[3]);
+    const p0: byte = simd_avg2_u8(left[0], left[1]);
+    const p1: byte = simd_avg3_u8(left[0], left[1], left[2]);
+    const p2: byte = simd_avg2_u8(left[1], left[2]);
+    const p3: byte = simd_avg3_u8(left[1], left[2], left[3]);
+    const p4: byte = simd_avg2_u8(left[2], left[3]);
+    const p5: byte = simd_avg3_u8(left[2], left[3], left[3]);
     const p6: byte = left[3];
     var values: [byte: 16] = [
         p0, p1, p2, p3,
@@ -1241,7 +1261,7 @@ export fn predict_uv8x8_true_motion_u8x16(dst: &byte, dst_stride: usize, above: 
 
         var index: usize = 0;
         while index < 16 {
-            values[index] = clip_i16_to_u8(predicted_lanes[index]);
+            values[index] = simd_clip_i16_to_u8(predicted_lanes[index]);
             index = index + 1;
         }
         write_8x8_pair_u8x16(&dst[first_row * dst_stride] as &byte, dst_stride, &values[0] as &byte);
@@ -1278,7 +1298,7 @@ export fn add_residual_4x4_clamped_u8x16(dst: &byte, dst_stride: usize, residual
 
         var col: usize = 0;
         while col < 4 {
-            dst[dst_base + col] = clip_i16_to_u8(pixels[pixel_base + col]);
+            dst[dst_base + col] = simd_clip_i16_to_u8(pixels[pixel_base + col]);
             col = col + 1;
         }
 

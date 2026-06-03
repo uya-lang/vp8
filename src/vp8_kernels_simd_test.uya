@@ -33,6 +33,7 @@ use vp8.kernels.scalar.predict_y4x4_true_motion;
 use vp8.kernels.scalar.predict_y4x4_vertical_edge;
 use vp8.kernels.scalar.predict_y4x4_vertical_left;
 use vp8.kernels.scalar.predict_y4x4_vertical_right;
+use vp8.kernels.scalar.sad_16x16;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
 use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
 use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
@@ -71,6 +72,7 @@ use vp8.kernels.simd.predict_y4x4_true_motion_u8x16;
 use vp8.kernels.simd.predict_y4x4_vertical_edge_u8x16;
 use vp8.kernels.simd.predict_y4x4_vertical_left_u8x16;
 use vp8.kernels.simd.predict_y4x4_vertical_right_u8x16;
+use vp8.kernels.simd.sad_16x16_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
@@ -641,6 +643,42 @@ test "SIMD inter copy fixed block predictors match scalar byte exact" {
     predict_inter_copy(&scalar4[1] as &byte, 7, &src4[3] as &byte, 9, 4, 4);
     predict_inter_copy_4x4_u8x16(&simd4[1] as &byte, 7, &src4[3] as &byte, 9);
     try assert_y16_buffers_equal(&scalar4[0] as &byte, &simd4[0] as &byte, 64);
+}
+
+test "SIMD SAD 16x16 matches scalar byte exact across stride" {
+    var src: [byte: 400] = [];
+    var reference: [byte: 448] = [];
+    const src_stride: usize = 19;
+    const reference_stride: usize = 21;
+
+    var index: usize = 0;
+    while index < 400 {
+        src[index] = 99 as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 448 {
+        reference[index] = 44 as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            const sample: usize = (row * 16) + col;
+            src[3 + (row * src_stride) + col] = sample as byte;
+            reference[7 + (row * reference_stride) + col] = (255 - sample) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar_sad: u32 = sad_16x16(&src[3] as &byte, src_stride, &reference[7] as &byte, reference_stride);
+    const simd_sad: u32 = sad_16x16_u8x16(&src[3] as &byte, src_stride, &reference[7] as &byte, reference_stride);
+
+    try assert_eq_i32(scalar_sad as i32, 32768);
+    try assert_eq_i32(simd_sad as i32, scalar_sad as i32);
 }
 
 test "SIMD luma sub-pixel horizontal filter matches scalar byte exact" {
