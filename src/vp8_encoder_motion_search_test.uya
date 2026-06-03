@@ -4,6 +4,8 @@ use vp8.common.frame.FrameBuffer;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
+use vp8.encoder.motion_search.SubpixelMotionRefinementResult;
+use vp8.encoder.motion_search.refine_last_frame_half_quarter_pel;
 use vp8.encoder.motion_search.search_last_frame_integer_pel;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
@@ -11,9 +13,20 @@ use vp8.encoder.reference_pool.encoder_reference_begin_frame;
 use vp8.encoder.reference_pool.encoder_reference_current;
 use vp8.encoder.reference_pool.encoder_reference_refresh;
 use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.kernels.scalar.predict_luma_subpixel;
 
 fn dummy_integer_pel_motion_search_result() IntegerPelMotionSearchResult {
     return IntegerPelMotionSearchResult{
+        mv_x: 0 as i16,
+        mv_y: 0 as i16,
+        distortion: 4294967295 as u32,
+        candidates_evaluated: 0,
+        border_extension_count: 0
+    };
+}
+
+fn dummy_subpixel_motion_refinement_result() SubpixelMotionRefinementResult {
+    return SubpixelMotionRefinementResult{
         mv_x: 0 as i16,
         mv_y: 0 as i16,
         distortion: 4294967295 as u32,
@@ -103,6 +116,112 @@ test "integer-pel motion search rejects unbounded search radius" {
     _ = search_last_frame_integer_pel(&refs, &frame, 0, 0, 65) catch {
         failed = 1;
         dummy_integer_pel_motion_search_result();
+    };
+    try assert_eq_i32(failed, 1);
+}
+
+test "half quarter pel refinement finds horizontal half-pel offset" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var predicted: [byte: 256] = [];
+    predict_luma_subpixel(&predicted[0] as &byte, 16, &seed.y.plane.origin[(14 * seed.y.plane.stride) + 14] as &byte, seed.y.plane.stride, 16, 16, 4 as u8, 0 as u8);
+
+    var input: [byte: 6144] = [];
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[((16 + row) * 64) + 16 + col] = predicted[(row * 16) + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6144, 64, 64);
+    const result: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel(&refs, &frame, 1, 1, 0 as i16, 0 as i16);
+
+    try assert_eq_i32(result.mv_x as i32, 4);
+    try assert_eq_i32(result.mv_y as i32, 0);
+    try assert_eq_i32(result.distortion as i32, 0);
+    try assert_eq_i32((result.candidates_evaluated > 0) as i32, true as i32);
+    try assert_eq_i32(result.border_extension_count as i32, 3);
+}
+
+test "half quarter pel refinement finds vertical quarter-pel offset" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var predicted: [byte: 256] = [];
+    predict_luma_subpixel(&predicted[0] as &byte, 16, &seed.y.plane.origin[(14 * seed.y.plane.stride) + 14] as &byte, seed.y.plane.stride, 16, 16, 0 as u8, 2 as u8);
+
+    var input: [byte: 6144] = [];
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[((16 + row) * 64) + 16 + col] = predicted[(row * 16) + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6144, 64, 64);
+    const result: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel(&refs, &frame, 1, 1, 0 as i16, 0 as i16);
+
+    try assert_eq_i32(result.mv_x as i32, 0);
+    try assert_eq_i32(result.mv_y as i32, 2);
+    try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "half quarter pel refinement tie keeps base motion vector" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(32, 32, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    var index: usize = 0;
+    while index < seed.y.plane.stride * seed.height {
+        seed.y.plane.origin[index] = 55 as byte;
+        index = index + 1;
+    }
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 1536] = [];
+    index = 0;
+    while index < 1024 {
+        input[index] = 55 as byte;
+        index = index + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 1536, 32, 32);
+    const result: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel(&refs, &frame, 0, 0, 8 as i16, 0 as i16);
+
+    try assert_eq_i32(result.mv_x as i32, 8);
+    try assert_eq_i32(result.mv_y as i32, 0);
+    try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "half quarter pel refinement rejects non-integer base motion" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    var input: [byte: 384] = [];
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+
+    var failed: i32 = 0;
+    _ = refine_last_frame_half_quarter_pel(&refs, &frame, 0, 0, 4 as i16, 0 as i16) catch {
+        failed = 1;
+        dummy_subpixel_motion_refinement_result();
     };
     try assert_eq_i32(failed, 1);
 }

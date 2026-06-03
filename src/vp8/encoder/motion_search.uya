@@ -6,14 +6,24 @@ use vp8.encoder.context.YuvPlaneView;
 use vp8.encoder.context.validate_yuv_frame_view;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.encoder_reference_last;
+use vp8.kernels.scalar.predict_luma_subpixel;
 
 error ErrEncoderMotionSearchInvalidGeometry;
+error ErrEncoderMotionSearchInvalidBaseMv;
 error ErrEncoderMotionSearchOutOfBounds;
 error ErrEncoderMotionSearchNoCandidate;
 
 const ENCODER_INTEGER_PEL_MAX_SEARCH_RADIUS: usize = 64;
 
 export struct IntegerPelMotionSearchResult {
+    mv_x: i16,
+    mv_y: i16,
+    distortion: u32,
+    candidates_evaluated: usize,
+    border_extension_count: usize
+}
+
+export struct SubpixelMotionRefinementResult {
     mv_x: i16,
     mv_y: i16,
     distortion: u32,
@@ -117,6 +127,45 @@ fn encoder_motion_search_sad_y16(src: &YuvFrameView, reference: &FrameBuffer, mb
     return distortion;
 }
 
+fn encoder_motion_search_floor_div8(value: i32) i32 {
+    if value >= 0 {
+        return value / 8;
+    }
+    return 0 - (((0 - value) + 7) / 8);
+}
+
+fn encoder_motion_search_subpel_offset(value: i32) u8 {
+    const fullpel: i32 = encoder_motion_search_floor_div8(value);
+    return (value - (fullpel * 8)) as u8;
+}
+
+fn encoder_motion_search_sad_y16_subpixel(src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32) !u32 {
+    const src_x: i32 = (mb_x * (16 as usize)) as i32;
+    const src_y: i32 = (mb_y * (16 as usize)) as i32;
+    const ref_x: i32 = src_x + encoder_motion_search_floor_div8(mv_x);
+    const ref_y: i32 = src_y + encoder_motion_search_floor_div8(mv_y);
+    const window_index: usize = try encoder_motion_search_block_data_index(&reference.y.plane, ref_x - 2, ref_y - 2, 21, 21);
+    const xoffset: u8 = encoder_motion_search_subpel_offset(mv_x);
+    const yoffset: u8 = encoder_motion_search_subpel_offset(mv_y);
+
+    var predicted: [byte: 256] = [];
+    predict_luma_subpixel(&predicted[0] as &byte, 16, &reference.y.plane.data[window_index] as &byte, reference.y.plane.stride, 16, 16, xoffset, yoffset);
+
+    var distortion: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            const src_value: byte = encoder_motion_search_source_sample_clamped(&src.y, src_x + (col as i32), src_y + (row as i32));
+            const predicted_value: byte = predicted[(row * 16) + col];
+            distortion = distortion + encoder_motion_search_abs_diff_u8(src_value, predicted_value);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return distortion;
+}
+
 fn encoder_motion_search_better_candidate(distortion: u32, dx: i32, dy: i32, best: &IntegerPelMotionSearchResult, has_best: bool) bool {
     if !has_best {
         return true;
@@ -145,6 +194,65 @@ fn encoder_motion_search_better_candidate(distortion: u32, dx: i32, dy: i32, bes
         return false;
     }
     return dx < best_dx;
+}
+
+fn encoder_motion_search_better_refinement_candidate(distortion: u32, mv_x: i32, mv_y: i32, best: &SubpixelMotionRefinementResult, has_best: bool, base_mv_x: i32, base_mv_y: i32) bool {
+    if !has_best {
+        return true;
+    }
+    if distortion < best.distortion {
+        return true;
+    }
+    if distortion > best.distortion {
+        return false;
+    }
+
+    const best_x: i32 = best.mv_x as i32;
+    const best_y: i32 = best.mv_y as i32;
+    const candidate_base_distance: i32 = encoder_motion_search_abs_i32(mv_x - base_mv_x) + encoder_motion_search_abs_i32(mv_y - base_mv_y);
+    const best_base_distance: i32 = encoder_motion_search_abs_i32(best_x - base_mv_x) + encoder_motion_search_abs_i32(best_y - base_mv_y);
+    if candidate_base_distance < best_base_distance {
+        return true;
+    }
+    if candidate_base_distance > best_base_distance {
+        return false;
+    }
+
+    const candidate_zero_distance: i32 = encoder_motion_search_abs_i32(mv_x) + encoder_motion_search_abs_i32(mv_y);
+    const best_zero_distance: i32 = encoder_motion_search_abs_i32(best_x) + encoder_motion_search_abs_i32(best_y);
+    if candidate_zero_distance < best_zero_distance {
+        return true;
+    }
+    if candidate_zero_distance > best_zero_distance {
+        return false;
+    }
+    if mv_y < best_y {
+        return true;
+    }
+    if mv_y > best_y {
+        return false;
+    }
+    return mv_x < best_x;
+}
+
+fn encoder_motion_search_refine_candidate(best: &SubpixelMotionRefinementResult, has_best: bool, frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32, base_mv_x: i32, base_mv_y: i32) bool {
+    var valid: bool = true;
+    const distortion: u32 = encoder_motion_search_sad_y16_subpixel(frame, reference, mb_x, mb_y, mv_x, mv_y) catch {
+        valid = false;
+        0 as u32;
+    };
+    if !valid {
+        return has_best;
+    }
+
+    best.candidates_evaluated = best.candidates_evaluated + 1;
+    if encoder_motion_search_better_refinement_candidate(distortion, mv_x, mv_y, best, has_best, base_mv_x, base_mv_y) {
+        best.mv_x = mv_x as i16;
+        best.mv_y = mv_y as i16;
+        best.distortion = distortion;
+        return true;
+    }
+    return has_best;
 }
 
 fn encoder_motion_search_validate_input(frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, search_radius: usize) !void {
@@ -204,5 +312,54 @@ export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame:
     if !has_best {
         return error.ErrEncoderMotionSearchNoCandidate;
     }
+    return best;
+}
+
+export fn refine_last_frame_half_quarter_pel(refs: &EncoderReferenceFramePool, frame: &YuvFrameView, mb_x: usize, mb_y: usize, base_mv_x: i16, base_mv_y: i16) !SubpixelMotionRefinementResult {
+    if (base_mv_x % (8 as i16)) != (0 as i16) || (base_mv_y % (8 as i16)) != (0 as i16) {
+        return error.ErrEncoderMotionSearchInvalidBaseMv;
+    }
+
+    const reference: &FrameBuffer = try encoder_reference_last(refs);
+    try encoder_motion_search_validate_input(frame, reference, mb_x, mb_y, 0);
+
+    const border_extension_count: usize = frame_buffer_extend_border_counted(reference);
+    const base_x: i32 = base_mv_x as i32;
+    const base_y: i32 = base_mv_y as i32;
+    var best: SubpixelMotionRefinementResult = SubpixelMotionRefinementResult{
+        mv_x: base_mv_x,
+        mv_y: base_mv_y,
+        distortion: 4294967295 as u32,
+        candidates_evaluated: 0,
+        border_extension_count: border_extension_count
+    };
+    var has_best: bool = false;
+
+    var half_y: i32 = -4;
+    while half_y <= 4 {
+        var half_x: i32 = -4;
+        while half_x <= 4 {
+            has_best = encoder_motion_search_refine_candidate(&best, has_best, frame, reference, mb_x, mb_y, base_x + half_x, base_y + half_y, base_x, base_y);
+            half_x = half_x + 4;
+        }
+        half_y = half_y + 4;
+    }
+
+    if !has_best {
+        return error.ErrEncoderMotionSearchNoCandidate;
+    }
+
+    const half_best_x: i32 = best.mv_x as i32;
+    const half_best_y: i32 = best.mv_y as i32;
+    var quarter_y: i32 = -2;
+    while quarter_y <= 2 {
+        var quarter_x: i32 = -2;
+        while quarter_x <= 2 {
+            has_best = encoder_motion_search_refine_candidate(&best, has_best, frame, reference, mb_x, mb_y, half_best_x + quarter_x, half_best_y + quarter_y, base_x, base_y);
+            quarter_x = quarter_x + 2;
+        }
+        quarter_y = quarter_y + 2;
+    }
+
     return best;
 }
