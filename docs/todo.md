@@ -284,7 +284,7 @@
 ## Phase 12: Encoder MVP Keyframe
 
 - [x] 定义 `EncoderConfig`。
-- [~] 定义 `YuvFrameView`。
+- [x] 定义 `YuvFrameView`。
 - [ ] 实现 IVF writer 集成。
 - [ ] 实现 key frame header writer。
 - [ ] 实现 intra 16x16 mode search。

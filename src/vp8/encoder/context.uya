@@ -1,6 +1,8 @@
 use vp8.common.cpu.SimdLevel;
+use vp8.common.frame.frame_buffer_chroma_dim;
 
 error ErrEncoderConfigInvalidValue;
+error ErrYuvFrameViewInvalidGeometry;
 
 export enum EncoderRateControlMode {
     constant_quantizer = 0,
@@ -26,6 +28,22 @@ export struct EncoderConfig {
     speed_preset: EncoderSpeedPreset,
     thread_count: usize,
     simd_level: SimdLevel
+}
+
+export struct YuvPlaneView {
+    data: &byte,
+    len: usize,
+    width: usize,
+    height: usize,
+    stride: usize
+}
+
+export struct YuvFrameView {
+    width: usize,
+    height: usize,
+    y: YuvPlaneView,
+    u: YuvPlaneView,
+    v: YuvPlaneView
 }
 
 export fn make_default_encoder_config(width: usize, height: usize) EncoderConfig {
@@ -63,4 +81,162 @@ export fn validate_encoder_config(config: &EncoderConfig) !void {
     if config.thread_count == 0 {
         return error.ErrEncoderConfigInvalidValue;
     }
+}
+
+fn yuv_checked_add(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+    return value;
+}
+
+fn yuv_checked_mul(left: usize, right: usize) !usize {
+    if left == 0 || right == 0 {
+        return 0 as usize;
+    }
+
+    const value: usize = left * right;
+    if (value / left) != right {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+    return value;
+}
+
+fn yuv_plane_required_len(width: usize, height: usize, stride: usize) !usize {
+    if width == 0 || height == 0 || stride < width {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    const row_offset: usize = try yuv_checked_mul(height - 1, stride);
+    return try yuv_checked_add(row_offset, width);
+}
+
+fn yuv_plane_visible_size(plane: &YuvPlaneView) usize {
+    return plane.width * plane.height;
+}
+
+export fn empty_yuv_plane_view() YuvPlaneView {
+    return YuvPlaneView{
+        data: null as &byte,
+        len: 0,
+        width: 0,
+        height: 0,
+        stride: 0
+    };
+}
+
+export fn empty_yuv_frame_view() YuvFrameView {
+    const plane: YuvPlaneView = empty_yuv_plane_view();
+    return YuvFrameView{
+        width: 0,
+        height: 0,
+        y: plane,
+        u: plane,
+        v: plane
+    };
+}
+
+export fn validate_yuv_plane_view(plane: &YuvPlaneView) !void {
+    if plane.data == null {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    const required: usize = try yuv_plane_required_len(plane.width, plane.height, plane.stride);
+    if plane.len < required {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+}
+
+export fn validate_yuv_frame_view(view: &YuvFrameView) !void {
+    if view.width == 0 || view.height == 0 {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    const chroma_width: usize = frame_buffer_chroma_dim(view.width);
+    const chroma_height: usize = frame_buffer_chroma_dim(view.height);
+
+    if view.y.width != view.width || view.y.height != view.height {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+    if view.u.width != chroma_width || view.u.height != chroma_height {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+    if view.v.width != chroma_width || view.v.height != chroma_height {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    try validate_yuv_plane_view(&view.y);
+    try validate_yuv_plane_view(&view.u);
+    try validate_yuv_plane_view(&view.v);
+}
+
+export fn make_yuv_plane_view(data: &byte, len: usize, width: usize, height: usize, stride: usize) !YuvPlaneView {
+    const plane: YuvPlaneView = YuvPlaneView{
+        data: data,
+        len: len,
+        width: width,
+        height: height,
+        stride: stride
+    };
+    try validate_yuv_plane_view(&plane);
+    return plane;
+}
+
+export fn make_yuv420_frame_view(
+    y_data: &byte,
+    y_len: usize,
+    u_data: &byte,
+    u_len: usize,
+    v_data: &byte,
+    v_len: usize,
+    width: usize,
+    height: usize,
+    y_stride: usize,
+    u_stride: usize,
+    v_stride: usize
+) !YuvFrameView {
+    const chroma_width: usize = frame_buffer_chroma_dim(width);
+    const chroma_height: usize = frame_buffer_chroma_dim(height);
+    const y: YuvPlaneView = try make_yuv_plane_view(y_data, y_len, width, height, y_stride);
+    const u: YuvPlaneView = try make_yuv_plane_view(u_data, u_len, chroma_width, chroma_height, u_stride);
+    const v: YuvPlaneView = try make_yuv_plane_view(v_data, v_len, chroma_width, chroma_height, v_stride);
+
+    const view: YuvFrameView = YuvFrameView{
+        width: width,
+        height: height,
+        y: y,
+        u: u,
+        v: v
+    };
+    try validate_yuv_frame_view(&view);
+    return view;
+}
+
+export fn make_i420_frame_view(data: &byte, len: usize, width: usize, height: usize) !YuvFrameView {
+    if data == null {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    const chroma_width: usize = frame_buffer_chroma_dim(width);
+    const chroma_height: usize = frame_buffer_chroma_dim(height);
+    const y_size: usize = try yuv_checked_mul(width, height);
+    const uv_size: usize = try yuv_checked_mul(chroma_width, chroma_height);
+    const uv_total: usize = try yuv_checked_mul(uv_size, 2);
+    const total_size: usize = try yuv_checked_add(y_size, uv_total);
+    if len < total_size {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    return try make_yuv420_frame_view(
+        data, y_size,
+        &data[y_size] as &byte, uv_size,
+        &data[y_size + uv_size] as &byte, uv_size,
+        width, height,
+        width, chroma_width, chroma_width
+    );
+}
+
+export fn yuv420_frame_view_size(view: &YuvFrameView) usize {
+    return yuv_plane_visible_size(&view.y) + yuv_plane_visible_size(&view.u) + yuv_plane_visible_size(&view.v);
 }
