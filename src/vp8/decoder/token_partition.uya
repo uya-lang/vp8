@@ -1,0 +1,151 @@
+use vp8.bitstream.header.vp8_token_partition_for_row;
+
+error ErrTokenPartitionWorkerInvalidRows;
+
+export struct TokenPartitionWorkerAssignment {
+    partition_id: u8,
+    worker_index: usize,
+    first_mb_row: usize,
+    row_count: usize
+}
+
+export struct TokenPartitionWorkerPlan {
+    mb_rows: usize,
+    token_partition_count: u8,
+    worker_count: usize,
+    assignment_count: usize,
+    assignments: [TokenPartitionWorkerAssignment: 8] = []
+}
+
+export struct TokenPartitionWorkerError {
+    has_error: bool,
+    worker_index: usize,
+    mb_row: usize,
+    partition_id: u8,
+    error_id: u32,
+    byte_offset: usize
+}
+
+fn token_partition_rows_for_partition(mb_rows: usize, partition_id: usize, token_partition_count: u8) usize {
+    if partition_id >= mb_rows {
+        return 0;
+    }
+
+    return ((mb_rows - 1 - partition_id) / (token_partition_count as usize)) + 1;
+}
+
+export fn make_token_partition_worker_plan(mb_rows: usize, token_partition_count: u8, requested_workers: usize) !TokenPartitionWorkerPlan {
+    _ = try vp8_token_partition_for_row(0, token_partition_count);
+    if mb_rows == 0 {
+        return error.ErrTokenPartitionWorkerInvalidRows;
+    }
+
+    var active_partitions: usize = 0;
+    var partition: usize = 0;
+    while partition < (token_partition_count as usize) {
+        if token_partition_rows_for_partition(mb_rows, partition, token_partition_count) > 0 {
+            active_partitions = active_partitions + 1;
+        }
+        partition = partition + 1;
+    }
+
+    var worker_count: usize = requested_workers;
+    if worker_count == 0 {
+        worker_count = 1;
+    }
+    if worker_count > active_partitions {
+        worker_count = active_partitions;
+    }
+
+    var plan: TokenPartitionWorkerPlan = TokenPartitionWorkerPlan{
+        mb_rows: mb_rows,
+        token_partition_count: token_partition_count,
+        worker_count: worker_count,
+        assignment_count: 0
+    };
+
+    partition = 0;
+    while partition < (token_partition_count as usize) {
+        const row_count: usize = token_partition_rows_for_partition(mb_rows, partition, token_partition_count);
+        if row_count > 0 {
+            plan.assignments[plan.assignment_count] = TokenPartitionWorkerAssignment{
+                partition_id: partition as u8,
+                worker_index: plan.assignment_count % worker_count,
+                first_mb_row: partition,
+                row_count: row_count
+            };
+            plan.assignment_count = plan.assignment_count + 1;
+        }
+        partition = partition + 1;
+    }
+
+    return plan;
+}
+
+export fn empty_token_partition_worker_error() TokenPartitionWorkerError {
+    return TokenPartitionWorkerError{
+        has_error: false,
+        worker_index: 0,
+        mb_row: 0,
+        partition_id: 0 as u8,
+        error_id: 0 as u32,
+        byte_offset: 0
+    };
+}
+
+export fn make_token_partition_worker_error(worker_index: usize, mb_row: usize, partition_id: u8, error_id: u32, byte_offset: usize) TokenPartitionWorkerError {
+    return TokenPartitionWorkerError{
+        has_error: true,
+        worker_index: worker_index,
+        mb_row: mb_row,
+        partition_id: partition_id,
+        error_id: error_id,
+        byte_offset: byte_offset
+    };
+}
+
+fn token_partition_worker_error_before(candidate: &TokenPartitionWorkerError, current: &TokenPartitionWorkerError) bool {
+    if !candidate.has_error {
+        return false;
+    }
+    if !current.has_error {
+        return true;
+    }
+
+    if candidate.mb_row < current.mb_row {
+        return true;
+    }
+    if candidate.mb_row > current.mb_row {
+        return false;
+    }
+
+    if candidate.partition_id < current.partition_id {
+        return true;
+    }
+    if candidate.partition_id > current.partition_id {
+        return false;
+    }
+
+    if candidate.worker_index < current.worker_index {
+        return true;
+    }
+    if candidate.worker_index > current.worker_index {
+        return false;
+    }
+
+    return candidate.byte_offset < current.byte_offset;
+}
+
+export fn merge_token_partition_worker_errors(errors: &TokenPartitionWorkerError, count: usize) TokenPartitionWorkerError {
+    var best: TokenPartitionWorkerError = empty_token_partition_worker_error();
+
+    var index: usize = 0;
+    while index < count {
+        if token_partition_worker_error_before(&errors[index] as &TokenPartitionWorkerError, &best) {
+            best = errors[index];
+        }
+        index = index + 1;
+    }
+
+    return best;
+}

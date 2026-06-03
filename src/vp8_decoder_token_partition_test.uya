@@ -1,0 +1,94 @@
+use std.testing.assert_eq_i32;
+
+use vp8.decoder.token_partition.TokenPartitionWorkerAssignment;
+use vp8.decoder.token_partition.TokenPartitionWorkerError;
+use vp8.decoder.token_partition.TokenPartitionWorkerPlan;
+use vp8.decoder.token_partition.empty_token_partition_worker_error;
+use vp8.decoder.token_partition.make_token_partition_worker_error;
+use vp8.decoder.token_partition.make_token_partition_worker_plan;
+use vp8.decoder.token_partition.merge_token_partition_worker_errors;
+
+test "token partition worker plan assigns row partitions to bounded workers" {
+    const plan: TokenPartitionWorkerPlan = try make_token_partition_worker_plan(9, 4 as u8, 3);
+
+    try assert_eq_i32(plan.mb_rows as i32, 9);
+    try assert_eq_i32(plan.token_partition_count as i32, 4);
+    try assert_eq_i32(plan.worker_count as i32, 3);
+    try assert_eq_i32(plan.assignment_count as i32, 4);
+
+    const p0: TokenPartitionWorkerAssignment = plan.assignments[0];
+    const p1: TokenPartitionWorkerAssignment = plan.assignments[1];
+    const p2: TokenPartitionWorkerAssignment = plan.assignments[2];
+    const p3: TokenPartitionWorkerAssignment = plan.assignments[3];
+
+    try assert_eq_i32(p0.partition_id as i32, 0);
+    try assert_eq_i32(p0.worker_index as i32, 0);
+    try assert_eq_i32(p0.first_mb_row as i32, 0);
+    try assert_eq_i32(p0.row_count as i32, 3);
+
+    try assert_eq_i32(p1.partition_id as i32, 1);
+    try assert_eq_i32(p1.worker_index as i32, 1);
+    try assert_eq_i32(p1.first_mb_row as i32, 1);
+    try assert_eq_i32(p1.row_count as i32, 2);
+
+    try assert_eq_i32(p2.partition_id as i32, 2);
+    try assert_eq_i32(p2.worker_index as i32, 2);
+    try assert_eq_i32(p2.first_mb_row as i32, 2);
+    try assert_eq_i32(p2.row_count as i32, 2);
+
+    try assert_eq_i32(p3.partition_id as i32, 3);
+    try assert_eq_i32(p3.worker_index as i32, 0);
+    try assert_eq_i32(p3.first_mb_row as i32, 3);
+    try assert_eq_i32(p3.row_count as i32, 2);
+}
+
+test "token partition worker plan caps workers to active row partitions" {
+    const plan: TokenPartitionWorkerPlan = try make_token_partition_worker_plan(2, 8 as u8, 16);
+
+    try assert_eq_i32(plan.worker_count as i32, 2);
+    try assert_eq_i32(plan.assignment_count as i32, 2);
+    try assert_eq_i32(plan.assignments[0].partition_id as i32, 0);
+    try assert_eq_i32(plan.assignments[0].row_count as i32, 1);
+    try assert_eq_i32(plan.assignments[1].partition_id as i32, 1);
+    try assert_eq_i32(plan.assignments[1].row_count as i32, 1);
+}
+
+test "token partition worker plan rejects invalid partition counts" {
+    var failed: i32 = 0;
+    _ = make_token_partition_worker_plan(4, 3 as u8, 2) catch {
+        failed = 1;
+        TokenPartitionWorkerPlan{ mb_rows: 0, token_partition_count: 1 as u8, worker_count: 1, assignment_count: 0 };
+    };
+
+    try assert_eq_i32(failed, 1);
+}
+
+test "token partition worker errors merge deterministically by row then partition" {
+    var completion_order: [TokenPartitionWorkerError: 4] = [
+        make_token_partition_worker_error(0, 6, 2 as u8, 100 as u32, 30),
+        make_token_partition_worker_error(1, 2, 1 as u8, 200 as u32, 10),
+        empty_token_partition_worker_error(),
+        make_token_partition_worker_error(2, 2, 0 as u8, 300 as u32, 20)
+    ];
+
+    const merged: TokenPartitionWorkerError = merge_token_partition_worker_errors(&completion_order[0] as &TokenPartitionWorkerError, 4);
+    try assert_eq_i32(merged.has_error as i32, true as i32);
+    try assert_eq_i32(merged.worker_index as i32, 2);
+    try assert_eq_i32(merged.mb_row as i32, 2);
+    try assert_eq_i32(merged.partition_id as i32, 0);
+    try assert_eq_i32(merged.error_id as i32, 300);
+    try assert_eq_i32(merged.byte_offset as i32, 20);
+
+    var shuffled: [TokenPartitionWorkerError: 4] = [
+        completion_order[3],
+        completion_order[0],
+        empty_token_partition_worker_error(),
+        completion_order[1]
+    ];
+
+    const shuffled_merged: TokenPartitionWorkerError = merge_token_partition_worker_errors(&shuffled[0] as &TokenPartitionWorkerError, 4);
+    try assert_eq_i32(shuffled_merged.worker_index as i32, merged.worker_index as i32);
+    try assert_eq_i32(shuffled_merged.mb_row as i32, merged.mb_row as i32);
+    try assert_eq_i32(shuffled_merged.partition_id as i32, merged.partition_id as i32);
+    try assert_eq_i32(shuffled_merged.error_id as i32, merged.error_id as i32);
+}
