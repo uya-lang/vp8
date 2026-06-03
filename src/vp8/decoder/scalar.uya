@@ -25,7 +25,9 @@ use vp8.bitstream.header.vp8_default_probs;
 use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.simd_detect_capabilities;
 use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.DecoderFramePerformanceStats;
 use vp8.common.decode_context.decoder_context_begin_frame;
+use vp8.common.decode_context.decoder_context_collect_frame_performance_stats;
 use vp8.common.decode_context.decoder_context_begin_worker_row;
 use vp8.common.decode_context.decoder_context_worker_scratch;
 use vp8.common.coeff_context.AboveLeftCoeffContext;
@@ -44,7 +46,7 @@ use vp8.common.coeff_context.free_above_left_coeff_context;
 use vp8.common.frame.DecodedFrame;
 use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.empty_decoded_frame;
-use vp8.common.frame.frame_buffer_extend_border;
+use vp8.common.frame.frame_buffer_extend_border_counted;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
 use vp8.common.frame.frame_pool_borrow_current_decoded_frame;
 use vp8.common.frame.frame_pool_get_slot;
@@ -180,6 +182,7 @@ export struct DecoderFrameResult {
     macroblock_count: usize,
     parsed_token_partition_count: u8,
     scalar_kernel_border_extended: bool,
+    performance: DecoderFramePerformanceStats,
     has_output: bool,
     output: DecodedFrame
 }
@@ -922,13 +925,13 @@ fn parse_inter_mode_map(decoder: &Decoder, reader: &BoolReader, probs: &Vp8Probs
     }
 }
 
-fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, mb_y: usize, ref_frame: byte, mv_x: i16, mv_y: i16) !void {
+fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, mb_y: usize, ref_frame: byte, mv_x: i16, mv_y: i16) !usize {
     if (mv_x % (8 as i16)) != (0 as i16) || (mv_y % (8 as i16)) != (0 as i16) {
         return error.ErrDecoderUnsupportedSubpixelInterFrame;
     }
 
     const reference: &FrameBuffer = try reference_frame_for_macroblock(decoder, ref_frame);
-    frame_buffer_extend_border(reference);
+    const border_extension_count: usize = frame_buffer_extend_border_counted(reference);
 
     const y_x: usize = mb_x * (16 as usize);
     const y_y: usize = mb_y * (16 as usize);
@@ -948,6 +951,7 @@ fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, m
     const src_v_offset: usize = (src_uv_y * reference.v.plane.stride) + src_uv_x;
     try kernel_table_predict_inter_copy(&decoder.kernels, &dst.u.plane.origin[dst_u_offset] as &byte, dst.u.plane.stride, &reference.u.plane.origin[src_u_offset] as &byte, reference.u.plane.stride, 8, 8);
     try kernel_table_predict_inter_copy(&decoder.kernels, &dst.v.plane.origin[dst_v_offset] as &byte, dst.v.plane.stride, &reference.v.plane.origin[src_v_offset] as &byte, reference.v.plane.stride, 8, 8);
+    return border_extension_count;
 }
 
 fn decode_inter_token_row(decoder: &Decoder, coeff_ctx: &AboveLeftCoeffContext, token_reader: &BoolReader, mb_y: usize, output: &TokenDecodeRowOutput) !void {
@@ -1008,7 +1012,8 @@ fn decode_inter_token_row(decoder: &Decoder, coeff_ctx: &AboveLeftCoeffContext, 
     }
 }
 
-fn reconstruct_inter_token_row(decoder: &Decoder, frame: &FrameBuffer, factors: &DequantFactors, mb_y: usize, output: &TokenDecodeRowOutput) !void {
+fn reconstruct_inter_token_row(decoder: &Decoder, frame: &FrameBuffer, factors: &DequantFactors, mb_y: usize, output: &TokenDecodeRowOutput) !usize {
+    var border_extension_count: usize = 0;
     var mb_x: usize = 0;
     while mb_x < decoder.context.grid.mb_cols {
         const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
@@ -1018,7 +1023,7 @@ fn reconstruct_inter_token_row(decoder: &Decoder, frame: &FrameBuffer, factors: 
             predict_key_frame_y16(decoder, frame, mb_x, mb_y);
             predict_key_frame_uv(decoder, frame, mb_x, mb_y);
         } else {
-            try predict_inter_macroblock(decoder, frame, mb_x, mb_y, decoder.context.mb_info.ref_frame[mb_index], decoder.context.mb_info.mv_x[mb_index], decoder.context.mb_info.mv_y[mb_index]);
+            border_extension_count = border_extension_count + (try predict_inter_macroblock(decoder, frame, mb_x, mb_y, decoder.context.mb_info.ref_frame[mb_index], decoder.context.mb_info.mv_x[mb_index], decoder.context.mb_info.mv_y[mb_index]));
         }
 
         if !skip_coeff {
@@ -1060,15 +1065,17 @@ fn reconstruct_inter_token_row(decoder: &Decoder, frame: &FrameBuffer, factors: 
 
         mb_x = mb_x + 1;
     }
+    return border_extension_count;
 }
 
-fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8, loop_filter: &Vp8LoopFilterHeader) !void {
+fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8QuantHeader, token_readers: &BoolReader, token_partition_count: u8, loop_filter: &Vp8LoopFilterHeader) !usize {
     var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(&decoder.context.grid);
     defer free_above_left_coeff_context(&coeff_ctx);
 
     const factors: DequantFactors = build_dequant_factors(quant);
     const loop_filter_thresholds: LoopFilterThresholds = build_loop_filter_thresholds(loop_filter.level as i32, loop_filter.sharpness, false);
     const row_output_bytes: usize = try token_decode_row_output_bytes(decoder.context.grid.mb_cols);
+    var border_extension_count: usize = 0;
 
     var reconstruct_pipeline: RowReconstructPipeline = try make_row_reconstruct_pipeline(decoder.context.grid.mb_rows);
     var loop_filter_pipeline: RowLoopFilterPipeline = try make_row_loop_filter_pipeline(decoder.context.grid.mb_rows);
@@ -1081,7 +1088,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
         const row_output: TokenDecodeRowOutput = try allocate_token_decode_row_output(row_scratch, decoder.context.grid.mb_cols);
         try decode_inter_token_row(decoder, &coeff_ctx, token_reader, mb_y, &row_output);
         try coeff_scratch_note_bytes_written(row_scratch, row_output_bytes);
-        try reconstruct_inter_token_row(decoder, frame, &factors, mb_y, &row_output);
+        border_extension_count = border_extension_count + (try reconstruct_inter_token_row(decoder, frame, &factors, mb_y, &row_output));
         try coeff_scratch_note_bytes_read(row_scratch, row_output_bytes);
         try row_reconstruct_pipeline_mark_row_reconstructed(&reconstruct_pipeline, mb_y);
         const ready_filter_row: RowLoopFilterReady = try row_loop_filter_pipeline_mark_row_reconstructed(&loop_filter_pipeline, mb_y);
@@ -1093,6 +1100,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
     if flushed_filter_row.has_row {
         apply_completed_loop_filter_row(frame, decoder.context.grid.mb_cols, flushed_filter_row.mb_row, loop_filter, &loop_filter_thresholds);
     }
+    return border_extension_count;
 }
 
 export fn make_decoder(context: &DecoderContext) Decoder {
@@ -1119,6 +1127,7 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         return error.ErrDecoderInvalidFrame;
     }
 
+    const bytes_copied_for_ref_refresh_start: usize = decoder.context.frame_pool.bytes_copied_for_ref_refresh;
     const tag: Vp8FrameTag = try parse_vp8_frame_tag_checked(data, len);
     var header: Vp8FrameHeader = make_inter_header(&tag, decoder.context);
     var first_partition_reader_offset: usize = 3;
@@ -1163,13 +1172,14 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     try parse_vp8_token_partition_readers(data, len, first_partition_reader_offset, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
 
     const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
+    var border_extension_count: usize = 0;
     if key_frame {
         try decode_key_frame_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count, &loop_filter);
     } else {
-        try decode_inter_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count, &loop_filter);
+        border_extension_count = border_extension_count + (try decode_inter_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count, &loop_filter));
     }
     frame_buffer_mark_border_dirty(current);
-    frame_buffer_extend_border(current);
+    border_extension_count = border_extension_count + frame_buffer_extend_border_counted(current);
     if key_frame {
         try frame_pool_refresh_references(&decoder.context.frame_pool, true, true, true);
     }
@@ -1181,6 +1191,8 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         has_output = true;
     }
 
+    const performance: DecoderFramePerformanceStats = decoder_context_collect_frame_performance_stats(decoder.context, decoder.context.grid.mb_count, bytes_copied_for_ref_refresh_start, border_extension_count);
+
     return DecoderFrameResult{
         header: header,
         segmentation: segmentation,
@@ -1190,6 +1202,7 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         macroblock_count: decoder.context.grid.mb_count,
         parsed_token_partition_count: token_partition_count,
         scalar_kernel_border_extended: true,
+        performance: performance,
         has_output: has_output,
         output: output
     };

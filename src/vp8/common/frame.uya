@@ -285,19 +285,28 @@ export fn frame_buffer_border_dirty(frame: &FrameBuffer) bool {
     return frame.y_border_dirty || frame.u_border_dirty || frame.v_border_dirty;
 }
 
-export fn frame_buffer_extend_border(frame: &FrameBuffer) void {
+export fn frame_buffer_extend_border_counted(frame: &FrameBuffer) usize {
+    var count: usize = 0;
     if frame.y_border_dirty {
         extend_plane_border(&frame.y.plane);
         frame.y_border_dirty = false;
+        count = count + 1;
     }
     if frame.u_border_dirty {
         extend_plane_border(&frame.u.plane);
         frame.u_border_dirty = false;
+        count = count + 1;
     }
     if frame.v_border_dirty {
         extend_plane_border(&frame.v.plane);
         frame.v_border_dirty = false;
+        count = count + 1;
     }
+    return count;
+}
+
+export fn frame_buffer_extend_border(frame: &FrameBuffer) void {
+    _ = frame_buffer_extend_border_counted(frame);
 }
 
 fn frame_pool_get_ref_count(pool: &FramePool, slot: usize) !usize {

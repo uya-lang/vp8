@@ -34,8 +34,20 @@ export struct DecoderContext {
     thread_scratch_worker_count: usize,
     thread_scratch_capacity: usize,
     thread_scratch_alignment: usize,
+    last_frame_stats: DecoderFramePerformanceStats,
     init_heap_allocation_count: usize,
     hot_loop_heap_allocation_count: usize
+}
+
+export struct DecoderFramePerformanceStats {
+    macroblock_count: usize,
+    thread_count: usize,
+    hot_loop_heap_allocation_count: usize,
+    bytes_copied_for_ref_refresh: usize,
+    coeff_scratch_bytes_written: usize,
+    coeff_scratch_bytes_read: usize,
+    coeff_scratch_high_water: usize,
+    border_extension_count: usize
 }
 
 fn empty_macroblock_grid() MacroblockGrid {
@@ -60,8 +72,22 @@ export fn empty_decoder_context() DecoderContext {
         thread_scratch_worker_count: 0,
         thread_scratch_capacity: 0,
         thread_scratch_alignment: 0,
+        last_frame_stats: empty_decoder_frame_performance_stats(),
         init_heap_allocation_count: 0,
         hot_loop_heap_allocation_count: 0
+    };
+}
+
+export fn empty_decoder_frame_performance_stats() DecoderFramePerformanceStats {
+    return DecoderFramePerformanceStats{
+        macroblock_count: 0,
+        thread_count: 0,
+        hot_loop_heap_allocation_count: 0,
+        bytes_copied_for_ref_refresh: 0,
+        coeff_scratch_bytes_written: 0,
+        coeff_scratch_bytes_read: 0,
+        coeff_scratch_high_water: 0,
+        border_extension_count: 0
     };
 }
 
@@ -180,6 +206,7 @@ export fn free_decoder_context(context: &DecoderContext) void {
     context.width = 0;
     context.height = 0;
     context.grid = empty_macroblock_grid();
+    context.last_frame_stats = empty_decoder_frame_performance_stats();
     context.init_heap_allocation_count = 0;
     context.hot_loop_heap_allocation_count = 0;
 }
@@ -228,4 +255,60 @@ export fn decoder_context_hot_loop_alloc_bytes(context: &DecoderContext, size: u
 export fn decoder_context_worker_hot_loop_alloc_bytes(context: &DecoderContext, worker_index: usize, size: usize, alignment: usize) !&byte {
     const scratch: &RowScratchArena = try decoder_context_worker_scratch(context, worker_index);
     return try row_scratch_alloc_bytes(scratch, size, alignment);
+}
+
+fn decoder_context_accumulate_scratch_stats(context: &DecoderContext, coeff_bytes_written: &usize, coeff_bytes_read: &usize, high_water: &usize) void {
+    coeff_bytes_written[0] = coeff_bytes_written[0] + context.scratch.coeff_bytes_written;
+    coeff_bytes_read[0] = coeff_bytes_read[0] + context.scratch.coeff_bytes_read;
+    if context.scratch.high_water > high_water[0] {
+        high_water[0] = context.scratch.high_water;
+    }
+
+    var worker_index: usize = 1;
+    while worker_index < context.thread_scratch_worker_count {
+        const scratch: &RowScratchArena = decoder_context_worker_scratch(context, worker_index) catch {
+            return;
+        };
+        coeff_bytes_written[0] = coeff_bytes_written[0] + scratch.coeff_bytes_written;
+        coeff_bytes_read[0] = coeff_bytes_read[0] + scratch.coeff_bytes_read;
+        if scratch.high_water > high_water[0] {
+            high_water[0] = scratch.high_water;
+        }
+        worker_index = worker_index + 1;
+    }
+}
+
+export fn decoder_context_collect_frame_performance_stats(context: &DecoderContext, macroblock_count: usize, bytes_copied_for_ref_refresh_start: usize, border_extension_count: usize) DecoderFramePerformanceStats {
+    var coeff_bytes_written: usize = 0;
+    var coeff_bytes_read: usize = 0;
+    var coeff_scratch_high_water: usize = 0;
+    decoder_context_accumulate_scratch_stats(context, &coeff_bytes_written, &coeff_bytes_read, &coeff_scratch_high_water);
+
+    var bytes_copied_for_ref_refresh: usize = context.frame_pool.bytes_copied_for_ref_refresh;
+    if bytes_copied_for_ref_refresh >= bytes_copied_for_ref_refresh_start {
+        bytes_copied_for_ref_refresh = bytes_copied_for_ref_refresh - bytes_copied_for_ref_refresh_start;
+    } else {
+        bytes_copied_for_ref_refresh = 0;
+    }
+
+    context.last_frame_stats = DecoderFramePerformanceStats{
+        macroblock_count: macroblock_count,
+        thread_count: context.thread_scratch_worker_count,
+        hot_loop_heap_allocation_count: context.hot_loop_heap_allocation_count,
+        bytes_copied_for_ref_refresh: bytes_copied_for_ref_refresh,
+        coeff_scratch_bytes_written: coeff_bytes_written,
+        coeff_scratch_bytes_read: coeff_bytes_read,
+        coeff_scratch_high_water: coeff_scratch_high_water,
+        border_extension_count: border_extension_count
+    };
+    return DecoderFramePerformanceStats{
+        macroblock_count: macroblock_count,
+        thread_count: context.thread_scratch_worker_count,
+        hot_loop_heap_allocation_count: context.hot_loop_heap_allocation_count,
+        bytes_copied_for_ref_refresh: bytes_copied_for_ref_refresh,
+        coeff_scratch_bytes_written: coeff_bytes_written,
+        coeff_scratch_bytes_read: coeff_bytes_read,
+        coeff_scratch_high_water: coeff_scratch_high_water,
+        border_extension_count: border_extension_count
+    };
 }

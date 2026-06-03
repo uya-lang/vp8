@@ -310,6 +310,15 @@ test "Decoder.decode_frame wires header mode token readers and scalar kernel sta
     try expect(context.scratch.high_water > token_decode_row_scratch_bytes());
     try expect(context.scratch.high_water >= (try token_decode_row_output_bytes(context.grid.mb_cols)));
     try assert_eq_i32(context.hot_loop_heap_allocation_count as i32, 0);
+    try assert_eq_i32(result.performance.macroblock_count as i32, 1);
+    try assert_eq_i32(result.performance.thread_count as i32, 1);
+    try assert_eq_i32(result.performance.hot_loop_heap_allocation_count as i32, 0);
+    try assert_eq_i32(result.performance.bytes_copied_for_ref_refresh as i32, 0);
+    try expect(result.performance.coeff_scratch_bytes_written > 0);
+    try expect(result.performance.coeff_scratch_bytes_read > 0);
+    try expect(result.performance.coeff_scratch_high_water >= (try token_decode_row_output_bytes(context.grid.mb_cols)));
+    try assert_eq_i32(result.performance.border_extension_count as i32, 3);
+    try assert_eq_i32(context.last_frame_stats.border_extension_count as i32, result.performance.border_extension_count as i32);
     try assert_eq_i32(context.mb_info.y_mode[0] as i32, 0);
     try assert_eq_i32(context.mb_info.uv_mode[0] as i32, 0);
 
@@ -421,6 +430,8 @@ test "inter frame decode copies last reference for zero motion macroblock" {
 
     const result: DecoderFrameResult = try decoder_decode_frame(&decoder, &frame[0] as &byte, 3 + 256 + bool_writer_byte_count(&token_writer) + 8);
     try assert_eq_i32(result.header.frame_type as i32, 1);
+    try expect(result.performance.border_extension_count >= 3);
+    try assert_eq_i32(result.performance.bytes_copied_for_ref_refresh as i32, 0);
     try assert_eq_i32(context.mb_info.ref_frame[0] as i32, 1);
     try assert_eq_i32(context.mb_info.mv_x[0] as i32, 0);
     try assert_eq_i32(context.mb_info.mv_y[0] as i32, 0);
