@@ -79,6 +79,19 @@
       "output_frames": 2,
       "yuv_bytes": 768,
       "yuv_md5": "c620b3f0df394a7509cb2a26dde5a3d5"
+    },
+    {
+      "name": "segmentation-zero-16x16",
+      "source": "generated synthetic VP8 key frame with segmentation enabled and zero deltas from tests/tiny_ivf_md5.py",
+      "variant": "segmentation-zero",
+      "groups": ["tiny", "key", "segmentation"],
+      "container": "ivf",
+      "width": 16,
+      "height": 16,
+      "frame_count": 1,
+      "output_frames": 1,
+      "yuv_bytes": 384,
+      "yuv_md5": "02b5d5d5ba2a5de00017b31c40c527bc"
     }
   ]
 }

@@ -52,8 +52,8 @@ build/vp8uya --help
 
 `make test` runs UYA unit tests for bitstream, boolean coder, container,
 decoder context, scalar kernels, and scalar decoder behavior. It also generates
-six tiny IVF samples, including a key+inter sample, decodes them through the
-CLI, and checks their YUV MD5 values against built-in goldens.
+seven tiny IVF samples, including key+inter and segmentation samples, decodes
+them through the CLI, and checks their YUV MD5 values against built-in goldens.
 
 `make test-decoder-scalar` runs the decoder suite with
 `VP8UYA_FORCE_SCALAR=1` and is the scalar reference regression gate.
@@ -62,6 +62,8 @@ outputs are generated under `build/tiny-md5/`.
 `make test-keyframe-md5` runs only manifest samples in the `key` group.
 `make test-inter-md5` runs only manifest samples in the `inter` group.
 `make test-non16-md5` runs only manifest samples in the `non16` group.
+`make test-segmentation-md5` runs only manifest samples in the `segmentation`
+group.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.

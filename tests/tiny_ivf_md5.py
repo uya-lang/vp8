@@ -152,6 +152,21 @@ def write_eob(writer: BoolWriter, block_type: int, position: int, context: int) 
     writer.write(0, DEFAULT_COEFF_PROBS[coeff_prob_offset(block_type, position, context)])
 
 
+def write_segmentation_header(writer: BoolWriter, sample: Sample) -> None:
+    if sample.variant != "segmentation-zero":
+        writer.write(0, 128)
+        return
+
+    writer.write(1, 128)
+    writer.write(0, 128)
+    writer.write(1, 128)
+    writer.write(0, 128)
+    for _ in range(4):
+        writer.write(0, 128)
+    for _ in range(4):
+        writer.write(0, 128)
+
+
 def write_one_then_eob(writer: BoolWriter, block_type: int, position: int, context: int) -> None:
     offset = coeff_prob_offset(block_type, position, context)
     writer.write(1, DEFAULT_COEFF_PROBS[offset])
@@ -163,7 +178,7 @@ def write_one_then_eob(writer: BoolWriter, block_type: int, position: int, conte
 
 def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
     writer = BoolWriter(256)
-    writer.write(0, 128)
+    write_segmentation_header(writer, sample)
     write_literal(writer, 0, 1)
     write_literal(writer, 0, 6)
     write_literal(writer, 0, 3)
