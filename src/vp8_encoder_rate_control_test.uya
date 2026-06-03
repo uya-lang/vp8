@@ -1,4 +1,6 @@
 use std.testing.assert_eq_i32;
+use std.testing.assert_eq_i64;
+use std.testing.assert_eq_u64;
 
 use vp8.encoder.context.EncoderConfig;
 use vp8.encoder.context.EncoderRateControlMode;
@@ -7,9 +9,11 @@ use vp8.encoder.rate_control.EncoderCbrBufferModel;
 use vp8.encoder.rate_control.EncoderCbrBufferUpdate;
 use vp8.encoder.rate_control.EncoderRateControl;
 use vp8.encoder.rate_control.EncoderRateControlDecision;
+use vp8.encoder.rate_control.EncoderRateControlFrameReport;
 use vp8.encoder.rate_control.encoder_cbr_buffer_finish_frame;
 use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
 use vp8.encoder.rate_control.encoder_rate_control_finish_frame;
+use vp8.encoder.rate_control.make_encoder_rate_control_frame_report;
 use vp8.encoder.rate_control.make_encoder_cbr_buffer_model;
 use vp8.encoder.rate_control.make_encoder_rate_control;
 
@@ -49,6 +53,18 @@ fn dummy_cbr_buffer_update() EncoderCbrBufferUpdate {
         after_fullness_bits: 0,
         underflow: false,
         overflow: false
+    };
+}
+
+fn dummy_frame_report() EncoderRateControlFrameReport {
+    return EncoderRateControlFrameReport{
+        target_bits: 0,
+        actual_bits: 0,
+        error_bits: 0,
+        absolute_error_bits: 0,
+        error_ppm: 0 as u64,
+        tolerance_ppm: 0,
+        within_tolerance: false
     };
 }
 
@@ -153,6 +169,29 @@ test "simple VBR quantizer adjustment clamps to VP8 qindex range" {
     try encoder_rate_control_finish_frame(&low, 0);
     const low_decision: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&low, false);
     try assert_eq_i32(low_decision.quantizer as i32, 0);
+}
+
+test "target bitrate frame report measures error against tolerance" {
+    const low: EncoderRateControlFrameReport = try make_encoder_rate_control_frame_report(8000, 7600, 100000);
+    try assert_eq_i32(low.target_bits as i32, 8000);
+    try assert_eq_i32(low.actual_bits as i32, 7600);
+    try assert_eq_i64(low.error_bits, 0 - 400);
+    try assert_eq_i32(low.absolute_error_bits as i32, 400);
+    try assert_eq_u64(low.error_ppm, 50000 as u64);
+    try assert_eq_i32(low.within_tolerance as i32, true as i32);
+
+    const high: EncoderRateControlFrameReport = try make_encoder_rate_control_frame_report(8000, 9000, 100000);
+    try assert_eq_i64(high.error_bits, 1000);
+    try assert_eq_i32(high.absolute_error_bits as i32, 1000);
+    try assert_eq_u64(high.error_ppm, 125000 as u64);
+    try assert_eq_i32(high.within_tolerance as i32, false as i32);
+
+    var failed: i32 = 0;
+    _ = make_encoder_rate_control_frame_report(0, 100, 100000) catch {
+        failed = 1;
+        dummy_frame_report();
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "CBR buffer model replenishes budget and clamps underflow overflow" {

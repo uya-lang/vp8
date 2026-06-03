@@ -51,7 +51,10 @@ use vp8.encoder.quality.EncoderSsimReport;
 use vp8.encoder.quality.calculate_encoder_quality_yuv_to_visible;
 use vp8.encoder.rate_control.EncoderRateControl;
 use vp8.encoder.rate_control.EncoderRateControlDecision;
+use vp8.encoder.rate_control.EncoderRateControlFrameReport;
 use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
+use vp8.encoder.rate_control.encoder_rate_control_finish_frame;
+use vp8.encoder.rate_control.make_encoder_rate_control_frame_report;
 use vp8.encoder.rate_control.make_encoder_rate_control;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
@@ -63,13 +66,21 @@ error ErrOutOfMemory;
 error ErrReadFile;
 error ErrWriteFile;
 error ErrCliScratchCapacityOverflow;
+error ErrEncodeBitrateUnavailable;
 error ErrEncodeQualityUnavailable;
 
 const CLI_MIN_ROW_SCRATCH_CAPACITY: usize = 65536;
+const CLI_ENCODE_BITRATE_TOLERANCE_PPM: u32 = 100000;
+const CLI_U32_MAX_AS_USIZE: usize = 4294967295;
 
 struct FileBuffer {
     data: &byte,
     len: usize
+}
+
+struct EncodedKeyframeAnalysis {
+    quality: EncoderQualityReport,
+    payload_bits: u32
 }
 
 fn print_help() void {
@@ -239,6 +250,15 @@ fn print_encode_ssim_report(report: &EncoderSsimReport) void {
     print_encode_ssim_metric("u\0" as &byte, &report.u);
     print_encode_ssim_metric("v\0" as &byte, &report.v);
     print_encode_ssim_metric("all\0" as &byte, &report.all);
+}
+
+fn print_encode_bitrate_report(report: &EncoderRateControlFrameReport) void {
+    _ = printf("encode.bitrate.target_bits=%u\n", report.target_bits);
+    _ = printf("encode.bitrate.actual_bits=%u\n", report.actual_bits);
+    _ = printf("encode.bitrate.error_bits=%ld\n", report.error_bits);
+    _ = printf("encode.bitrate.error_ppm=%lu\n", report.error_ppm);
+    _ = printf("encode.bitrate.tolerance_ppm=%u\n", report.tolerance_ppm);
+    _ = printf("encode.bitrate.within_tolerance=%u\n", report.within_tolerance as u32);
 }
 
 fn env_flag_enabled(name: &const byte) bool {
@@ -465,13 +485,21 @@ fn run_decode_frame(input_path: &byte, frame_index: u32, output_path: &byte, for
     return 2;
 }
 
-fn calculate_encoded_keyframe_quality(reference: &YuvFrameView, encoded: &byte, encoded_len: usize, width: usize, height: usize) !EncoderQualityReport {
+fn encoded_keyframe_payload_bits(payload_len: usize) !u32 {
+    if payload_len > (CLI_U32_MAX_AS_USIZE / 8) {
+        return error.ErrEncodeBitrateUnavailable;
+    }
+    return (payload_len * 8) as u32;
+}
+
+fn analyze_encoded_keyframe(reference: &YuvFrameView, encoded: &byte, encoded_len: usize, width: usize, height: usize) !EncodedKeyframeAnalysis {
     const header: IvfHeader = try parse_ivf_header(encoded, encoded_len);
     var iterator: IvfFrameIterator = try make_ivf_frame_iterator(encoded, encoded_len, &header);
     if !ivf_frame_iterator_has_next(&iterator) {
         return error.ErrEncodeQualityUnavailable;
     }
     const frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    const payload_bits: u32 = try encoded_keyframe_payload_bits(frame.payload.len);
 
     const row_scratch_capacity: usize = try cli_row_scratch_capacity(width);
     var context: DecoderContext = try allocate_decoder_context_with_thread_scratch(width, height, 32, 32, row_scratch_capacity, 1);
@@ -484,7 +512,10 @@ fn calculate_encoded_keyframe_quality(reference: &YuvFrameView, encoded: &byte, 
     }
 
     const report: EncoderQualityReport = try calculate_encoder_quality_yuv_to_visible(reference, &result.output.view);
-    return report;
+    return EncodedKeyframeAnalysis{
+        quality: report,
+        payload_bits: payload_bits
+    };
 }
 
 fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override: i32, target_bitrate_bps: u32, output_path: &byte) i32 {
@@ -541,8 +572,12 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
         _ = printf("error: failed to encode keyframe IVF\n");
         return 2;
     };
-    const quality_report: EncoderQualityReport = calculate_encoded_keyframe_quality(&frame, out_data, written_len, width, height) catch {
+    const analysis: EncodedKeyframeAnalysis = analyze_encoded_keyframe(&frame, out_data, written_len, width, height) catch {
         _ = printf("error: failed to compute encode quality metrics\n");
+        return 2;
+    };
+    encoder_rate_control_finish_frame(&rate_control, analysis.payload_bits) catch {
+        _ = printf("error: failed to finish rate control frame\n");
         return 2;
     };
 
@@ -557,8 +592,15 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
         _ = printf("error: failed to write encode output file\n");
         return 2;
     }
-    print_encode_psnr_report(&quality_report.psnr);
-    print_encode_ssim_report(&quality_report.ssim);
+    print_encode_psnr_report(&analysis.quality.psnr);
+    print_encode_ssim_report(&analysis.quality.ssim);
+    if decision.target_bits != 0 {
+        const bitrate_report: EncoderRateControlFrameReport = make_encoder_rate_control_frame_report(decision.target_bits, analysis.payload_bits, CLI_ENCODE_BITRATE_TOLERANCE_PPM) catch {
+            _ = printf("error: failed to compute encode bitrate report\n");
+            return 2;
+        };
+        print_encode_bitrate_report(&bitrate_report);
+    }
     return 0;
 }
 

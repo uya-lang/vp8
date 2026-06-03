@@ -28,6 +28,16 @@ export struct EncoderRateControlDecision {
     is_keyframe: bool
 }
 
+export struct EncoderRateControlFrameReport {
+    target_bits: u32,
+    actual_bits: u32,
+    error_bits: i64,
+    absolute_error_bits: u32,
+    error_ppm: u64,
+    tolerance_ppm: u32,
+    within_tolerance: bool
+}
+
 export struct EncoderCbrBufferModel {
     capacity_bits: u32,
     fullness_bits: u32,
@@ -122,6 +132,30 @@ fn encoder_rate_control_clamp_qindex(value: i32) u8 {
         return 127 as u8;
     }
     return value as u8;
+}
+
+export fn make_encoder_rate_control_frame_report(target_bits: u32, actual_bits: u32, tolerance_ppm: u32) !EncoderRateControlFrameReport {
+    if target_bits == 0 {
+        return error.ErrEncoderRateControlInvalidInput;
+    }
+
+    var absolute_error_bits: u32 = 0;
+    if actual_bits >= target_bits {
+        absolute_error_bits = actual_bits - target_bits;
+    } else {
+        absolute_error_bits = target_bits - actual_bits;
+    }
+
+    const error_ppm: u64 = ((absolute_error_bits as u64) * (1000000 as u64)) / (target_bits as u64);
+    return EncoderRateControlFrameReport{
+        target_bits: target_bits,
+        actual_bits: actual_bits,
+        error_bits: (actual_bits as i64) - (target_bits as i64),
+        absolute_error_bits: absolute_error_bits,
+        error_ppm: error_ppm,
+        tolerance_ppm: tolerance_ppm,
+        within_tolerance: error_ppm <= (tolerance_ppm as u64)
+    };
 }
 
 export fn make_encoder_rate_control(config: &EncoderConfig) !EncoderRateControl {
