@@ -3,6 +3,7 @@ use std.testing.assert_eq_i32;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
+use vp8.encoder.quant.scan_quantized_block_last_nonzero_4x4;
 use vp8.encoder.quant.EncoderCoefficientToken;
 use vp8.encoder.quant.tokenize_quantized_block_4x4;
 use vp8.token.parse.CoefficientBlockSummary;
@@ -346,6 +347,23 @@ test "encoder coefficient tokenize supports start position and omits full-block 
     const full_count: usize = try tokenize_quantized_block_4x4(&skip_dc_qcoeff[0] as &i16, 1, &tokens[0] as &EncoderCoefficientToken, 16);
     try assert_eq_i32(full_count as i32, 15);
     try assert_token(&tokens[14] as &EncoderCoefficientToken, 15 as byte, VP8_COEFF_TOKEN_FOUR, 4 as i16, 4 as i16, 0 as u8, 0 as u16, 0 as u8);
+}
+
+test "encoder coefficient scan helper finds scan-order last nonzero from start position" {
+    var qcoeff: [i16: 16] = [
+        9, 0, 7, 0,
+        -2, 0, 0, 0,
+        5, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+
+    try assert_eq_i32((try scan_quantized_block_last_nonzero_4x4(&qcoeff[0] as &i16, 0)) as i32, 5);
+    try assert_eq_i32((try scan_quantized_block_last_nonzero_4x4(&qcoeff[0] as &i16, 3)) as i32, 5);
+    try assert_eq_i32((try scan_quantized_block_last_nonzero_4x4(&qcoeff[0] as &i16, 6)) as i32, 16);
+
+    qcoeff[15] = -4 as i16;
+    try assert_eq_i32((try scan_quantized_block_last_nonzero_4x4(&qcoeff[0] as &i16, 1)) as i32, 15);
+    try assert_eq_i32((try scan_quantized_block_last_nonzero_4x4(&qcoeff[0] as &i16, 16)) as i32, 16);
 }
 
 test "encoder coefficient tokenize rejects invalid input capacity and magnitude" {

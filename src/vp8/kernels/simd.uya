@@ -28,6 +28,12 @@ const SIMD_VP8_SUBPIXEL_FILTERS: [i16: 48] = [
     1, -8, 36, 108, -11, 2,
     0, -1, 12, 123, -6, 0
 ];
+const SIMD_VP8_COEFF_SCAN_POSITION_BY_INDEX: [i16: 16] = [
+    0, 1, 5, 6,
+    2, 4, 7, 12,
+    3, 8, 11, 13,
+    9, 10, 14, 15
+];
 
 export fn load_u8x16(src: &u8) U8x16 {
     return @vector.load(src);
@@ -1645,6 +1651,31 @@ fn simd_quantize_summary(qcoeff: &i16) !CoefficientBlockSummary {
 
     summary.dc_only = summary.coefficient_count == (1 as byte) && qcoeff[0] != (0 as i16);
     return summary;
+}
+
+export fn token_scan_last_nonzero_4x4_i16x16(qcoeff: &i16, start_position: usize) !usize {
+    if qcoeff == null {
+        return error.ErrEncoderTokenizeInvalidInput;
+    }
+    if start_position > 16 {
+        return error.ErrEncoderTokenizeInvalidPosition;
+    }
+    if start_position == 16 {
+        return 16 as usize;
+    }
+
+    const values: I16x16 = @vector.load(qcoeff);
+    const nonzero: I16Mask16 = values != @vector.splat(0 as i16);
+    const scan_positions: I16x16 = @vector.load(&SIMD_VP8_COEFF_SCAN_POSITION_BY_INDEX[0] as &i16);
+    const inactive: I16x16 = @vector.splat(-1 as i16);
+    const nonzero_positions: I16x16 = @vector.select(nonzero, scan_positions, inactive);
+    const in_range: I16Mask16 = nonzero_positions >= @vector.splat(start_position as i16);
+    const active_positions: I16x16 = @vector.select(in_range, nonzero_positions, inactive);
+    const last_position: i16 = @vector.reduce_max(active_positions);
+    if last_position < (0 as i16) {
+        return 16 as usize;
+    }
+    return last_position as usize;
 }
 
 fn simd_quantize_store_chunk(input: &i16, offset: usize, dc_factor: i16, ac_factor: i16, qcoeff: &i16, dqcoeff: &i16) void {

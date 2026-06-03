@@ -359,7 +359,7 @@
 - [x] SIMD forward DCT。
 - [x] SIMD forward WHT。
 - [x] SIMD quantize/dequantize。
-- [ ] SIMD token scan helper。
+- [x] SIMD token scan helper。
 - [ ] SIMD sub-pixel predictor for motion search。
 - [ ] SIMD intra predictor cost。
 - [ ] Encoder benchmark 标量/SIMD 对照。

@@ -9,7 +9,7 @@ const ASM_X86_VP8_SUBPIXEL_FILTERS: [i16: 48] = [
     0, -1, 12, 123, -6, 0
 ];
 
-fn subpixel_offset_index(offset: u8) usize {
+fn asm_x86_subpixel_offset_index(offset: u8) usize {
     if offset > (7 as u8) {
         return 7;
     }
@@ -58,7 +58,7 @@ fn luma_horizontal_filter_sample_x86(src: &byte, filter: &i16) byte {
 }
 
 export fn predict_luma_subpixel_horizontal_x86_asm(dst: &byte, dst_stride: usize, src_window: &byte, src_stride: usize, width: usize, height: usize, xoffset: u8) void {
-    const offset: usize = subpixel_offset_index(xoffset);
+    const offset: usize = asm_x86_subpixel_offset_index(xoffset);
     if offset == 0 {
         var copy_row: usize = 0;
         while copy_row < height {

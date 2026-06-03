@@ -106,6 +106,7 @@ use vp8.kernels.simd.variance_16x16_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
+use vp8.kernels.simd.token_scan_last_nonzero_4x4_i16x16;
 use vp8.token.parse.CoefficientBlockSummary;
 
 type TestU8x16 = @vector(u8, 16);
@@ -998,6 +999,23 @@ test "SIMD quantize and dequantize match scalar coefficient outputs" {
     dequant_block_4x4(&scalar_qcoeff[0] as &i16, 5 as i16, 7 as i16, &scalar_dequantized[0] as &i16);
     dequant_block_4x4_i16x16(&scalar_qcoeff[0] as &i16, 5 as i16, 7 as i16, &simd_dequantized[0] as &i16);
     try assert_i16_block_eq(&simd_dequantized[0] as &i16, &scalar_dequantized[0] as &i16);
+}
+
+test "SIMD token scan helper finds last nonzero in VP8 scan order" {
+    var qcoeff: [i16: 16] = [
+        9, 0, 7, 0,
+        -2, 0, 0, 0,
+        5, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+
+    try assert_eq_i32((try token_scan_last_nonzero_4x4_i16x16(&qcoeff[0] as &i16, 0)) as i32, 5);
+    try assert_eq_i32((try token_scan_last_nonzero_4x4_i16x16(&qcoeff[0] as &i16, 3)) as i32, 5);
+    try assert_eq_i32((try token_scan_last_nonzero_4x4_i16x16(&qcoeff[0] as &i16, 6)) as i32, 16);
+
+    qcoeff[15] = -4 as i16;
+    try assert_eq_i32((try token_scan_last_nonzero_4x4_i16x16(&qcoeff[0] as &i16, 1)) as i32, 15);
+    try assert_eq_i32((try token_scan_last_nonzero_4x4_i16x16(&qcoeff[0] as &i16, 16)) as i32, 16);
 }
 
 test "SIMD luma sub-pixel horizontal filter matches scalar byte exact" {

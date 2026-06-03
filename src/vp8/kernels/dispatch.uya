@@ -4,6 +4,7 @@ use vp8.common.cpu.simd_level_available;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
+use vp8.encoder.quant.scan_quantized_block_last_nonzero_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.predict_inter_copy;
@@ -32,6 +33,7 @@ use vp8.kernels.simd.satd_16x16_u8x16;
 use vp8.kernels.simd.sse_4x4_u8x16;
 use vp8.kernels.simd.sse_8x8_u8x16;
 use vp8.kernels.simd.sse_16x16_u8x16;
+use vp8.kernels.simd.token_scan_last_nonzero_4x4_i16x16;
 use vp8.kernels.simd.variance_4x4_u8x16;
 use vp8.kernels.simd.variance_8x8_u8x16;
 use vp8.kernels.simd.variance_16x16_u8x16;
@@ -48,6 +50,7 @@ export struct KernelFunctionTable {
     forward_walsh_hadamard_y2_4x4_fn: &void,
     quantize_block_4x4_fn: &void,
     dequant_block_4x4_fn: &void,
+    token_scan_last_nonzero_4x4_fn: &void,
     sad_16x16_fn: &void,
     sad_8x8_fn: &void,
     sad_4x4_fn: &void,
@@ -71,6 +74,7 @@ export fn make_scalar_kernel_table() KernelFunctionTable {
         forward_walsh_hadamard_y2_4x4_fn: &forward_walsh_hadamard_y2_4x4,
         quantize_block_4x4_fn: &quantize_block_4x4,
         dequant_block_4x4_fn: &dequant_block_4x4,
+        token_scan_last_nonzero_4x4_fn: &scan_quantized_block_last_nonzero_4x4,
         sad_16x16_fn: &sad_16x16,
         sad_8x8_fn: &sad_8x8,
         sad_4x4_fn: &sad_4x4,
@@ -101,6 +105,7 @@ export fn make_forced_simd_kernel_table(capabilities: &SimdCapabilities) KernelF
             forward_walsh_hadamard_y2_4x4_fn: &forward_walsh_hadamard_y2_4x4_i32x4,
             quantize_block_4x4_fn: &quantize_block_4x4_i16x16,
             dequant_block_4x4_fn: &dequant_block_4x4_i16x16,
+            token_scan_last_nonzero_4x4_fn: &token_scan_last_nonzero_4x4_i16x16,
             sad_16x16_fn: &sad_16x16_u8x16,
             sad_8x8_fn: &sad_8x8_u8x16,
             sad_4x4_fn: &sad_4x4_u8x16,
@@ -176,6 +181,16 @@ export fn kernel_table_dequant_block_4x4(table: &KernelFunctionTable, input: &i1
     if table.dequant_block_4x4_fn == (&dequant_block_4x4_i16x16 as &void) {
         dequant_block_4x4_i16x16(input, dc_factor, ac_factor, output);
         return;
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_token_scan_last_nonzero_4x4(table: &KernelFunctionTable, qcoeff: &i16, start_position: usize) !usize {
+    if table.token_scan_last_nonzero_4x4_fn == (&scan_quantized_block_last_nonzero_4x4 as &void) {
+        return try scan_quantized_block_last_nonzero_4x4(qcoeff, start_position);
+    }
+    if table.token_scan_last_nonzero_4x4_fn == (&token_scan_last_nonzero_4x4_i16x16 as &void) {
+        return try token_scan_last_nonzero_4x4_i16x16(qcoeff, start_position);
     }
     return error.ErrKernelFunctionTableInvalidEntry;
 }

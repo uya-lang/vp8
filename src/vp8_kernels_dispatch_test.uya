@@ -20,6 +20,7 @@ use vp8.kernels.dispatch.kernel_table_satd_16x16;
 use vp8.kernels.dispatch.kernel_table_sse_4x4;
 use vp8.kernels.dispatch.kernel_table_sse_8x8;
 use vp8.kernels.dispatch.kernel_table_sse_16x16;
+use vp8.kernels.dispatch.kernel_table_token_scan_last_nonzero_4x4;
 use vp8.kernels.dispatch.kernel_table_variance_4x4;
 use vp8.kernels.dispatch.kernel_table_variance_8x8;
 use vp8.kernels.dispatch.kernel_table_variance_16x16;
@@ -106,6 +107,7 @@ test "kernel table exposes scalar function pointers" {
     try expect(table.forward_walsh_hadamard_y2_4x4_fn != null);
     try expect(table.quantize_block_4x4_fn != null);
     try expect(table.dequant_block_4x4_fn != null);
+    try expect(table.token_scan_last_nonzero_4x4_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -199,6 +201,8 @@ test "kernel table exposes scalar function pointers" {
     var dequant_output: [i16: 16] = [];
     try kernel_table_dequant_block_4x4(&table, &qcoeff[0] as &i16, 5 as i16, 7 as i16, &dequant_output[0] as &i16);
     try assert_i16_block_eq(&dequant_output[0] as &i16, &dqcoeff_expected[0] as &i16);
+    try assert_eq_i32((try kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 1)) as i32, 15);
+    try assert_eq_i32((try kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 16)) as i32, 16);
 
     var sad_src: [byte: 400] = [];
     var sad_reference: [byte: 448] = [];
@@ -282,6 +286,7 @@ test "default kernel table remains scalar until SIMD kernels are registered" {
     try expect(table.forward_walsh_hadamard_y2_4x4_fn != null);
     try expect(table.quantize_block_4x4_fn != null);
     try expect(table.dequant_block_4x4_fn != null);
+    try expect(table.token_scan_last_nonzero_4x4_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -307,6 +312,7 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     try expect(table.forward_walsh_hadamard_y2_4x4_fn != null);
     try expect(table.quantize_block_4x4_fn != null);
     try expect(table.dequant_block_4x4_fn != null);
+    try expect(table.token_scan_last_nonzero_4x4_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -389,6 +395,8 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     var dequant_output: [i16: 16] = [];
     try kernel_table_dequant_block_4x4(&table, &qcoeff[0] as &i16, 5 as i16, 7 as i16, &dequant_output[0] as &i16);
     try assert_i16_block_eq(&dequant_output[0] as &i16, &dqcoeff_expected[0] as &i16);
+    try assert_eq_i32((try kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 1)) as i32, 15);
+    try assert_eq_i32((try kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 16)) as i32, 16);
 
     var src: [byte: 400] = [];
     var reference: [byte: 448] = [];
@@ -492,6 +500,17 @@ test "kernel table wrappers reject unknown entries" {
 
     kernel_table_dequant_block_4x4(&table, &qcoeff[0] as &i16, 5 as i16, 7 as i16, &dqcoeff[0] as &i16) catch {
         failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.token_scan_last_nonzero_4x4_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 0) catch {
+        failed = 1;
+        16 as usize;
     };
 
     try assert_eq_i32(failed, 1);

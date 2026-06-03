@@ -298,15 +298,15 @@ fn store_encoder_token(tokens: &EncoderCoefficientToken, capacity: usize, count:
     tokens[count].extra_bit_count = token.extra_bit_count;
 }
 
-export fn tokenize_quantized_block_4x4(qcoeff: &i16, start_position: usize, tokens: &EncoderCoefficientToken, capacity: usize) !usize {
-    if qcoeff == null || tokens == null {
+export fn scan_quantized_block_last_nonzero_4x4(qcoeff: &i16, start_position: usize) !usize {
+    if qcoeff == null {
         return error.ErrEncoderTokenizeInvalidInput;
     }
     if start_position > 16 {
         return error.ErrEncoderTokenizeInvalidPosition;
     }
     if start_position == 16 {
-        return 0 as usize;
+        return 16 as usize;
     }
 
     var last_nonzero_position: usize = 16;
@@ -319,6 +319,22 @@ export fn tokenize_quantized_block_4x4(qcoeff: &i16, start_position: usize, toke
         position = position + 1;
     }
 
+    return last_nonzero_position;
+}
+
+export fn tokenize_quantized_block_4x4(qcoeff: &i16, start_position: usize, tokens: &EncoderCoefficientToken, capacity: usize) !usize {
+    if qcoeff == null || tokens == null {
+        return error.ErrEncoderTokenizeInvalidInput;
+    }
+    if start_position > 16 {
+        return error.ErrEncoderTokenizeInvalidPosition;
+    }
+    if start_position == 16 {
+        return 0 as usize;
+    }
+
+    const last_nonzero_position: usize = try scan_quantized_block_last_nonzero_4x4(qcoeff, start_position);
+
     var count: usize = 0;
     if last_nonzero_position == 16 {
         var eob_token: EncoderCoefficientToken = make_eob_token(start_position);
@@ -326,7 +342,7 @@ export fn tokenize_quantized_block_4x4(qcoeff: &i16, start_position: usize, toke
         return 1 as usize;
     }
 
-    position = start_position;
+    var position: usize = start_position;
     while position <= last_nonzero_position {
         const scan_index: byte = try coefficient_scan_index(position);
         const coefficient: i16 = qcoeff[scan_index as usize];
