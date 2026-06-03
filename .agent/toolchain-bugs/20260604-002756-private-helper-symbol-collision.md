@@ -28,3 +28,5 @@ export extern fn main() i32 {
 
 ## Notes
 The repro also includes `.agent/toolchain-bugs/repros/20260604-002756-private-helper-symbol-collision/left/mod.uya` and `.agent/toolchain-bugs/repros/20260604-002756-private-helper-symbol-collision/right/mod.uya`; each module defines a private helper named `shared_private` and one exported wrapper.
+
+Reverified on 2026-06-04: the repro command still fails under `--no-split-c` with a `shared_private` redefinition error.
