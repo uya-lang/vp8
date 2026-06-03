@@ -333,7 +333,7 @@
 - [x] 简单 VBR 模式。
 - [x] CBR buffer model。
 - [x] keyframe interval 控制。
-- [ ] quantizer delta 调整。
+- [x] quantizer delta 调整。
 - [ ] loop filter level 自动选择。
 - [ ] RD cost model。
 - [ ] 4x4 intra RD refine。

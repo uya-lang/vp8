@@ -1,0 +1,67 @@
+use vp8.bitstream.header.Vp8QuantHeader;
+
+error ErrEncoderQuantizerDeltaInvalidInput;
+
+const ENCODER_QUANTIZER_DELTA_MIN: i16 = -15;
+const ENCODER_QUANTIZER_DELTA_MAX: i16 = 15;
+
+export struct EncoderQuantizerDeltaAdjustment {
+    base_quantizer: u8,
+    requested_delta: i16,
+    adjusted_quantizer: u8,
+    applied_delta: i16,
+    clamped: bool
+}
+
+fn encoder_quantizer_delta_clamp_qindex(value: i32) u8 {
+    if value < 0 {
+        return 0 as u8;
+    }
+    if value > 127 {
+        return 127 as u8;
+    }
+    return value as u8;
+}
+
+fn encoder_quantizer_delta_checked_header_delta(value: i16) !i8 {
+    if value < ENCODER_QUANTIZER_DELTA_MIN || value > ENCODER_QUANTIZER_DELTA_MAX {
+        return error.ErrEncoderQuantizerDeltaInvalidInput;
+    }
+    return value as i8;
+}
+
+export fn adjust_encoder_quantizer_delta(base_quantizer: u8, delta: i16) !EncoderQuantizerDeltaAdjustment {
+    if base_quantizer > (127 as u8) {
+        return error.ErrEncoderQuantizerDeltaInvalidInput;
+    }
+
+    const adjusted: u8 = encoder_quantizer_delta_clamp_qindex((base_quantizer as i32) + (delta as i32));
+    const applied: i16 = (adjusted as i16) - (base_quantizer as i16);
+    return EncoderQuantizerDeltaAdjustment{
+        base_quantizer: base_quantizer,
+        requested_delta: delta,
+        adjusted_quantizer: adjusted,
+        applied_delta: applied,
+        clamped: applied != delta
+    };
+}
+
+export fn make_encoder_quant_header_with_deltas(
+    base_quantizer: u8,
+    frame_delta: i16,
+    y1_dc_delta: i16,
+    y2_dc_delta: i16,
+    y2_ac_delta: i16,
+    uv_dc_delta: i16,
+    uv_ac_delta: i16
+) !Vp8QuantHeader {
+    const frame_adjustment: EncoderQuantizerDeltaAdjustment = try adjust_encoder_quantizer_delta(base_quantizer, frame_delta);
+    return Vp8QuantHeader{
+        base_qindex: frame_adjustment.adjusted_quantizer,
+        y1_dc_delta: try encoder_quantizer_delta_checked_header_delta(y1_dc_delta),
+        y2_dc_delta: try encoder_quantizer_delta_checked_header_delta(y2_dc_delta),
+        y2_ac_delta: try encoder_quantizer_delta_checked_header_delta(y2_ac_delta),
+        uv_dc_delta: try encoder_quantizer_delta_checked_header_delta(uv_dc_delta),
+        uv_ac_delta: try encoder_quantizer_delta_checked_header_delta(uv_ac_delta)
+    };
+}

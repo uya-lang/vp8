@@ -1,0 +1,79 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8QuantHeader;
+use vp8.encoder.quantizer_delta.EncoderQuantizerDeltaAdjustment;
+use vp8.encoder.quantizer_delta.adjust_encoder_quantizer_delta;
+use vp8.encoder.quantizer_delta.make_encoder_quant_header_with_deltas;
+
+fn dummy_quantizer_delta_adjustment() EncoderQuantizerDeltaAdjustment {
+    return EncoderQuantizerDeltaAdjustment{
+        base_quantizer: 0 as u8,
+        requested_delta: 0,
+        adjusted_quantizer: 0 as u8,
+        applied_delta: 0,
+        clamped: false
+    };
+}
+
+fn dummy_quant_header() Vp8QuantHeader {
+    return Vp8QuantHeader{
+        base_qindex: 0 as u8,
+        y1_dc_delta: 0,
+        y2_dc_delta: 0,
+        y2_ac_delta: 0,
+        uv_dc_delta: 0,
+        uv_ac_delta: 0
+    };
+}
+
+test "quantizer delta adjusts base qindex and reports clamping" {
+    const normal: EncoderQuantizerDeltaAdjustment = try adjust_encoder_quantizer_delta(32 as u8, -6);
+    try assert_eq_i32(normal.base_quantizer as i32, 32);
+    try assert_eq_i32(normal.requested_delta as i32, -6);
+    try assert_eq_i32(normal.adjusted_quantizer as i32, 26);
+    try assert_eq_i32(normal.applied_delta as i32, -6);
+    try assert_eq_i32(normal.clamped as i32, false as i32);
+
+    const low: EncoderQuantizerDeltaAdjustment = try adjust_encoder_quantizer_delta(3 as u8, -10);
+    try assert_eq_i32(low.adjusted_quantizer as i32, 0);
+    try assert_eq_i32(low.applied_delta as i32, -3);
+    try assert_eq_i32(low.clamped as i32, true as i32);
+
+    const high: EncoderQuantizerDeltaAdjustment = try adjust_encoder_quantizer_delta(126 as u8, 9);
+    try assert_eq_i32(high.adjusted_quantizer as i32, 127);
+    try assert_eq_i32(high.applied_delta as i32, 1);
+    try assert_eq_i32(high.clamped as i32, true as i32);
+}
+
+test "quantizer delta builds VP8 quant header with checked coefficient deltas" {
+    const quant: Vp8QuantHeader = try make_encoder_quant_header_with_deltas(40 as u8, -5, 1, -2, 3, -4, 5);
+    try assert_eq_i32(quant.base_qindex as i32, 35);
+    try assert_eq_i32(quant.y1_dc_delta as i32, 1);
+    try assert_eq_i32(quant.y2_dc_delta as i32, -2);
+    try assert_eq_i32(quant.y2_ac_delta as i32, 3);
+    try assert_eq_i32(quant.uv_dc_delta as i32, -4);
+    try assert_eq_i32(quant.uv_ac_delta as i32, 5);
+}
+
+test "quantizer delta rejects invalid qindex and encoded delta range" {
+    var failed: i32 = 0;
+    _ = adjust_encoder_quantizer_delta(128 as u8, 0) catch {
+        failed = 1;
+        dummy_quantizer_delta_adjustment();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = make_encoder_quant_header_with_deltas(32 as u8, 0, 16, 0, 0, 0, 0) catch {
+        failed = 1;
+        dummy_quant_header();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = make_encoder_quant_header_with_deltas(32 as u8, 0, 0, 0, 0, 0, -16) catch {
+        failed = 1;
+        dummy_quant_header();
+    };
+    try assert_eq_i32(failed, 1);
+}
