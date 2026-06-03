@@ -1596,6 +1596,13 @@ fn simd_store_i32x4_to_i16(output: &i16, values: I32x4) void {
     }
 }
 
+fn simd_wht_round_negative_i32x4(values: I32x4) I32x4 {
+    const negative: I32Mask4 = values < @vector.splat(0);
+    const one: I32x4 = @vector.splat(1);
+    const zero: I32x4 = @vector.splat(0);
+    return values + @vector.select(negative, one, zero);
+}
+
 export fn forward_dct_4x4_i32x4(input: &i16, input_stride: usize, output: &i16) void {
     const in0: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 0);
     const in1: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 1);
@@ -1640,6 +1647,62 @@ export fn forward_dct_4x4_i32x4(input: &i16, input_stride: usize, output: &i16) 
     const second_adjust: I32x4 = @vector.select(d2_nonzero, one, zero);
     out1 = out1 + second_adjust;
     const out3: I32x4 = ((d2 * @vector.splat(2217)) - (c2 * @vector.splat(5352)) + @vector.splat(51000)) >> @vector.splat(16);
+
+    simd_store_i32x4_to_i16(output, out0);
+    simd_store_i32x4_to_i16(&output[4] as &i16, out1);
+    simd_store_i32x4_to_i16(&output[8] as &i16, out2);
+    simd_store_i32x4_to_i16(&output[12] as &i16, out3);
+}
+
+export fn forward_walsh_hadamard_y2_4x4_i32x4(input: &i16, input_stride: usize, output: &i16) void {
+    const in0: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 0);
+    const in1: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 1);
+    const in2: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 2);
+    const in3: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 3);
+
+    const a1: I32x4 = (in0 + in2) * @vector.splat(4);
+    const d1: I32x4 = (in1 + in3) * @vector.splat(4);
+    const c1: I32x4 = (in1 - in3) * @vector.splat(4);
+    const b1: I32x4 = (in0 - in2) * @vector.splat(4);
+
+    const a1_nonzero: I32Mask4 = a1 != @vector.splat(0);
+    const one: I32x4 = @vector.splat(1);
+    const zero: I32x4 = @vector.splat(0);
+    const dc_adjust: I32x4 = @vector.select(a1_nonzero, one, zero);
+    const tmp_col0_values: I32x4 = a1 + d1 + dc_adjust;
+    const tmp_col1_values: I32x4 = b1 + c1;
+    const tmp_col2_values: I32x4 = b1 - c1;
+    const tmp_col3_values: I32x4 = a1 - d1;
+
+    var tmp_col0: [i32: 4] = [];
+    var tmp_col1: [i32: 4] = [];
+    var tmp_col2: [i32: 4] = [];
+    var tmp_col3: [i32: 4] = [];
+    @vector.store(&tmp_col0[0] as &i32, tmp_col0_values);
+    @vector.store(&tmp_col1[0] as &i32, tmp_col1_values);
+    @vector.store(&tmp_col2[0] as &i32, tmp_col2_values);
+    @vector.store(&tmp_col3[0] as &i32, tmp_col3_values);
+
+    const row0: I32x4 = make_i32x4(tmp_col0[0], tmp_col1[0], tmp_col2[0], tmp_col3[0]);
+    const row1: I32x4 = make_i32x4(tmp_col0[1], tmp_col1[1], tmp_col2[1], tmp_col3[1]);
+    const row2: I32x4 = make_i32x4(tmp_col0[2], tmp_col1[2], tmp_col2[2], tmp_col3[2]);
+    const row3: I32x4 = make_i32x4(tmp_col0[3], tmp_col1[3], tmp_col2[3], tmp_col3[3]);
+
+    const a2_input: I32x4 = (row0 + row2) + (row1 + row3);
+    const b2_input: I32x4 = (row0 - row2) + (row1 - row3);
+    const c2_input: I32x4 = (row0 - row2) - (row1 - row3);
+    const d2_input: I32x4 = (row0 + row2) - (row1 + row3);
+
+    const rounded0: I32x4 = simd_wht_round_negative_i32x4(a2_input);
+    const rounded1: I32x4 = simd_wht_round_negative_i32x4(b2_input);
+    const rounded2: I32x4 = simd_wht_round_negative_i32x4(c2_input);
+    const rounded3: I32x4 = simd_wht_round_negative_i32x4(d2_input);
+    const round_offset: I32x4 = @vector.splat(3);
+    const shift: I32x4 = @vector.splat(3);
+    const out0: I32x4 = (rounded0 + round_offset) >> shift;
+    const out1: I32x4 = (rounded1 + round_offset) >> shift;
+    const out2: I32x4 = (rounded2 + round_offset) >> shift;
+    const out3: I32x4 = (rounded3 + round_offset) >> shift;
 
     simd_store_i32x4_to_i16(output, out0);
     simd_store_i32x4_to_i16(&output[4] as &i16, out1);

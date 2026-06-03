@@ -2,6 +2,7 @@ use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.SimdLevel;
 use vp8.common.cpu.simd_level_available;
 use vp8.encoder.quant.forward_dct_4x4;
+use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.sad_4x4;
@@ -20,6 +21,7 @@ use vp8.kernels.simd.sad_4x4_u8x16;
 use vp8.kernels.simd.sad_8x8_u8x16;
 use vp8.kernels.simd.sad_16x16_u8x16;
 use vp8.kernels.simd.forward_dct_4x4_i32x4;
+use vp8.kernels.simd.forward_walsh_hadamard_y2_4x4_i32x4;
 use vp8.kernels.simd.satd_4x4_u8x16;
 use vp8.kernels.simd.satd_8x8_u8x16;
 use vp8.kernels.simd.satd_16x16_u8x16;
@@ -38,6 +40,7 @@ export struct KernelFunctionTable {
     predict_inter_copy_fn: &void,
     add_residual_4x4_clamped_fn: &void,
     forward_dct_4x4_fn: &void,
+    forward_walsh_hadamard_y2_4x4_fn: &void,
     sad_16x16_fn: &void,
     sad_8x8_fn: &void,
     sad_4x4_fn: &void,
@@ -58,6 +61,7 @@ export fn make_scalar_kernel_table() KernelFunctionTable {
         predict_inter_copy_fn: &predict_inter_copy,
         add_residual_4x4_clamped_fn: &add_residual_4x4_clamped,
         forward_dct_4x4_fn: &forward_dct_4x4,
+        forward_walsh_hadamard_y2_4x4_fn: &forward_walsh_hadamard_y2_4x4,
         sad_16x16_fn: &sad_16x16,
         sad_8x8_fn: &sad_8x8,
         sad_4x4_fn: &sad_4x4,
@@ -85,6 +89,7 @@ export fn make_forced_simd_kernel_table(capabilities: &SimdCapabilities) KernelF
             predict_inter_copy_fn: &predict_inter_copy,
             add_residual_4x4_clamped_fn: &add_residual_4x4_clamped,
             forward_dct_4x4_fn: &forward_dct_4x4_i32x4,
+            forward_walsh_hadamard_y2_4x4_fn: &forward_walsh_hadamard_y2_4x4_i32x4,
             sad_16x16_fn: &sad_16x16_u8x16,
             sad_8x8_fn: &sad_8x8_u8x16,
             sad_4x4_fn: &sad_4x4_u8x16,
@@ -125,6 +130,18 @@ export fn kernel_table_forward_dct_4x4(table: &KernelFunctionTable, input: &i16,
     }
     if table.forward_dct_4x4_fn == (&forward_dct_4x4_i32x4 as &void) {
         forward_dct_4x4_i32x4(input, input_stride, output);
+        return;
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_forward_walsh_hadamard_y2_4x4(table: &KernelFunctionTable, input: &i16, input_stride: usize, output: &i16) !void {
+    if table.forward_walsh_hadamard_y2_4x4_fn == (&forward_walsh_hadamard_y2_4x4 as &void) {
+        forward_walsh_hadamard_y2_4x4(input, input_stride, output);
+        return;
+    }
+    if table.forward_walsh_hadamard_y2_4x4_fn == (&forward_walsh_hadamard_y2_4x4_i32x4 as &void) {
+        forward_walsh_hadamard_y2_4x4_i32x4(input, input_stride, output);
         return;
     }
     return error.ErrKernelFunctionTableInvalidEntry;

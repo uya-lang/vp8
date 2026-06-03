@@ -357,7 +357,7 @@
 - [x] SIMD SSE/variance。
 - [x] SIMD SATD/Hadamard cost。
 - [x] SIMD forward DCT。
-- [ ] SIMD forward WHT。
+- [x] SIMD forward WHT。
 - [ ] SIMD quantize/dequantize。
 - [ ] SIMD token scan helper。
 - [ ] SIMD sub-pixel predictor for motion search。
