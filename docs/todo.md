@@ -315,7 +315,7 @@
 - [x] 实现 inter/intra mode decision。
 - [x] 实现 skip decision。
 - [x] 实现 golden frame refresh policy。
-- [ ] 实现 altref frame refresh policy。
+- [x] 实现 altref frame refresh policy。
 - [ ] 实现 segmentation basic policy。
 - [ ] 实现 token partition packing。
 - [ ] 实现 inter frame reconstruction。

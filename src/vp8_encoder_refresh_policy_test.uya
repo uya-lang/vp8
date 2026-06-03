@@ -3,19 +3,32 @@ use std.testing.assert_eq_i32;
 use vp8.common.frame.FrameBuffer;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_altref;
 use vp8.encoder.reference_pool.encoder_reference_bytes_copied;
 use vp8.encoder.reference_pool.encoder_reference_current;
 use vp8.encoder.reference_pool.encoder_reference_golden;
 use vp8.encoder.reference_pool.encoder_reference_refresh;
 use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.encoder.refresh_policy.EncoderAltRefRefreshDecision;
+use vp8.encoder.refresh_policy.EncoderAltRefRefreshPolicy;
 use vp8.encoder.refresh_policy.EncoderGoldenRefreshDecision;
 use vp8.encoder.refresh_policy.EncoderGoldenRefreshPolicy;
+use vp8.encoder.refresh_policy.decide_altref_frame_refresh;
 use vp8.encoder.refresh_policy.decide_golden_frame_refresh;
+use vp8.encoder.refresh_policy.make_fixed_interval_altref_refresh_policy;
 use vp8.encoder.refresh_policy.make_fixed_interval_golden_refresh_policy;
 
 fn dummy_golden_decision() EncoderGoldenRefreshDecision {
     return EncoderGoldenRefreshDecision{
         refresh_golden: false,
+        refresh_due_to_keyframe: false,
+        refresh_due_to_interval: false
+    };
+}
+
+fn dummy_altref_decision() EncoderAltRefRefreshDecision {
+    return EncoderAltRefRefreshDecision{
+        refresh_altref: false,
         refresh_due_to_keyframe: false,
         refresh_due_to_interval: false
     };
@@ -77,6 +90,66 @@ test "golden refresh policy rejects null policy input" {
     _ = decide_golden_frame_refresh(null as &EncoderGoldenRefreshPolicy, 1, false) catch {
         failed = 1;
         dummy_golden_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}
+
+test "altref refresh policy always refreshes keyframes" {
+    const disabled: EncoderAltRefRefreshPolicy = try make_fixed_interval_altref_refresh_policy(0);
+    const decision: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&disabled, 0, true);
+
+    try assert_eq_i32(decision.refresh_altref as i32, true as i32);
+    try assert_eq_i32(decision.refresh_due_to_keyframe as i32, true as i32);
+    try assert_eq_i32(decision.refresh_due_to_interval as i32, false as i32);
+}
+
+test "altref refresh policy refreshes non-keyframes at fixed nonzero intervals" {
+    const policy: EncoderAltRefRefreshPolicy = try make_fixed_interval_altref_refresh_policy(5);
+
+    const frame0: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&policy, 0, false);
+    const frame4: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&policy, 4, false);
+    const frame5: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&policy, 5, false);
+    const frame10: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&policy, 10, false);
+
+    try assert_eq_i32(frame0.refresh_altref as i32, false as i32);
+    try assert_eq_i32(frame4.refresh_altref as i32, false as i32);
+    try assert_eq_i32(frame5.refresh_altref as i32, true as i32);
+    try assert_eq_i32(frame5.refresh_due_to_interval as i32, true as i32);
+    try assert_eq_i32(frame10.refresh_altref as i32, true as i32);
+}
+
+test "altref refresh policy can disable periodic non-key refresh" {
+    const policy: EncoderAltRefRefreshPolicy = try make_fixed_interval_altref_refresh_policy(0);
+    const decision: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&policy, 20, false);
+
+    try assert_eq_i32(decision.refresh_altref as i32, false as i32);
+    try assert_eq_i32(decision.refresh_due_to_keyframe as i32, false as i32);
+    try assert_eq_i32(decision.refresh_due_to_interval as i32, false as i32);
+}
+
+test "altref refresh decision aliases current frame without copy through reference pool" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    const current_slot: usize = refs.pool.current_slot;
+
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+    current.v.plane.origin[0] = 177 as byte;
+
+    const policy: EncoderAltRefRefreshPolicy = try make_fixed_interval_altref_refresh_policy(3);
+    const decision: EncoderAltRefRefreshDecision = try decide_altref_frame_refresh(&policy, 3, false);
+    try encoder_reference_refresh(&refs, false, false, decision.refresh_altref);
+
+    const altref: &FrameBuffer = try encoder_reference_altref(&refs);
+    try assert_eq_i32(refs.pool.altref_slot as i32, current_slot as i32);
+    try assert_eq_i32(altref.v.plane.origin[0] as i32, 177);
+    try assert_eq_i32(encoder_reference_bytes_copied(&refs) as i32, 0);
+}
+
+test "altref refresh policy rejects null policy input" {
+    var failed: i32 = 0;
+    _ = decide_altref_frame_refresh(null as &EncoderAltRefRefreshPolicy, 1, false) catch {
+        failed = 1;
+        dummy_altref_decision();
     };
     try assert_eq_i32(failed, 1);
 }
