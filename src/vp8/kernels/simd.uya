@@ -1578,6 +1578,75 @@ export fn inverse_transform_dc_only_4x4_i16x16(dc: i16, output: &i16) void {
     @vector.store(output, values);
 }
 
+fn simd_load_i16_column_i32x4(input: &i16, input_stride: usize, col: usize) I32x4 {
+    const row1: usize = input_stride;
+    const row2: usize = input_stride * 2;
+    const row3: usize = input_stride * 3;
+    return make_i32x4(input[col] as i32, input[row1 + col] as i32, input[row2 + col] as i32, input[row3 + col] as i32);
+}
+
+fn simd_store_i32x4_to_i16(output: &i16, values: I32x4) void {
+    var lanes: [i32: 4] = [];
+    @vector.store(&lanes[0] as &i32, values);
+
+    var index: usize = 0;
+    while index < 4 {
+        output[index] = lanes[index] as i16;
+        index = index + 1;
+    }
+}
+
+export fn forward_dct_4x4_i32x4(input: &i16, input_stride: usize, output: &i16) void {
+    const in0: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 0);
+    const in1: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 1);
+    const in2: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 2);
+    const in3: I32x4 = simd_load_i16_column_i32x4(input, input_stride, 3);
+
+    const a1: I32x4 = (in0 + in3) * @vector.splat(8);
+    const b1: I32x4 = (in1 + in2) * @vector.splat(8);
+    const c1: I32x4 = (in1 - in2) * @vector.splat(8);
+    const d1: I32x4 = (in0 - in3) * @vector.splat(8);
+
+    const tmp_col0_values: I32x4 = a1 + b1;
+    const tmp_col2_values: I32x4 = a1 - b1;
+    const tmp_col1_values: I32x4 = ((c1 * @vector.splat(2217)) + (d1 * @vector.splat(5352)) + @vector.splat(14500)) >> @vector.splat(12);
+    const tmp_col3_values: I32x4 = ((d1 * @vector.splat(2217)) - (c1 * @vector.splat(5352)) + @vector.splat(7500)) >> @vector.splat(12);
+
+    var tmp_col0: [i32: 4] = [];
+    var tmp_col1: [i32: 4] = [];
+    var tmp_col2: [i32: 4] = [];
+    var tmp_col3: [i32: 4] = [];
+    @vector.store(&tmp_col0[0] as &i32, tmp_col0_values);
+    @vector.store(&tmp_col1[0] as &i32, tmp_col1_values);
+    @vector.store(&tmp_col2[0] as &i32, tmp_col2_values);
+    @vector.store(&tmp_col3[0] as &i32, tmp_col3_values);
+
+    const row0: I32x4 = make_i32x4(tmp_col0[0], tmp_col1[0], tmp_col2[0], tmp_col3[0]);
+    const row1: I32x4 = make_i32x4(tmp_col0[1], tmp_col1[1], tmp_col2[1], tmp_col3[1]);
+    const row2: I32x4 = make_i32x4(tmp_col0[2], tmp_col1[2], tmp_col2[2], tmp_col3[2]);
+    const row3: I32x4 = make_i32x4(tmp_col0[3], tmp_col1[3], tmp_col2[3], tmp_col3[3]);
+
+    const a2: I32x4 = row0 + row3;
+    const b2: I32x4 = row1 + row2;
+    const c2: I32x4 = row1 - row2;
+    const d2: I32x4 = row0 - row3;
+
+    const out0: I32x4 = (a2 + b2 + @vector.splat(7)) >> @vector.splat(4);
+    const out2: I32x4 = (a2 - b2 + @vector.splat(7)) >> @vector.splat(4);
+    var out1: I32x4 = ((c2 * @vector.splat(2217)) + (d2 * @vector.splat(5352)) + @vector.splat(12000)) >> @vector.splat(16);
+    const d2_nonzero: I32Mask4 = d2 != @vector.splat(0);
+    const one: I32x4 = @vector.splat(1);
+    const zero: I32x4 = @vector.splat(0);
+    const second_adjust: I32x4 = @vector.select(d2_nonzero, one, zero);
+    out1 = out1 + second_adjust;
+    const out3: I32x4 = ((d2 * @vector.splat(2217)) - (c2 * @vector.splat(5352)) + @vector.splat(51000)) >> @vector.splat(16);
+
+    simd_store_i32x4_to_i16(output, out0);
+    simd_store_i32x4_to_i16(&output[4] as &i16, out1);
+    simd_store_i32x4_to_i16(&output[8] as &i16, out2);
+    simd_store_i32x4_to_i16(&output[12] as &i16, out3);
+}
+
 fn inverse_transform_4x4_one_i32x4(input: &i16, output: &i16) void {
     const in0: I32x4 = make_i32x4(input[0] as i32, input[4] as i32, input[8] as i32, input[12] as i32);
     const in1: I32x4 = make_i32x4(input[1] as i32, input[5] as i32, input[9] as i32, input[13] as i32);

@@ -356,7 +356,7 @@
 - [x] SIMD SAD 4x4。
 - [x] SIMD SSE/variance。
 - [x] SIMD SATD/Hadamard cost。
-- [ ] SIMD forward DCT。
+- [x] SIMD forward DCT。
 - [ ] SIMD forward WHT。
 - [ ] SIMD quantize/dequantize。
 - [ ] SIMD token scan helper。

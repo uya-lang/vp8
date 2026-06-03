@@ -4,6 +4,7 @@ use std.testing.expect;
 use vp8.common.plane.Plane;
 use vp8.common.plane.extend_plane_border;
 use vp8.common.plane.make_plane_view;
+use vp8.encoder.quant.forward_dct_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
@@ -58,6 +59,7 @@ use vp8.kernels.simd.loop_filter_normal_vertical_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_horizontal_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
 use vp8.kernels.simd.extend_plane_border_u8x16;
+use vp8.kernels.simd.forward_dct_4x4_i32x4;
 use vp8.kernels.simd.plane_copy_u8x16;
 use vp8.kernels.simd.plane_fill_u8x16;
 use vp8.kernels.simd.predict_inter_copy_16x16_u8x16;
@@ -102,6 +104,14 @@ use vp8.kernels.simd.store_u8x16;
 type TestU8x16 = @vector(u8, 16);
 type TestI16x8 = @vector(i16, 8);
 type TestI32x4 = @vector(i32, 4);
+
+fn assert_i16_block_eq(actual: &i16, expected: &i16) !void {
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
 
 test "SIMD helper loads and stores u8x16 blocks" {
     var src: [u8: 18] = [
@@ -857,6 +867,48 @@ test "SIMD SATD kernels match scalar Hadamard cost across block sizes" {
     const simd_satd4: u32 = satd_4x4_u8x16(&src4[1] as &byte, 7, &reference4[3] as &byte, 9);
     try assert_eq_i32(scalar_satd4 as i32, 2040);
     try assert_eq_i32(simd_satd4 as i32, scalar_satd4 as i32);
+}
+
+test "SIMD forward DCT matches scalar golden and strided input" {
+    var mixed_input: [i16: 16] = [
+        0, 2, 3, -1,
+        -2, -1, -1, 13,
+        -1, 0, 0, 4,
+        6, 3, 6, 3
+    ];
+    var mixed_expected: [i16: 16] = [
+        17, -11, 5, -1,
+        -7, -4, -1, -3,
+        5, 15, -11, 9,
+        -7, 8, -8, 3
+    ];
+    var scalar_mixed: [i16: 16] = [];
+    var simd_mixed: [i16: 16] = [];
+
+    forward_dct_4x4(&mixed_input[0] as &i16, 4, &scalar_mixed[0] as &i16);
+    forward_dct_4x4_i32x4(&mixed_input[0] as &i16, 4, &simd_mixed[0] as &i16);
+    try assert_i16_block_eq(&scalar_mixed[0] as &i16, &mixed_expected[0] as &i16);
+    try assert_i16_block_eq(&simd_mixed[0] as &i16, &scalar_mixed[0] as &i16);
+
+    var strided_input: [i16: 24] = [
+        4, 4, 4, 4, 99, 99,
+        4, 4, 4, 4, 88, 88,
+        4, 4, 4, 4, 77, 77,
+        4, 4, 4, 4, 66, 66
+    ];
+    var strided_expected: [i16: 16] = [
+        32, 1, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+    var scalar_strided: [i16: 16] = [];
+    var simd_strided: [i16: 16] = [];
+
+    forward_dct_4x4(&strided_input[0] as &i16, 6, &scalar_strided[0] as &i16);
+    forward_dct_4x4_i32x4(&strided_input[0] as &i16, 6, &simd_strided[0] as &i16);
+    try assert_i16_block_eq(&scalar_strided[0] as &i16, &strided_expected[0] as &i16);
+    try assert_i16_block_eq(&simd_strided[0] as &i16, &scalar_strided[0] as &i16);
 }
 
 test "SIMD luma sub-pixel horizontal filter matches scalar byte exact" {
