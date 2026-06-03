@@ -1,0 +1,66 @@
+use vp8.common.cpu.SimdLevel;
+
+error ErrEncoderConfigInvalidValue;
+
+export enum EncoderRateControlMode {
+    constant_quantizer = 0,
+    target_bitrate = 1,
+}
+
+export enum EncoderSpeedPreset {
+    fastest = 0,
+    fast = 1,
+    balanced = 2,
+    best = 3,
+}
+
+export struct EncoderConfig {
+    width: usize,
+    height: usize,
+    fps_numerator: u32,
+    fps_denominator: u32,
+    rate_control_mode: EncoderRateControlMode,
+    quantizer: u8,
+    target_bitrate_bps: u32,
+    keyframe_interval: u32,
+    speed_preset: EncoderSpeedPreset,
+    thread_count: usize,
+    simd_level: SimdLevel
+}
+
+export fn make_default_encoder_config(width: usize, height: usize) EncoderConfig {
+    return EncoderConfig{
+        width: width,
+        height: height,
+        fps_numerator: 30,
+        fps_denominator: 1,
+        rate_control_mode: EncoderRateControlMode.constant_quantizer,
+        quantizer: 32 as u8,
+        target_bitrate_bps: 0,
+        keyframe_interval: 120,
+        speed_preset: EncoderSpeedPreset.balanced,
+        thread_count: 1,
+        simd_level: SimdLevel.scalar
+    };
+}
+
+export fn validate_encoder_config(config: &EncoderConfig) !void {
+    if config.width == 0 || config.height == 0 {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+    if config.fps_numerator == 0 || config.fps_denominator == 0 {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+    if config.quantizer > (127 as u8) {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+    if config.rate_control_mode == EncoderRateControlMode.target_bitrate && config.target_bitrate_bps == 0 {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+    if config.keyframe_interval == 0 {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+    if config.thread_count == 0 {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+}

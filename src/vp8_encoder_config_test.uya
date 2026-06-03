@@ -1,0 +1,68 @@
+use std.testing.assert_eq_i32;
+
+use vp8.common.cpu.SimdLevel;
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderRateControlMode;
+use vp8.encoder.context.EncoderSpeedPreset;
+use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.context.validate_encoder_config;
+
+test "EncoderConfig default captures keyframe MVP settings" {
+    const config: EncoderConfig = make_default_encoder_config(640, 360);
+
+    try assert_eq_i32(config.width as i32, 640);
+    try assert_eq_i32(config.height as i32, 360);
+    try assert_eq_i32(config.fps_numerator as i32, 30);
+    try assert_eq_i32(config.fps_denominator as i32, 1);
+    try assert_eq_i32(config.rate_control_mode as i32, EncoderRateControlMode.constant_quantizer as i32);
+    try assert_eq_i32(config.quantizer as i32, 32);
+    try assert_eq_i32(config.target_bitrate_bps as i32, 0);
+    try assert_eq_i32(config.keyframe_interval as i32, 120);
+    try assert_eq_i32(config.speed_preset as i32, EncoderSpeedPreset.balanced as i32);
+    try assert_eq_i32(config.thread_count as i32, 1);
+    try assert_eq_i32(config.simd_level as i32, SimdLevel.scalar as i32);
+
+    try validate_encoder_config(&config);
+}
+
+test "EncoderConfig validates geometry timing rate control and workers" {
+    var invalid_geometry: EncoderConfig = make_default_encoder_config(0, 16);
+    var failed: i32 = 0;
+    validate_encoder_config(&invalid_geometry) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+
+    var invalid_timing: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_timing.fps_denominator = 0;
+    failed = 0;
+    validate_encoder_config(&invalid_timing) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+
+    var invalid_quantizer: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_quantizer.quantizer = 128 as u8;
+    failed = 0;
+    validate_encoder_config(&invalid_quantizer) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+
+    var invalid_bitrate: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_bitrate.rate_control_mode = EncoderRateControlMode.target_bitrate;
+    invalid_bitrate.target_bitrate_bps = 0;
+    failed = 0;
+    validate_encoder_config(&invalid_bitrate) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+
+    var invalid_thread_count: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_thread_count.thread_count = 0;
+    failed = 0;
+    validate_encoder_config(&invalid_thread_count) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+}
