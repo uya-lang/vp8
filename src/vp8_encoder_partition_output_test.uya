@@ -1,0 +1,138 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.bool_reader_read;
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_byte_count;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.bool_writer.make_bool_writer;
+use vp8.bitstream.header.parse_vp8_token_partition_readers;
+use vp8.bitstream.readers.read_le_u24_at;
+use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
+use vp8.encoder.partition_output.write_encoder_bool_partition_output;
+
+fn empty_output() EncoderBoolPartitionOutput {
+    return EncoderBoolPartitionOutput{
+        first_partition_size: 0,
+        payload_size: 0,
+        size_table_offset: 0,
+        token_data_offset: 0
+    };
+}
+
+test "encoder bool partition output flushes writers writes size table and roundtrips token readers" {
+    var first_buf: [byte: 16] = [];
+    var token0_buf: [byte: 16] = [];
+    var token1_buf: [byte: 16] = [];
+    var token2_buf: [byte: 16] = [];
+    var token3_buf: [byte: 16] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_buf[0] as &byte, 16);
+    var token_writers: [BoolWriter: 8] = [];
+    token_writers[0] = make_bool_writer(&token0_buf[0] as &byte, 16);
+    token_writers[1] = make_bool_writer(&token1_buf[0] as &byte, 16);
+    token_writers[2] = make_bool_writer(&token2_buf[0] as &byte, 16);
+    token_writers[3] = make_bool_writer(&token3_buf[0] as &byte, 16);
+
+    try bool_writer_write(&first_writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&first_writer, 0 as u8, 128 as byte);
+
+    try bool_writer_write(&token_writers[0] as &BoolWriter, 1 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[0] as &BoolWriter, 0 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[0] as &BoolWriter, 1 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[1] as &BoolWriter, 0 as u8, 200 as byte);
+    try bool_writer_write(&token_writers[1] as &BoolWriter, 1 as u8, 64 as byte);
+    try bool_writer_write(&token_writers[2] as &BoolWriter, 1 as u8, 32 as byte);
+    try bool_writer_write(&token_writers[3] as &BoolWriter, 0 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[3] as &BoolWriter, 0 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[3] as &BoolWriter, 1 as u8, 128 as byte);
+
+    var frame: [byte: 128] = [];
+    const output: EncoderBoolPartitionOutput = try write_encoder_bool_partition_output(
+        &frame[0] as &byte,
+        128,
+        0,
+        &first_writer,
+        &token_writers[0] as &BoolWriter,
+        4 as u8
+    );
+
+    try assert_eq_i32(output.first_partition_size as i32, bool_writer_byte_count(&first_writer) as i32);
+    try assert_eq_i32(output.size_table_offset as i32, output.first_partition_size as i32);
+    try assert_eq_i32(output.token_data_offset as i32, (output.first_partition_size + 9) as i32);
+    try assert_eq_i32((try read_le_u24_at(&frame[0] as &byte, output.payload_size, output.size_table_offset)) as i32, bool_writer_byte_count(&token_writers[0] as &BoolWriter) as i32);
+    try assert_eq_i32((try read_le_u24_at(&frame[0] as &byte, output.payload_size, output.size_table_offset + 3)) as i32, bool_writer_byte_count(&token_writers[1] as &BoolWriter) as i32);
+    try assert_eq_i32((try read_le_u24_at(&frame[0] as &byte, output.payload_size, output.size_table_offset + 6)) as i32, bool_writer_byte_count(&token_writers[2] as &BoolWriter) as i32);
+
+    var copy_index: usize = 0;
+    while copy_index < output.first_partition_size {
+        try assert_eq_i32(frame[copy_index] as i32, first_buf[copy_index] as i32);
+        copy_index = copy_index + 1;
+    }
+
+    var readers: [BoolReader: 8] = [];
+    try parse_vp8_token_partition_readers(&frame[0] as &byte, output.payload_size, 0, output.first_partition_size, 4 as u8, &readers[0] as &BoolReader);
+
+    try assert_eq_i32((try bool_reader_read(&readers[0] as &BoolReader, 128 as byte)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&readers[0] as &BoolReader, 128 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&readers[0] as &BoolReader, 128 as byte)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&readers[1] as &BoolReader, 200 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&readers[1] as &BoolReader, 64 as byte)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&readers[2] as &BoolReader, 32 as byte)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&readers[3] as &BoolReader, 128 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&readers[3] as &BoolReader, 128 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&readers[3] as &BoolReader, 128 as byte)) as i32, 1);
+}
+
+test "encoder bool partition output supports a single token partition without size table" {
+    var first_buf: [byte: 16] = [];
+    var token_buf: [byte: 16] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_buf[0] as &byte, 16);
+    var token_writers: [BoolWriter: 8] = [];
+    token_writers[0] = make_bool_writer(&token_buf[0] as &byte, 16);
+
+    try bool_writer_write(&first_writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[0] as &BoolWriter, 1 as u8, 128 as byte);
+
+    var frame: [byte: 64] = [];
+    const output: EncoderBoolPartitionOutput = try write_encoder_bool_partition_output(
+        &frame[0] as &byte,
+        64,
+        3,
+        &first_writer,
+        &token_writers[0] as &BoolWriter,
+        1 as u8
+    );
+
+    try assert_eq_i32(output.size_table_offset as i32, (3 + output.first_partition_size) as i32);
+    try assert_eq_i32(output.token_data_offset as i32, output.size_table_offset as i32);
+    try assert_eq_i32(output.payload_size as i32, (output.first_partition_size + bool_writer_byte_count(&token_writers[0] as &BoolWriter)) as i32);
+
+    var readers: [BoolReader: 8] = [];
+    try parse_vp8_token_partition_readers(&frame[0] as &byte, output.payload_size + 3, 3, output.first_partition_size, 1 as u8, &readers[0] as &BoolReader);
+    try assert_eq_i32((try bool_reader_read(&readers[0] as &BoolReader, 128 as byte)) as i32, 1);
+}
+
+test "encoder bool partition output rejects invalid partition counts and short output" {
+    var first_buf: [byte: 16] = [];
+    var token_buf: [byte: 16] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_buf[0] as &byte, 16);
+    var token_writers: [BoolWriter: 8] = [];
+    token_writers[0] = make_bool_writer(&token_buf[0] as &byte, 16);
+    try bool_writer_write(&first_writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[0] as &BoolWriter, 1 as u8, 128 as byte);
+
+    var frame: [byte: 4] = [];
+    var failed: i32 = 0;
+    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 4, 0, &first_writer, &token_writers[0] as &BoolWriter, 3 as u8) catch {
+        failed = 1;
+        empty_output();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 1, 0, &first_writer, &token_writers[0] as &BoolWriter, 1 as u8) catch {
+        failed = 1;
+        empty_output();
+    };
+    try assert_eq_i32(failed, 1);
+}

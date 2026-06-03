@@ -293,7 +293,7 @@
 - [x] 实现 forward WHT。
 - [x] 实现 quantize。
 - [x] 实现 coefficient tokenize。
-- [ ] 实现 bool writer partition output。
+- [x] 实现 bool writer partition output。
 - [ ] 实现本地 reconstruct。
 - [ ] 实现 key frame loop filter。
 - [ ] 实现 `encode <input.yuv> --width --height --out out.ivf`。

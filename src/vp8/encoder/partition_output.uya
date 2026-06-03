@@ -1,0 +1,148 @@
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_byte_count;
+use vp8.bitstream.bool_writer.bool_writer_flush;
+
+error ErrEncoderBoolPartitionOutputInvalidInput;
+error ErrEncoderBoolPartitionOutputInvalidCount;
+error ErrEncoderBoolPartitionOutputOutOfBounds;
+error ErrEncoderBoolPartitionOutputPartitionTooLarge;
+
+const VP8_MAX_FIRST_PARTITION_SIZE: usize = 524287;
+const VP8_MAX_TOKEN_PARTITION_SIZE_TABLE_VALUE: usize = 16777215;
+
+export struct EncoderBoolPartitionOutput {
+    first_partition_size: usize,
+    payload_size: usize,
+    size_table_offset: usize,
+    token_data_offset: usize
+}
+
+fn validate_token_partition_count(token_partition_count: u8) !void {
+    if token_partition_count == (1 as u8) ||
+        token_partition_count == (2 as u8) ||
+        token_partition_count == (4 as u8) ||
+        token_partition_count == (8 as u8) {
+        return;
+    }
+
+    return error.ErrEncoderBoolPartitionOutputInvalidCount;
+}
+
+fn checked_add(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrEncoderBoolPartitionOutputOutOfBounds;
+    }
+    return value;
+}
+
+fn encoder_partition_output_ensure_available(out: &byte, len: usize, offset: usize, need: usize) !void {
+    if out == null {
+        return error.ErrEncoderBoolPartitionOutputOutOfBounds;
+    }
+    if offset > len {
+        return error.ErrEncoderBoolPartitionOutputOutOfBounds;
+    }
+
+    const remaining: usize = len - offset;
+    if remaining < need {
+        return error.ErrEncoderBoolPartitionOutputOutOfBounds;
+    }
+}
+
+fn write_le_u24_at(out: &byte, len: usize, offset: usize, value: usize) !void {
+    if value > VP8_MAX_TOKEN_PARTITION_SIZE_TABLE_VALUE {
+        return error.ErrEncoderBoolPartitionOutputPartitionTooLarge;
+    }
+
+    try encoder_partition_output_ensure_available(out, len, offset, 3);
+    out[offset] = (value & (0xff as usize)) as byte;
+    out[offset + 1] = ((value >> 8) & (0xff as usize)) as byte;
+    out[offset + 2] = ((value >> 16) & (0xff as usize)) as byte;
+}
+
+fn copy_bytes(out: &byte, len: usize, offset: usize, source: &byte, source_len: usize) !void {
+    if source_len > 0 && source == null {
+        return error.ErrEncoderBoolPartitionOutputInvalidInput;
+    }
+    try encoder_partition_output_ensure_available(out, len, offset, source_len);
+
+    var index: usize = 0;
+    while index < source_len {
+        out[offset + index] = source[index];
+        index = index + 1;
+    }
+}
+
+fn flush_bool_partition(writer: &BoolWriter) !usize {
+    if writer == null {
+        return error.ErrEncoderBoolPartitionOutputInvalidInput;
+    }
+
+    try bool_writer_flush(writer);
+    return bool_writer_byte_count(writer);
+}
+
+export fn write_encoder_bool_partition_output(
+    out: &byte,
+    len: usize,
+    offset: usize,
+    first_partition_writer: &BoolWriter,
+    token_partition_writers: &BoolWriter,
+    token_partition_count: u8
+) !EncoderBoolPartitionOutput {
+    if token_partition_writers == null {
+        return error.ErrEncoderBoolPartitionOutputInvalidInput;
+    }
+    try validate_token_partition_count(token_partition_count);
+
+    const token_partition_count_usize: usize = token_partition_count as usize;
+    var token_partition_sizes: [usize: 8] = [];
+
+    const first_partition_size: usize = try flush_bool_partition(first_partition_writer);
+    if first_partition_size > VP8_MAX_FIRST_PARTITION_SIZE {
+        return error.ErrEncoderBoolPartitionOutputPartitionTooLarge;
+    }
+
+    var payload_size: usize = first_partition_size;
+    const size_table_len: usize = (token_partition_count_usize - 1) * 3;
+    payload_size = try checked_add(payload_size, size_table_len);
+
+    var partition_index: usize = 0;
+    while partition_index < token_partition_count_usize {
+        const partition_size: usize = try flush_bool_partition(&token_partition_writers[partition_index] as &BoolWriter);
+        if partition_index + 1 < token_partition_count_usize && partition_size > VP8_MAX_TOKEN_PARTITION_SIZE_TABLE_VALUE {
+            return error.ErrEncoderBoolPartitionOutputPartitionTooLarge;
+        }
+        token_partition_sizes[partition_index] = partition_size;
+        payload_size = try checked_add(payload_size, partition_size);
+        partition_index = partition_index + 1;
+    }
+
+    try encoder_partition_output_ensure_available(out, len, offset, payload_size);
+    try copy_bytes(out, len, offset, first_partition_writer.out, first_partition_size);
+
+    const size_table_offset: usize = offset + first_partition_size;
+    partition_index = 0;
+    while partition_index + 1 < token_partition_count_usize {
+        try write_le_u24_at(out, len, size_table_offset + (partition_index * 3), token_partition_sizes[partition_index]);
+        partition_index = partition_index + 1;
+    }
+
+    const token_data_offset: usize = size_table_offset + size_table_len;
+    var write_offset: usize = token_data_offset;
+    partition_index = 0;
+    while partition_index < token_partition_count_usize {
+        const partition_size: usize = token_partition_sizes[partition_index];
+        try copy_bytes(out, len, write_offset, token_partition_writers[partition_index].out, partition_size);
+        write_offset = try checked_add(write_offset, partition_size);
+        partition_index = partition_index + 1;
+    }
+
+    return EncoderBoolPartitionOutput{
+        first_partition_size: first_partition_size,
+        payload_size: payload_size,
+        size_table_offset: size_table_offset,
+        token_data_offset: token_data_offset
+    };
+}
