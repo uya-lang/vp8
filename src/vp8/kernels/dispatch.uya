@@ -8,6 +8,7 @@ use vp8.encoder.quant.scan_quantized_block_last_nonzero_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.predict_inter_copy;
+use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.sad_4x4;
 use vp8.kernels.scalar.sad_8x8;
 use vp8.kernels.scalar.sad_16x16;
@@ -27,6 +28,7 @@ use vp8.kernels.simd.dequant_block_4x4_i16x16;
 use vp8.kernels.simd.forward_dct_4x4_i32x4;
 use vp8.kernels.simd.forward_walsh_hadamard_y2_4x4_i32x4;
 use vp8.kernels.simd.quantize_block_4x4_i16x16;
+use vp8.kernels.simd.predict_luma_subpixel_u8x16;
 use vp8.kernels.simd.satd_4x4_u8x16;
 use vp8.kernels.simd.satd_8x8_u8x16;
 use vp8.kernels.simd.satd_16x16_u8x16;
@@ -51,6 +53,7 @@ export struct KernelFunctionTable {
     quantize_block_4x4_fn: &void,
     dequant_block_4x4_fn: &void,
     token_scan_last_nonzero_4x4_fn: &void,
+    predict_luma_subpixel_16x16_fn: &void,
     sad_16x16_fn: &void,
     sad_8x8_fn: &void,
     sad_4x4_fn: &void,
@@ -75,6 +78,7 @@ export fn make_scalar_kernel_table() KernelFunctionTable {
         quantize_block_4x4_fn: &quantize_block_4x4,
         dequant_block_4x4_fn: &dequant_block_4x4,
         token_scan_last_nonzero_4x4_fn: &scan_quantized_block_last_nonzero_4x4,
+        predict_luma_subpixel_16x16_fn: &predict_luma_subpixel,
         sad_16x16_fn: &sad_16x16,
         sad_8x8_fn: &sad_8x8,
         sad_4x4_fn: &sad_4x4,
@@ -106,6 +110,7 @@ export fn make_forced_simd_kernel_table(capabilities: &SimdCapabilities) KernelF
             quantize_block_4x4_fn: &quantize_block_4x4_i16x16,
             dequant_block_4x4_fn: &dequant_block_4x4_i16x16,
             token_scan_last_nonzero_4x4_fn: &token_scan_last_nonzero_4x4_i16x16,
+            predict_luma_subpixel_16x16_fn: &predict_luma_subpixel_u8x16,
             sad_16x16_fn: &sad_16x16_u8x16,
             sad_8x8_fn: &sad_8x8_u8x16,
             sad_4x4_fn: &sad_4x4_u8x16,
@@ -191,6 +196,18 @@ export fn kernel_table_token_scan_last_nonzero_4x4(table: &KernelFunctionTable, 
     }
     if table.token_scan_last_nonzero_4x4_fn == (&token_scan_last_nonzero_4x4_i16x16 as &void) {
         return try token_scan_last_nonzero_4x4_i16x16(qcoeff, start_position);
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_predict_luma_subpixel_16x16(table: &KernelFunctionTable, dst: &byte, dst_stride: usize, src_window: &byte, src_stride: usize, xoffset: u8, yoffset: u8) !void {
+    if table.predict_luma_subpixel_16x16_fn == (&predict_luma_subpixel as &void) {
+        predict_luma_subpixel(dst, dst_stride, src_window, src_stride, 16, 16, xoffset, yoffset);
+        return;
+    }
+    if table.predict_luma_subpixel_16x16_fn == (&predict_luma_subpixel_u8x16 as &void) {
+        predict_luma_subpixel_u8x16(dst, dst_stride, src_window, src_stride, 16, 16, xoffset, yoffset);
+        return;
     }
     return error.ErrKernelFunctionTableInvalidEntry;
 }

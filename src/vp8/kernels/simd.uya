@@ -686,6 +686,54 @@ export fn predict_luma_subpixel_vertical_u8x16(dst: &byte, dst_stride: usize, sr
     }
 }
 
+export fn predict_luma_subpixel_u8x16(dst: &byte, dst_stride: usize, src_window: &byte, src_stride: usize, width: usize, height: usize, xoffset: u8, yoffset: u8) void {
+    const x: usize = simd_subpixel_offset_index(xoffset);
+    const y: usize = simd_subpixel_offset_index(yoffset);
+    if x == 0 {
+        predict_luma_subpixel_vertical_u8x16(dst, dst_stride, src_window, src_stride, width, height, yoffset);
+        return;
+    }
+    if y == 0 {
+        predict_luma_subpixel_horizontal_u8x16(dst, dst_stride, src_window, src_stride, width, height, xoffset);
+        return;
+    }
+
+    var tmp: [byte: 336] = [];
+    const x_filter_base: usize = x * 6;
+    var tmp_row: usize = 0;
+    while tmp_row < height + 5 {
+        const tmp_base: usize = tmp_row * 16;
+        const src_base: usize = tmp_row * src_stride;
+        var tmp_col: usize = 0;
+        while (tmp_col + 4) <= width {
+            luma_horizontal_filter_4_u8x16(&tmp[tmp_base + tmp_col] as &byte, src_window, src_base + tmp_col, x_filter_base);
+            tmp_col = tmp_col + 4;
+        }
+        while tmp_col < width {
+            tmp[tmp_base + tmp_col] = luma_horizontal_filter_sample(src_window, src_base + tmp_col, x_filter_base);
+            tmp_col = tmp_col + 1;
+        }
+        tmp_row = tmp_row + 1;
+    }
+
+    const y_filter_base: usize = y * 6;
+    var out_row: usize = 0;
+    while out_row < height {
+        const dst_base: usize = out_row * dst_stride;
+        const tmp_base: usize = out_row * 16;
+        var out_col: usize = 0;
+        while (out_col + 4) <= width {
+            luma_vertical_filter_4_u8x16(&dst[dst_base + out_col] as &byte, &tmp[0] as &byte, tmp_base + out_col, 16, y_filter_base);
+            out_col = out_col + 4;
+        }
+        while out_col < width {
+            dst[dst_base + out_col] = luma_vertical_filter_sample(&tmp[0] as &byte, tmp_base + out_col, 16, y_filter_base);
+            out_col = out_col + 1;
+        }
+        out_row = out_row + 1;
+    }
+}
+
 fn simd_simple_loop_filter_passes(p1: byte, p0: byte, q0: byte, q1: byte, limit: u8) bool {
     const score: i32 = (simd_abs_i32((p0 as i32) - (q0 as i32)) * 2) + (simd_abs_i32((p1 as i32) - (q1 as i32)) >> 1);
     return score <= (limit as i32);

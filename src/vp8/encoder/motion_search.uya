@@ -6,7 +6,9 @@ use vp8.encoder.context.YuvPlaneView;
 use vp8.encoder.context.validate_yuv_frame_view;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.encoder_reference_last;
-use vp8.kernels.scalar.predict_luma_subpixel;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.kernel_table_predict_luma_subpixel_16x16;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 
 error ErrEncoderMotionSearchInvalidGeometry;
 error ErrEncoderMotionSearchInvalidBaseMv;
@@ -139,7 +141,7 @@ fn encoder_motion_search_subpel_offset(value: i32) u8 {
     return (value - (fullpel * 8)) as u8;
 }
 
-fn encoder_motion_search_sad_y16_subpixel(src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32) !u32 {
+fn encoder_motion_search_sad_y16_subpixel(kernels: &KernelFunctionTable, src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32) !u32 {
     const src_x: i32 = (mb_x * (16 as usize)) as i32;
     const src_y: i32 = (mb_y * (16 as usize)) as i32;
     const ref_x: i32 = src_x + encoder_motion_search_floor_div8(mv_x);
@@ -149,7 +151,7 @@ fn encoder_motion_search_sad_y16_subpixel(src: &YuvFrameView, reference: &FrameB
     const yoffset: u8 = encoder_motion_search_subpel_offset(mv_y);
 
     var predicted: [byte: 256] = [];
-    predict_luma_subpixel(&predicted[0] as &byte, 16, &reference.y.plane.data[window_index] as &byte, reference.y.plane.stride, 16, 16, xoffset, yoffset);
+    try kernel_table_predict_luma_subpixel_16x16(kernels, &predicted[0] as &byte, 16, &reference.y.plane.data[window_index] as &byte, reference.y.plane.stride, xoffset, yoffset);
 
     var distortion: u32 = 0;
     var row: usize = 0;
@@ -235,9 +237,9 @@ fn encoder_motion_search_better_refinement_candidate(distortion: u32, mv_x: i32,
     return mv_x < best_x;
 }
 
-fn encoder_motion_search_refine_candidate(best: &SubpixelMotionRefinementResult, has_best: bool, frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32, base_mv_x: i32, base_mv_y: i32) bool {
+fn encoder_motion_search_refine_candidate(best: &SubpixelMotionRefinementResult, has_best: bool, kernels: &KernelFunctionTable, frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32, base_mv_x: i32, base_mv_y: i32) bool {
     var valid: bool = true;
-    const distortion: u32 = encoder_motion_search_sad_y16_subpixel(frame, reference, mb_x, mb_y, mv_x, mv_y) catch {
+    const distortion: u32 = encoder_motion_search_sad_y16_subpixel(kernels, frame, reference, mb_x, mb_y, mv_x, mv_y) catch {
         valid = false;
         0 as u32;
     };
@@ -315,7 +317,10 @@ export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame:
     return best;
 }
 
-export fn refine_last_frame_half_quarter_pel(refs: &EncoderReferenceFramePool, frame: &YuvFrameView, mb_x: usize, mb_y: usize, base_mv_x: i16, base_mv_y: i16) !SubpixelMotionRefinementResult {
+export fn refine_last_frame_half_quarter_pel_with_kernel_table(refs: &EncoderReferenceFramePool, kernels: &KernelFunctionTable, frame: &YuvFrameView, mb_x: usize, mb_y: usize, base_mv_x: i16, base_mv_y: i16) !SubpixelMotionRefinementResult {
+    if kernels == null {
+        return error.ErrEncoderMotionSearchInvalidGeometry;
+    }
     if (base_mv_x % (8 as i16)) != (0 as i16) || (base_mv_y % (8 as i16)) != (0 as i16) {
         return error.ErrEncoderMotionSearchInvalidBaseMv;
     }
@@ -339,7 +344,7 @@ export fn refine_last_frame_half_quarter_pel(refs: &EncoderReferenceFramePool, f
     while half_y <= 4 {
         var half_x: i32 = -4;
         while half_x <= 4 {
-            has_best = encoder_motion_search_refine_candidate(&best, has_best, frame, reference, mb_x, mb_y, base_x + half_x, base_y + half_y, base_x, base_y);
+            has_best = encoder_motion_search_refine_candidate(&best, has_best, kernels, frame, reference, mb_x, mb_y, base_x + half_x, base_y + half_y, base_x, base_y);
             half_x = half_x + 4;
         }
         half_y = half_y + 4;
@@ -355,11 +360,16 @@ export fn refine_last_frame_half_quarter_pel(refs: &EncoderReferenceFramePool, f
     while quarter_y <= 2 {
         var quarter_x: i32 = -2;
         while quarter_x <= 2 {
-            has_best = encoder_motion_search_refine_candidate(&best, has_best, frame, reference, mb_x, mb_y, half_best_x + quarter_x, half_best_y + quarter_y, base_x, base_y);
+            has_best = encoder_motion_search_refine_candidate(&best, has_best, kernels, frame, reference, mb_x, mb_y, half_best_x + quarter_x, half_best_y + quarter_y, base_x, base_y);
             quarter_x = quarter_x + 2;
         }
         quarter_y = quarter_y + 2;
     }
 
     return best;
+}
+
+export fn refine_last_frame_half_quarter_pel(refs: &EncoderReferenceFramePool, frame: &YuvFrameView, mb_x: usize, mb_y: usize, base_mv_x: i16, base_mv_y: i16) !SubpixelMotionRefinementResult {
+    const kernels: KernelFunctionTable = make_scalar_kernel_table();
+    return try refine_last_frame_half_quarter_pel_with_kernel_table(refs, &kernels, frame, mb_x, mb_y, base_mv_x, base_mv_y);
 }

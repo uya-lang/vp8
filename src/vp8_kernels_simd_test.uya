@@ -72,6 +72,7 @@ use vp8.kernels.simd.predict_inter_copy_16x16_u8x16;
 use vp8.kernels.simd.predict_inter_copy_8x8_u8x16;
 use vp8.kernels.simd.predict_inter_copy_4x4_u8x16;
 use vp8.kernels.simd.predict_luma_subpixel_horizontal_u8x16;
+use vp8.kernels.simd.predict_luma_subpixel_u8x16;
 use vp8.kernels.simd.predict_luma_subpixel_vertical_u8x16;
 use vp8.kernels.simd.predict_y16x16_dc_u8x16;
 use vp8.kernels.simd.predict_y16x16_horizontal_u8x16;
@@ -1092,6 +1093,33 @@ test "SIMD luma sub-pixel vertical filter matches scalar byte exact" {
     predict_luma_subpixel(&scalar_dst[2] as &byte, 18, &src[4] as &byte, 21, 8, 8, 0 as u8, 7 as u8);
     predict_luma_subpixel_vertical_u8x16(&simd_dst[2] as &byte, 18, &src[4] as &byte, 21, 8, 8, 7 as u8);
     try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 144);
+}
+
+test "SIMD luma sub-pixel combined filter matches scalar byte exact" {
+    var src: [byte: 504] = [];
+    var scalar_dst: [byte: 400] = [];
+    var simd_dst: [byte: 400] = [];
+
+    var row: usize = 0;
+    while row < 21 {
+        var col: usize = 0;
+        while col < 24 {
+            src[(row * 24) + col] = (((47 as usize) + (row * 23) + (col * 11) + (((row + 5) * (col + 3)) % (29 as usize))) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var index: usize = 0;
+    while index < 400 {
+        scalar_dst[index] = 19 as byte;
+        simd_dst[index] = 19 as byte;
+        index = index + 1;
+    }
+
+    predict_luma_subpixel(&scalar_dst[3] as &byte, 20, &src[0] as &byte, 24, 16, 16, 3 as u8, 5 as u8);
+    predict_luma_subpixel_u8x16(&simd_dst[3] as &byte, 20, &src[0] as &byte, 24, 16, 16, 3 as u8, 5 as u8);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 400);
 }
 
 test "SIMD simple loop filter matches scalar byte exact" {

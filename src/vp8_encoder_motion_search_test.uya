@@ -1,11 +1,14 @@
 use std.testing.assert_eq_i32;
 
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.simd_detect_capabilities;
 use vp8.common.frame.FrameBuffer;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
 use vp8.encoder.motion_search.SubpixelMotionRefinementResult;
 use vp8.encoder.motion_search.refine_last_frame_half_quarter_pel;
+use vp8.encoder.motion_search.refine_last_frame_half_quarter_pel_with_kernel_table;
 use vp8.encoder.motion_search.search_last_frame_integer_pel;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
@@ -13,6 +16,9 @@ use vp8.encoder.reference_pool.encoder_reference_begin_frame;
 use vp8.encoder.reference_pool.encoder_reference_current;
 use vp8.encoder.reference_pool.encoder_reference_refresh;
 use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_forced_simd_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.kernels.scalar.predict_luma_subpixel;
 
 fn dummy_integer_pel_motion_search_result() IntegerPelMotionSearchResult {
@@ -182,6 +188,65 @@ test "half quarter pel refinement finds vertical quarter-pel offset" {
     try assert_eq_i32(result.mv_x as i32, 0);
     try assert_eq_i32(result.mv_y as i32, 2);
     try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "half quarter pel refinement can use forced SIMD sub-pixel predictor" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var predicted: [byte: 256] = [];
+    predict_luma_subpixel(&predicted[0] as &byte, 16, &seed.y.plane.origin[(14 * seed.y.plane.stride) + 14] as &byte, seed.y.plane.stride, 16, 16, 2 as u8, 2 as u8);
+
+    var input: [byte: 6144] = [];
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[((16 + row) * 64) + 16 + col] = predicted[(row * 16) + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6144, 64, 64);
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+    const simd_table: KernelFunctionTable = make_forced_simd_kernel_table(&capabilities);
+
+    const scalar_result: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel_with_kernel_table(&refs, &scalar_table, &frame, 1, 1, 0 as i16, 0 as i16);
+    const simd_result: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel_with_kernel_table(&refs, &simd_table, &frame, 1, 1, 0 as i16, 0 as i16);
+
+    try assert_eq_i32(simd_result.mv_x as i32, scalar_result.mv_x as i32);
+    try assert_eq_i32(simd_result.mv_y as i32, scalar_result.mv_y as i32);
+    try assert_eq_i32(simd_result.distortion as i32, scalar_result.distortion as i32);
+    try assert_eq_i32(simd_result.candidates_evaluated as i32, scalar_result.candidates_evaluated as i32);
+}
+
+test "half quarter pel refinement rejects missing kernel table sub-pixel predictor" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 6144] = [];
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6144, 64, 64);
+    var table: KernelFunctionTable = make_scalar_kernel_table();
+    table.predict_luma_subpixel_16x16_fn = null as &void;
+
+    var failed: i32 = 0;
+    _ = refine_last_frame_half_quarter_pel_with_kernel_table(&refs, &table, &frame, 1, 1, 0 as i16, 0 as i16) catch {
+        failed = 1;
+        dummy_subpixel_motion_refinement_result();
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "half quarter pel refinement tie keeps base motion vector" {

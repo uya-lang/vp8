@@ -10,6 +10,7 @@ use vp8.kernels.dispatch.kernel_table_dequant_block_4x4;
 use vp8.kernels.dispatch.kernel_table_forward_dct_4x4;
 use vp8.kernels.dispatch.kernel_table_forward_walsh_hadamard_y2_4x4;
 use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
+use vp8.kernels.dispatch.kernel_table_predict_luma_subpixel_16x16;
 use vp8.kernels.dispatch.kernel_table_quantize_block_4x4;
 use vp8.kernels.dispatch.kernel_table_sad_4x4;
 use vp8.kernels.dispatch.kernel_table_sad_8x8;
@@ -27,6 +28,7 @@ use vp8.kernels.dispatch.kernel_table_variance_16x16;
 use vp8.kernels.dispatch.make_default_kernel_table;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
+use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.token.parse.CoefficientBlockSummary;
 
 fn assert_copy_result(dst: &byte, stride: usize) !void {
@@ -43,6 +45,14 @@ fn assert_copy_result(dst: &byte, stride: usize) !void {
 fn assert_i16_block_eq(actual: &i16, expected: &i16) !void {
     var index: usize = 0;
     while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
+
+fn assert_byte_buffer_eq(actual: &byte, expected: &byte, count: usize) !void {
+    var index: usize = 0;
+    while index < count {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
     }
@@ -97,6 +107,18 @@ fn fill_sad4_fixture(src: &byte, src_stride: usize, reference: &byte, reference_
     }
 }
 
+fn fill_luma_subpixel_fixture(src: &byte, stride: usize, height: usize) void {
+    var row: usize = 0;
+    while row < height {
+        var col: usize = 0;
+        while col < stride {
+            src[(row * stride) + col] = (((59 as usize) + (row * 17) + (col * 31) + (((row + 7) * (col + 5)) % (37 as usize))) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
 test "kernel table exposes scalar function pointers" {
     const table: KernelFunctionTable = make_scalar_kernel_table();
 
@@ -108,6 +130,7 @@ test "kernel table exposes scalar function pointers" {
     try expect(table.quantize_block_4x4_fn != null);
     try expect(table.dequant_block_4x4_fn != null);
     try expect(table.token_scan_last_nonzero_4x4_fn != null);
+    try expect(table.predict_luma_subpixel_16x16_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -131,6 +154,14 @@ test "kernel table exposes scalar function pointers" {
 
     try kernel_table_predict_inter_copy(&table, &dst[0] as &byte, 4, &src[0] as &byte, 4, 2, 2);
     try assert_copy_result(&dst[0] as &byte, 4);
+
+    var subpixel_src: [byte: 504] = [];
+    var subpixel_expected: [byte: 400] = [];
+    var subpixel_actual: [byte: 400] = [];
+    fill_luma_subpixel_fixture(&subpixel_src[0] as &byte, 24, 21);
+    predict_luma_subpixel(&subpixel_expected[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 16, 16, 3 as u8, 5 as u8);
+    try kernel_table_predict_luma_subpixel_16x16(&table, &subpixel_actual[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 3 as u8, 5 as u8);
+    try assert_byte_buffer_eq(&subpixel_actual[0] as &byte, &subpixel_expected[0] as &byte, 400);
 
     var dct_input: [i16: 24] = [
         4, 4, 4, 4, 99, 99,
@@ -287,6 +318,7 @@ test "default kernel table remains scalar until SIMD kernels are registered" {
     try expect(table.quantize_block_4x4_fn != null);
     try expect(table.dequant_block_4x4_fn != null);
     try expect(table.token_scan_last_nonzero_4x4_fn != null);
+    try expect(table.predict_luma_subpixel_16x16_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -313,6 +345,7 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     try expect(table.quantize_block_4x4_fn != null);
     try expect(table.dequant_block_4x4_fn != null);
     try expect(table.token_scan_last_nonzero_4x4_fn != null);
+    try expect(table.predict_luma_subpixel_16x16_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -397,6 +430,14 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     try assert_i16_block_eq(&dequant_output[0] as &i16, &dqcoeff_expected[0] as &i16);
     try assert_eq_i32((try kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 1)) as i32, 15);
     try assert_eq_i32((try kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 16)) as i32, 16);
+
+    var subpixel_src: [byte: 504] = [];
+    var subpixel_expected: [byte: 400] = [];
+    var subpixel_actual: [byte: 400] = [];
+    fill_luma_subpixel_fixture(&subpixel_src[0] as &byte, 24, 21);
+    predict_luma_subpixel(&subpixel_expected[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 16, 16, 3 as u8, 5 as u8);
+    try kernel_table_predict_luma_subpixel_16x16(&table, &subpixel_actual[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 3 as u8, 5 as u8);
+    try assert_byte_buffer_eq(&subpixel_actual[0] as &byte, &subpixel_expected[0] as &byte, 400);
 
     var src: [byte: 400] = [];
     var reference: [byte: 448] = [];
@@ -511,6 +552,16 @@ test "kernel table wrappers reject unknown entries" {
     _ = kernel_table_token_scan_last_nonzero_4x4(&table, &qcoeff[0] as &i16, 0) catch {
         failed = 1;
         16 as usize;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.predict_luma_subpixel_16x16_fn = null as &void;
+    failed = 0;
+
+    kernel_table_predict_luma_subpixel_16x16(&table, &dst[0] as &byte, 2, &src[0] as &byte, 2, 3 as u8, 5 as u8) catch {
+        failed = 1;
     };
 
     try assert_eq_i32(failed, 1);
