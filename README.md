@@ -60,6 +60,7 @@ CLI, and checks their YUV MD5 values against built-in goldens.
 Tiny fixture metadata lives in `fixtures/manifest.json`; binary IVF and YUV
 outputs are generated under `build/tiny-md5/`.
 `make test-keyframe-md5` runs only manifest samples in the `key` group.
+`make test-inter-md5` runs only manifest samples in the `inter` group.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.
