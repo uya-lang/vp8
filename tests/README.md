@@ -12,6 +12,9 @@ malformed IVF and malformed VP8 payload corpus checks plus deterministic fuzz
 smoke.
 `make test-decoder-scalar` runs the same decoder suite with
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
+`make test-scalar-vs-simd` decodes the built-in IVF samples with
+`--force-scalar` and `--force-simd`, then compares YUV MD5 values and writes a
+manifest under `build/scalar-vs-simd/`.
 Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
 outputs remain under ignored build directories.
 `make test-keyframe-md5` filters the manifest to key-frame MD5 samples.

@@ -215,7 +215,7 @@
 - [x] 实现 kernel function table。
 - [x] 实现 `--force-scalar`。
 - [x] 实现 `--force-simd`。
-- [ ] 实现 scalar-vs-simd test harness。
+- [x] 实现 scalar-vs-simd test harness。
 - [ ] 实现 benchmark harness。
 - [ ] 实现 vector load/store helper。
 - [ ] 增加 SIMD kernel 生成 C/汇编检查记录。
