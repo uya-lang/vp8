@@ -35,6 +35,8 @@ use vp8.kernels.scalar.loop_filter_normal_vertical_edge;
 use vp8.kernels.scalar.loop_filter_normal_horizontal_edge;
 use vp8.kernels.scalar.loop_filter_normal_mb_vertical_edge;
 use vp8.kernels.scalar.loop_filter_normal_mb_horizontal_edge;
+use vp8.kernels.scalar.LoopFilterThresholds;
+use vp8.kernels.scalar.build_loop_filter_thresholds;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
@@ -822,4 +824,47 @@ test "scalar normal loop filter leaves edge unchanged when blimit rejects" {
         try assert_eq_i32(pixels[base + 5] as i32, 174);
         row = row + 1;
     }
+}
+
+fn assert_loop_filter_thresholds(thresholds: LoopFilterThresholds, enabled: bool, filter_level: u8, limit: u8, macroblock_blimit: u8, subblock_blimit: u8, thresh: u8) !void {
+    try assert_eq_i32(thresholds.enabled as i32, enabled as i32);
+    try assert_eq_i32(thresholds.filter_level as i32, filter_level as i32);
+    try assert_eq_i32(thresholds.limit as i32, limit as i32);
+    try assert_eq_i32(thresholds.macroblock_blimit as i32, macroblock_blimit as i32);
+    try assert_eq_i32(thresholds.subblock_blimit as i32, subblock_blimit as i32);
+    try assert_eq_i32(thresholds.thresh as i32, thresh as i32);
+}
+
+test "scalar loop filter thresholds derive VP8 limit blimit and thresh" {
+    var low_key: LoopFilterThresholds = build_loop_filter_thresholds(14, 0 as u8, true);
+    try assert_loop_filter_thresholds(low_key, true, 14 as u8, 14 as u8, 46 as u8, 42 as u8, 0 as u8);
+
+    var mid_key: LoopFilterThresholds = build_loop_filter_thresholds(15, 0 as u8, true);
+    try assert_loop_filter_thresholds(mid_key, true, 15 as u8, 15 as u8, 49 as u8, 45 as u8, 1 as u8);
+
+    var high_key: LoopFilterThresholds = build_loop_filter_thresholds(40, 0 as u8, true);
+    try assert_loop_filter_thresholds(high_key, true, 40 as u8, 40 as u8, 124 as u8, 120 as u8, 2 as u8);
+
+    var inter_twenty: LoopFilterThresholds = build_loop_filter_thresholds(20, 0 as u8, false);
+    try assert_loop_filter_thresholds(inter_twenty, true, 20 as u8, 20 as u8, 64 as u8, 60 as u8, 2 as u8);
+
+    var inter_forty: LoopFilterThresholds = build_loop_filter_thresholds(40, 0 as u8, false);
+    try assert_loop_filter_thresholds(inter_forty, true, 40 as u8, 40 as u8, 124 as u8, 120 as u8, 3 as u8);
+}
+
+test "scalar loop filter thresholds apply sharpness and clamp adjusted levels" {
+    var sharp_one: LoopFilterThresholds = build_loop_filter_thresholds(32, 1 as u8, true);
+    try assert_loop_filter_thresholds(sharp_one, true, 32 as u8, 8 as u8, 76 as u8, 72 as u8, 1 as u8);
+
+    var sharp_five: LoopFilterThresholds = build_loop_filter_thresholds(32, 5 as u8, true);
+    try assert_loop_filter_thresholds(sharp_five, true, 32 as u8, 4 as u8, 72 as u8, 68 as u8, 1 as u8);
+
+    var tiny_sharp: LoopFilterThresholds = build_loop_filter_thresholds(3, 7 as u8, true);
+    try assert_loop_filter_thresholds(tiny_sharp, true, 3 as u8, 1 as u8, 11 as u8, 7 as u8, 0 as u8);
+
+    var below_zero: LoopFilterThresholds = build_loop_filter_thresholds(-9, 0 as u8, false);
+    try assert_loop_filter_thresholds(below_zero, false, 0 as u8, 1 as u8, 5 as u8, 1 as u8, 0 as u8);
+
+    var above_range: LoopFilterThresholds = build_loop_filter_thresholds(99, 8 as u8, false);
+    try assert_loop_filter_thresholds(above_range, true, 63 as u8, 2 as u8, 132 as u8, 128 as u8, 3 as u8);
 }
