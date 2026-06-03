@@ -8,6 +8,8 @@ TINY_MD5_DIR := $(BUILD_DIR)/tiny-md5
 TINY_MD5_SCRIPT := tests/tiny_ivf_md5.py
 SCALAR_VS_SIMD_DIR := $(BUILD_DIR)/scalar-vs-simd
 SCALAR_VS_SIMD_SCRIPT := tests/scalar_vs_simd.py
+SINGLE_VS_MULTI_THREAD_DIR := $(BUILD_DIR)/single-vs-multithread
+SINGLE_VS_MULTI_THREAD_SCRIPT := tests/single_vs_multithread.py
 BENCH_DIR := $(BUILD_DIR)/bench
 BENCH_SCRIPT := bench/decode_bench.py
 KERNEL_THRESHOLDS := bench/kernel_thresholds.json
@@ -37,7 +39,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
 
 all: build
 
@@ -90,6 +92,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(MAKE) test-malformed-vp8
 	$(MAKE) test-fuzz-smoke
 	$(MAKE) test-scalar-vs-simd
+	$(MAKE) test-single-vs-multithread
 	$(MAKE) test-asm-x86
 
 test-decoder-scalar: build
@@ -112,6 +115,9 @@ test-tiny-md5: build
 
 test-scalar-vs-simd: build
 	python3 $(SCALAR_VS_SIMD_SCRIPT) $(BIN) $(SCALAR_VS_SIMD_DIR)
+
+test-single-vs-multithread: build
+	python3 $(SINGLE_VS_MULTI_THREAD_SCRIPT) $(BIN) $(SINGLE_VS_MULTI_THREAD_DIR)
 
 test-keyframe-md5: build
 	python3 $(TINY_MD5_SCRIPT) --group key $(BIN) $(KEYFRAME_MD5_DIR)

@@ -15,6 +15,9 @@ smoke.
 `make test-scalar-vs-simd` decodes the built-in IVF samples with
 `--force-scalar` and `--force-simd`, then compares YUV MD5 values and writes a
 manifest under `build/scalar-vs-simd/`.
+`make test-single-vs-multithread` decodes the same samples with `--threads 1`
+and `--threads 4`, then compares YUV MD5 values and writes a manifest under
+`build/single-vs-multithread/`.
 Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
 outputs remain under ignored build directories.
 `make test-keyframe-md5` filters the manifest to key-frame MD5 samples.
