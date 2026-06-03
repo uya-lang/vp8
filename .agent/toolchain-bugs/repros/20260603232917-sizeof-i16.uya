@@ -1,0 +1,9 @@
+use std.testing.assert_eq_i32;
+
+fn i16_size_bytes() usize {
+    return @size_of(i16) as usize;
+}
+
+test "size_of i16 compiles to valid C" {
+    try assert_eq_i32(i16_size_bytes() as i32, 2);
+}
