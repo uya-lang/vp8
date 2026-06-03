@@ -1,0 +1,110 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.make_bool_reader;
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_byte_count;
+use vp8.bitstream.bool_writer.bool_writer_flush;
+use vp8.bitstream.bool_writer.make_bool_writer;
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.parse_vp8_coeff_probability_updates;
+use vp8.bitstream.header.vp8_default_probs;
+use vp8.encoder.probability_update.EncoderCoeffProbabilityUpdateDecision;
+use vp8.encoder.probability_update.encoder_coeff_probability_from_counts;
+use vp8.encoder.probability_update.make_encoder_coeff_probability_update_decision;
+use vp8.encoder.probability_update.write_encoder_coeff_probability_updates;
+use vp8.encoder.token_stats.EncoderTokenProbabilityStats;
+use vp8.encoder.token_stats.make_encoder_token_probability_stats;
+
+fn dummy_probability_update_decision() EncoderCoeffProbabilityUpdateDecision {
+    return EncoderCoeffProbabilityUpdateDecision{
+        update_count: 0
+    };
+}
+
+test "encoder probability update estimates VP8 zero probability from branch counts" {
+    try assert_eq_i32((try encoder_coeff_probability_from_counts(3 as u32, 1 as u32)) as i32, 192);
+    try assert_eq_i32((try encoder_coeff_probability_from_counts(0 as u32, 20 as u32)) as i32, 1);
+    try assert_eq_i32((try encoder_coeff_probability_from_counts(20 as u32, 0 as u32)) as i32, 255);
+}
+
+test "encoder probability update selects only useful coefficient updates" {
+    const defaults: Vp8Probs = vp8_default_probs();
+    var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+
+    const strong_offset: usize = 0;
+    stats.branches[strong_offset].zero_count = 48 as u32;
+    stats.branches[strong_offset].one_count = 16 as u32;
+
+    const sparse_offset: usize = 33;
+    stats.branches[sparse_offset].zero_count = 0 as u32;
+    stats.branches[sparse_offset].one_count = 1 as u32;
+
+    const decision: EncoderCoeffProbabilityUpdateDecision = try make_encoder_coeff_probability_update_decision(&defaults, &stats);
+
+    try assert_eq_i32(decision.update_count as i32, 1);
+    try assert_eq_i32(decision.update_flags[strong_offset] as i32, 1);
+    try assert_eq_i32(decision.coeff_probs[strong_offset] as i32, 192);
+    try assert_eq_i32(decision.update_flags[sparse_offset] as i32, 0);
+    try assert_eq_i32(decision.coeff_probs[sparse_offset] as i32, defaults.coeff_probs[sparse_offset] as i32);
+}
+
+test "encoder probability update writer roundtrips through VP8 parser" {
+    const defaults: Vp8Probs = vp8_default_probs();
+    var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+    const offset: usize = 33;
+    stats.branches[offset].zero_count = 16 as u32;
+    stats.branches[offset].one_count = 48 as u32;
+    const decision: EncoderCoeffProbabilityUpdateDecision = try make_encoder_coeff_probability_update_decision(&defaults, &stats);
+
+    var out: [byte: 256] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 256);
+    try write_encoder_coeff_probability_updates(&writer, &decision);
+    try bool_writer_flush(&writer);
+
+    var coeff_probs: [byte: 1056] = [];
+    var mv_probs: [byte: 38] = [];
+    var index: usize = 0;
+    while index < 1056 {
+        coeff_probs[index] = defaults.coeff_probs[index];
+        index = index + 1;
+    }
+    index = 0;
+    while index < 38 {
+        mv_probs[index] = defaults.mv_probs[index];
+        index = index + 1;
+    }
+    var probs: Vp8Probs = Vp8Probs{
+        y_mode_probs: [ 112, 86, 140, 37 ],
+        uv_mode_probs: [ 162, 101, 204 ],
+        coeff_probs: &coeff_probs[0] as &byte,
+        coeff_prob_count: 1056,
+        mv_probs: &mv_probs[0] as &byte,
+        mv_prob_count: 38
+    };
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    try parse_vp8_coeff_probability_updates(&reader, &probs);
+
+    try assert_eq_i32(decision.update_count as i32, 1);
+    try assert_eq_i32(probs.coeff_probs[offset] as i32, 64);
+    try assert_eq_i32(probs.coeff_probs[offset + 1] as i32, defaults.coeff_probs[offset + 1] as i32);
+}
+
+test "encoder probability update rejects invalid inputs" {
+    const defaults: Vp8Probs = vp8_default_probs();
+    var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+    var failed: i32 = 0;
+
+    _ = make_encoder_coeff_probability_update_decision(null as &Vp8Probs, &stats) catch {
+        failed = 1;
+        dummy_probability_update_decision();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = make_encoder_coeff_probability_update_decision(&defaults, null as &EncoderTokenProbabilityStats) catch {
+        failed = 1;
+        dummy_probability_update_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}

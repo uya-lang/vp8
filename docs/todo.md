@@ -339,7 +339,7 @@
 - [x] 4x4 intra RD refine。
 - [x] inter mode RD refine。
 - [x] token probability stats。
-- [ ] probability update decision。
+- [x] probability update decision。
 - [ ] 输出 PSNR。
 - [ ] 输出 SSIM 或预留 hook。
 

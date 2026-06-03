@@ -4,13 +4,11 @@ use libc.malloc;
 use vp8.bitstream.bool_writer.BoolWriter;
 use vp8.bitstream.bool_writer.bool_writer_write;
 use vp8.bitstream.bool_writer.make_bool_writer;
-use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
 use vp8.bitstream.header.VP8_KEY_FRAME_HEADER_BYTES;
 use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8LoopFilterHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
-use vp8.bitstream.header.vp8_coeff_update_probability;
 use vp8.bitstream.header.vp8_default_probs;
 use vp8.bitstream.header.write_vp8_key_frame_header;
 use vp8.common.coeff_context.AboveLeftCoeffContext;
@@ -45,6 +43,9 @@ use vp8.encoder.mode_search.predict_intra4x4_mode;
 use vp8.encoder.mode_search.search_intra4x4_mode;
 use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
 use vp8.encoder.partition_output.write_encoder_bool_partition_output;
+use vp8.encoder.probability_update.EncoderCoeffProbabilityUpdateDecision;
+use vp8.encoder.probability_update.make_encoder_coeff_probability_update_decision;
+use vp8.encoder.probability_update.write_encoder_coeff_probability_updates;
 use vp8.encoder.quant.EncoderCoefficientToken;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
@@ -202,7 +203,7 @@ fn encoder_keyframe_write_uncompressed_header(out: &byte, out_len: usize, offset
     _ = try write_vp8_key_frame_header(out, out_len, offset, &header);
 }
 
-fn encoder_keyframe_write_fixed_header_bits(writer: &BoolWriter, config: &EncoderConfig) !void {
+fn encoder_keyframe_write_fixed_header_bits(writer: &BoolWriter, config: &EncoderConfig, coeff_decision: &EncoderCoeffProbabilityUpdateDecision) !void {
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
@@ -224,11 +225,7 @@ fn encoder_keyframe_write_fixed_header_bits(writer: &BoolWriter, config: &Encode
 
     try bool_writer_write(writer, 0 as u8, 128 as byte);
 
-    var prob_index: usize = 0;
-    while prob_index < VP8_COEFF_PROB_COUNT {
-        try bool_writer_write(writer, 0 as u8, vp8_coeff_update_probability(prob_index));
-        prob_index = prob_index + 1;
-    }
+    try write_encoder_coeff_probability_updates(writer, coeff_decision);
 
     try bool_writer_write(writer, 0 as u8, 128 as byte);
 }
@@ -841,9 +838,12 @@ fn encoder_keyframe_encode_tokens(
     recon: &FrameBuffer,
     quant: &Vp8QuantHeader,
     y4x4_modes: &byte,
+    probs: &Vp8Probs,
     token_stats: &EncoderTokenProbabilityStats
 ) !void {
-    const probs: Vp8Probs = vp8_default_probs();
+    if probs == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
     const factors: DequantFactors = build_dequant_factors(quant);
     var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(grid);
     defer free_above_left_coeff_context(&coeff_ctx);
@@ -853,13 +853,28 @@ fn encoder_keyframe_encode_tokens(
         try coeff_context_start_row(&coeff_ctx);
         var mb_x: usize = 0;
         while mb_x < grid.mb_cols {
-            try encoder_keyframe_encode_y_blocks(writer, &probs, grid, &coeff_ctx, frame, recon, &factors, y4x4_modes, mb_x, mb_y, token_stats);
-            try encoder_keyframe_encode_uv_plane_blocks(writer, &probs, &coeff_ctx, &frame.u, &recon.u.plane, &factors, mb_x, mb_y, false, token_stats);
-            try encoder_keyframe_encode_uv_plane_blocks(writer, &probs, &coeff_ctx, &frame.v, &recon.v.plane, &factors, mb_x, mb_y, true, token_stats);
+            try encoder_keyframe_encode_y_blocks(writer, probs, grid, &coeff_ctx, frame, recon, &factors, y4x4_modes, mb_x, mb_y, token_stats);
+            try encoder_keyframe_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.u, &recon.u.plane, &factors, mb_x, mb_y, false, token_stats);
+            try encoder_keyframe_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.v, &recon.v.plane, &factors, mb_x, mb_y, true, token_stats);
             mb_x = mb_x + 1;
         }
         mb_y = mb_y + 1;
     }
+}
+
+fn encoder_keyframe_probs_with_coeff_probs(defaults: &Vp8Probs, coeff_probs: &byte) !Vp8Probs {
+    if defaults == null || coeff_probs == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
+
+    return Vp8Probs{
+        y_mode_probs: [ defaults.y_mode_probs[0], defaults.y_mode_probs[1], defaults.y_mode_probs[2], defaults.y_mode_probs[3] ],
+        uv_mode_probs: [ defaults.uv_mode_probs[0], defaults.uv_mode_probs[1], defaults.uv_mode_probs[2] ],
+        coeff_probs: coeff_probs,
+        coeff_prob_count: defaults.coeff_prob_count,
+        mv_probs: defaults.mv_probs,
+        mv_prob_count: defaults.mv_prob_count
+    };
 }
 
 fn encoder_keyframe_writer_capacity(base: usize, mb_count: usize, per_mb: usize) !usize {
@@ -901,13 +916,22 @@ export fn encode_keyframe_ivf(config: &EncoderConfig, frame: &YuvFrameView, out:
     defer free_frame_buffer(&mode_recon);
     try encoder_keyframe_select_y4x4_modes(&grid, frame, &mode_recon, &factors, y4x4_modes, rd_model.lambda_q8);
 
+    const default_probs: Vp8Probs = vp8_default_probs();
+    var token_stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
+    var stats_recon: FrameBuffer = try allocate_frame_buffer(config.width, config.height, ENCODER_KEYFRAME_BORDER, ENCODER_KEYFRAME_ALIGNMENT);
+    defer free_frame_buffer(&stats_recon);
+    try encoder_keyframe_encode_tokens(&token_writers[0] as &BoolWriter, &grid, frame, &stats_recon, &quant, y4x4_modes, &default_probs, &token_stats);
+
+    const coeff_decision: EncoderCoeffProbabilityUpdateDecision = try make_encoder_coeff_probability_update_decision(&default_probs, &token_stats);
+    const token_probs: Vp8Probs = try encoder_keyframe_probs_with_coeff_probs(&default_probs, &coeff_decision.coeff_probs[0] as &byte);
+    token_writers[0] = make_bool_writer(token_buf, token_capacity);
+
     var recon: FrameBuffer = try allocate_frame_buffer(config.width, config.height, ENCODER_KEYFRAME_BORDER, ENCODER_KEYFRAME_ALIGNMENT);
     defer free_frame_buffer(&recon);
-    var token_stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
 
-    try encoder_keyframe_write_fixed_header_bits(&first_writer, config);
+    try encoder_keyframe_write_fixed_header_bits(&first_writer, config, &coeff_decision);
     try encoder_keyframe_write_mode_map(&first_writer, &grid, y4x4_modes);
-    try encoder_keyframe_encode_tokens(&token_writers[0] as &BoolWriter, &grid, frame, &recon, &quant, y4x4_modes, &token_stats);
+    try encoder_keyframe_encode_tokens(&token_writers[0] as &BoolWriter, &grid, frame, &recon, &quant, y4x4_modes, &token_probs, null as &EncoderTokenProbabilityStats);
 
     const ivf_header: IvfHeader = IvfHeader{
         version: 0,

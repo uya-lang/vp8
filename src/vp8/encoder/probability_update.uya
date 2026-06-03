@@ -1,0 +1,106 @@
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.vp8_coeff_update_probability;
+use vp8.encoder.token_stats.EncoderTokenProbabilityStats;
+
+error ErrEncoderProbabilityUpdateInvalidInput;
+
+const ENCODER_PROBABILITY_UPDATE_MIN_SAMPLES: u32 = 16 as u32;
+const ENCODER_PROBABILITY_UPDATE_MIN_DELTA: u32 = 8 as u32;
+
+export struct EncoderCoeffProbabilityUpdateDecision {
+    update_flags: [byte: 1056] = [],
+    coeff_probs: [byte: 1056] = [],
+    update_count: usize
+}
+
+export fn encoder_coeff_probability_from_counts(zero_count: u32, one_count: u32) !byte {
+    const total: u64 = (zero_count as u64) + (one_count as u64);
+    if total == (0 as u64) {
+        return error.ErrEncoderProbabilityUpdateInvalidInput;
+    }
+
+    const scaled: u64 = (((zero_count as u64) * (256 as u64)) + (total / (2 as u64))) / total;
+    if scaled == (0 as u64) {
+        return 1 as byte;
+    }
+    if scaled > (255 as u64) {
+        return 255 as byte;
+    }
+    return scaled as byte;
+}
+
+fn encoder_probability_abs_diff(left: byte, right: byte) u32 {
+    if left >= right {
+        return ((left as u32) - (right as u32)) as u32;
+    }
+    return ((right as u32) - (left as u32)) as u32;
+}
+
+export fn encoder_coeff_probability_should_update(old_prob: byte, candidate_prob: byte, zero_count: u32, one_count: u32) bool {
+    const total: u32 = (zero_count + one_count) as u32;
+    if total < ENCODER_PROBABILITY_UPDATE_MIN_SAMPLES {
+        return false;
+    }
+    return encoder_probability_abs_diff(old_prob, candidate_prob) >= ENCODER_PROBABILITY_UPDATE_MIN_DELTA;
+}
+
+export fn make_encoder_coeff_probability_update_decision(base_probs: &Vp8Probs, stats: &EncoderTokenProbabilityStats) !EncoderCoeffProbabilityUpdateDecision {
+    if base_probs == null || stats == null || base_probs.coeff_probs == null || base_probs.coeff_prob_count < VP8_COEFF_PROB_COUNT {
+        return error.ErrEncoderProbabilityUpdateInvalidInput;
+    }
+
+    var decision: EncoderCoeffProbabilityUpdateDecision = EncoderCoeffProbabilityUpdateDecision{
+        update_count: 0
+    };
+
+    var index: usize = 0;
+    while index < VP8_COEFF_PROB_COUNT {
+        const old_prob: byte = base_probs.coeff_probs[index];
+        const zero_count: u32 = stats.branches[index].zero_count;
+        const one_count: u32 = stats.branches[index].one_count;
+        decision.coeff_probs[index] = old_prob;
+
+        if (zero_count + one_count) >= ENCODER_PROBABILITY_UPDATE_MIN_SAMPLES {
+            const candidate: byte = try encoder_coeff_probability_from_counts(zero_count, one_count);
+            if encoder_coeff_probability_should_update(old_prob, candidate, zero_count, one_count) {
+                decision.update_flags[index] = 1 as byte;
+                decision.coeff_probs[index] = candidate;
+                decision.update_count = decision.update_count + 1;
+            }
+        }
+
+        index = index + 1;
+    }
+
+    return decision;
+}
+
+fn encoder_probability_update_write_literal(writer: &BoolWriter, value: u32, bit_count: usize) !void {
+    var index: usize = 0;
+    while index < bit_count {
+        const shift: usize = bit_count - 1 - index;
+        const bit: u8 = ((value >> (shift as i32)) & (1 as u32)) as u8;
+        try bool_writer_write(writer, bit, 128 as byte);
+        index = index + 1;
+    }
+}
+
+export fn write_encoder_coeff_probability_updates(writer: &BoolWriter, decision: &EncoderCoeffProbabilityUpdateDecision) !void {
+    if writer == null || decision == null {
+        return error.ErrEncoderProbabilityUpdateInvalidInput;
+    }
+
+    var index: usize = 0;
+    while index < VP8_COEFF_PROB_COUNT {
+        if decision.update_flags[index] != (0 as byte) {
+            try bool_writer_write(writer, 1 as u8, vp8_coeff_update_probability(index));
+            try encoder_probability_update_write_literal(writer, decision.coeff_probs[index] as u32, 8);
+        } else {
+            try bool_writer_write(writer, 0 as u8, vp8_coeff_update_probability(index));
+        }
+        index = index + 1;
+    }
+}
