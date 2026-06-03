@@ -43,6 +43,27 @@ fn clip_i16_to_u8(value: i16) byte {
     return value as byte;
 }
 
+fn load_u8_as_i16x16(src: &byte) I16x16 {
+    var lanes: [i16: 16] = [];
+    var index: usize = 0;
+    while index < 16 {
+        lanes[index] = src[index] as i16;
+        index = index + 1;
+    }
+    return @vector.load(&lanes[0] as &i16);
+}
+
+fn store_clipped_i16x16_to_u8(dst: &byte, values: I16x16) void {
+    var lanes: [i16: 16] = [];
+    @vector.store(&lanes[0] as &i16, values);
+
+    var index: usize = 0;
+    while index < 16 {
+        dst[index] = clip_i16_to_u8(lanes[index]);
+        index = index + 1;
+    }
+}
+
 fn make_i32x4(a: i32, b: i32, c: i32, d: i32) I32x4 {
     var lanes: [i32: 4] = [];
     lanes[0] = a;
@@ -130,6 +151,60 @@ export fn extend_plane_border_u8x16(data: &byte, stride: usize, width: usize, he
     const bottom_source_base: usize = (border + height - 1) * stride;
     const bottom_dst_base: usize = (border + height) * stride;
     plane_copy_u8x16(&data[bottom_dst_base] as &byte, stride, &data[bottom_source_base] as &byte, 0, padded_width, border);
+}
+
+export fn predict_y16x16_dc_u8x16(dst: &byte, dst_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) void {
+    var sum: i32 = 0;
+    var value: byte = 128 as byte;
+
+    if has_above {
+        var col: usize = 0;
+        while col < 16 {
+            sum = sum + (above[col] as i32);
+            col = col + 1;
+        }
+    }
+
+    if has_left {
+        var row: usize = 0;
+        while row < 16 {
+            sum = sum + (left[row] as i32);
+            row = row + 1;
+        }
+    }
+
+    if has_above && has_left {
+        value = ((sum + 16) >> 5) as byte;
+    } else if has_above || has_left {
+        value = ((sum + 8) >> 4) as byte;
+    }
+
+    plane_fill_u8x16(dst, dst_stride, 16, 16, value);
+}
+
+export fn predict_y16x16_vertical_u8x16(dst: &byte, dst_stride: usize, above: &byte) void {
+    plane_copy_u8x16(dst, dst_stride, above, 0, 16, 16);
+}
+
+export fn predict_y16x16_horizontal_u8x16(dst: &byte, dst_stride: usize, left: &byte) void {
+    var row: usize = 0;
+    while row < 16 {
+        plane_fill_u8x16(&dst[row * dst_stride] as &byte, dst_stride, 16, 1, left[row]);
+        row = row + 1;
+    }
+}
+
+export fn predict_y16x16_true_motion_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    const above_values: I16x16 = load_u8_as_i16x16(above);
+    const above_left_values: I16x16 = @vector.splat(above_left as i16);
+
+    var row: usize = 0;
+    while row < 16 {
+        const left_values: I16x16 = @vector.splat(left[row] as i16);
+        const predicted: I16x16 = (left_values + above_values) - above_left_values;
+        store_clipped_i16x16_to_u8(&dst[row * dst_stride] as &byte, predicted);
+        row = row + 1;
+    }
 }
 
 export fn add_residual_4x4_clamped_u8x16(dst: &byte, dst_stride: usize, residual: &i16) void {

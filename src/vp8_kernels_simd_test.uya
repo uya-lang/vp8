@@ -7,6 +7,10 @@ use vp8.common.plane.make_plane_view;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
+use vp8.kernels.scalar.predict_y16x16_dc;
+use vp8.kernels.scalar.predict_y16x16_horizontal;
+use vp8.kernels.scalar.predict_y16x16_true_motion;
+use vp8.kernels.scalar.predict_y16x16_vertical;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
 use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
 use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
@@ -16,6 +20,10 @@ use vp8.kernels.simd.load_u8x16;
 use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.plane_copy_u8x16;
 use vp8.kernels.simd.plane_fill_u8x16;
+use vp8.kernels.simd.predict_y16x16_dc_u8x16;
+use vp8.kernels.simd.predict_y16x16_horizontal_u8x16;
+use vp8.kernels.simd.predict_y16x16_true_motion_u8x16;
+use vp8.kernels.simd.predict_y16x16_vertical_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
@@ -352,4 +360,74 @@ test "SIMD 4x4 inverse DCT batch matches scalar blocks" {
         try assert_eq_i32(simd_out[index] as i32, scalar_out[index] as i32);
         index = index + 1;
     }
+}
+
+fn reset_y16_buffers(scalar: &byte, simd: &byte, len: usize) void {
+    var index: usize = 0;
+    while index < len {
+        scalar[index] = 217 as byte;
+        simd[index] = 217 as byte;
+        index = index + 1;
+    }
+}
+
+fn assert_y16_buffers_equal(scalar: &byte, simd: &byte, len: usize) !void {
+    var index: usize = 0;
+    while index < len {
+        try assert_eq_i32(simd[index] as i32, scalar[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD Y 16x16 intra predictors match scalar byte exact" {
+    var scalar_dst: [byte: 320] = [];
+    var simd_dst: [byte: 320] = [];
+    var above: [byte: 16] = [
+        3 as byte, 7 as byte, 11 as byte, 15 as byte,
+        19 as byte, 23 as byte, 27 as byte, 31 as byte,
+        35 as byte, 39 as byte, 43 as byte, 47 as byte,
+        51 as byte, 55 as byte, 59 as byte, 63 as byte
+    ];
+    var left: [byte: 16] = [
+        200 as byte, 190 as byte, 180 as byte, 170 as byte,
+        160 as byte, 150 as byte, 140 as byte, 130 as byte,
+        120 as byte, 110 as byte, 100 as byte, 90 as byte,
+        80 as byte, 70 as byte, 60 as byte, 50 as byte
+    ];
+    const stride: usize = 20;
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_dc(&scalar_dst[0] as &byte, stride, &above[0] as &byte, true, &left[0] as &byte, true);
+    predict_y16x16_dc_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte, true, &left[0] as &byte, true);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_dc(&scalar_dst[0] as &byte, stride, &above[0] as &byte, true, &left[0] as &byte, false);
+    predict_y16x16_dc_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte, true, &left[0] as &byte, false);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_dc(&scalar_dst[0] as &byte, stride, &above[0] as &byte, false, &left[0] as &byte, true);
+    predict_y16x16_dc_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte, false, &left[0] as &byte, true);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_dc(&scalar_dst[0] as &byte, stride, &above[0] as &byte, false, &left[0] as &byte, false);
+    predict_y16x16_dc_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte, false, &left[0] as &byte, false);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_vertical(&scalar_dst[0] as &byte, stride, &above[0] as &byte);
+    predict_y16x16_vertical_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_horizontal(&scalar_dst[0] as &byte, stride, &left[0] as &byte);
+    predict_y16x16_horizontal_u8x16(&simd_dst[0] as &byte, stride, &left[0] as &byte);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+
+    reset_y16_buffers(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
+    predict_y16x16_true_motion(&scalar_dst[0] as &byte, stride, &above[0] as &byte, &left[0] as &byte, 100 as byte);
+    predict_y16x16_true_motion_u8x16(&simd_dst[0] as &byte, stride, &above[0] as &byte, &left[0] as &byte, 100 as byte);
+    try assert_y16_buffers_equal(&scalar_dst[0] as &byte, &simd_dst[0] as &byte, 320);
 }
