@@ -1,0 +1,81 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.rd_cost.EncoderRdCost;
+use vp8.encoder.rd_cost.EncoderRdCostModel;
+use vp8.encoder.rd_cost.encoder_rd_cost_q8;
+use vp8.encoder.rd_cost.encoder_rd_is_better;
+use vp8.encoder.rd_cost.encoder_rd_score_q8;
+use vp8.encoder.rd_cost.make_encoder_quantizer_rd_cost_model;
+use vp8.encoder.rd_cost.make_encoder_rd_cost_model;
+
+fn dummy_rd_cost() EncoderRdCost {
+    return EncoderRdCost{
+        distortion: 0,
+        rate_cost_q8: 0,
+        lambda_q8: 0,
+        distortion_score_q8: 0,
+        rate_score_q8: 0,
+        total_score_q8: 0
+    };
+}
+
+fn dummy_rd_cost_model() EncoderRdCostModel {
+    return EncoderRdCostModel{
+        lambda_q8: 0
+    };
+}
+
+test "RD cost combines distortion and lambda scaled rate" {
+    const cost: EncoderRdCost = try encoder_rd_cost_q8(100, 20, 256);
+    try assert_eq_i32(cost.distortion as i32, 100);
+    try assert_eq_i32(cost.rate_cost_q8 as i32, 20);
+    try assert_eq_i32(cost.lambda_q8 as i32, 256);
+    try assert_eq_i32(cost.distortion_score_q8 as i32, 25600);
+    try assert_eq_i32(cost.rate_score_q8 as i32, 20);
+    try assert_eq_i32(cost.total_score_q8 as i32, 25620);
+
+    const stronger: EncoderRdCost = try encoder_rd_cost_q8(100, 20, 512);
+    try assert_eq_i32(stronger.rate_score_q8 as i32, 40);
+    try assert_eq_i32(stronger.total_score_q8 as i32, 25640);
+}
+
+test "RD cost model can derive lambda from quantizer" {
+    const explicit: EncoderRdCostModel = try make_encoder_rd_cost_model(384);
+    try assert_eq_i32(explicit.lambda_q8 as i32, 384);
+
+    const q32: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(32 as u8);
+    try assert_eq_i32(q32.lambda_q8 as i32, 192);
+
+    const q127: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(127 as u8);
+    try assert_eq_i32(q127.lambda_q8 as i32, 572);
+}
+
+test "RD cost comparison uses total score" {
+    const low_rate: EncoderRdCost = try encoder_rd_cost_q8(100, 10, 256);
+    const high_rate: EncoderRdCost = try encoder_rd_cost_q8(100, 20, 256);
+    try assert_eq_i32(encoder_rd_is_better(&low_rate, &high_rate) as i32, true as i32);
+    try assert_eq_i32(encoder_rd_is_better(&high_rate, &low_rate) as i32, false as i32);
+}
+
+test "RD cost rejects invalid qindex and score overflow" {
+    var failed: i32 = 0;
+    _ = make_encoder_quantizer_rd_cost_model(128 as u8) catch {
+        failed = 1;
+        dummy_rd_cost_model();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_rd_score_q8(16777216, 0, 256) catch {
+        failed = 1;
+        0 as u32;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_rd_cost_q8(0, 4294967295 as u32, 4294967295 as u32) catch {
+        failed = 1;
+        dummy_rd_cost();
+    };
+    try assert_eq_i32(failed, 1);
+}

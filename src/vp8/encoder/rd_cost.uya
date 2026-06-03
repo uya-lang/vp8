@@ -1,0 +1,85 @@
+error ErrEncoderRdCostInvalidInput;
+error ErrEncoderRdCostOverflow;
+
+const ENCODER_RD_COST_U32_MAX: u64 = 4294967295 as u64;
+
+export struct EncoderRdCostModel {
+    lambda_q8: u32
+}
+
+export struct EncoderRdCost {
+    distortion: u32,
+    rate_cost_q8: u32,
+    lambda_q8: u32,
+    distortion_score_q8: u32,
+    rate_score_q8: u32,
+    total_score_q8: u32
+}
+
+export fn make_encoder_rd_cost_model(lambda_q8: u32) !EncoderRdCostModel {
+    return EncoderRdCostModel{
+        lambda_q8: lambda_q8
+    };
+}
+
+export fn make_encoder_quantizer_rd_cost_model(quantizer: u8) !EncoderRdCostModel {
+    if quantizer > (127 as u8) {
+        return error.ErrEncoderRdCostInvalidInput;
+    }
+    return EncoderRdCostModel{
+        lambda_q8: 64 + ((quantizer as u32) * 4)
+    };
+}
+
+export fn encoder_rd_distortion_score_q8(distortion: u32) !u32 {
+    const value: u64 = (distortion as u64) * (256 as u64);
+    if value > ENCODER_RD_COST_U32_MAX {
+        return error.ErrEncoderRdCostOverflow;
+    }
+    return value as u32;
+}
+
+fn encoder_rd_rate_score_q8(rate_cost_q8: u32, lambda_q8: u32) !u32 {
+    const value: u64 = (rate_cost_q8 as u64) * (lambda_q8 as u64);
+    const scaled: u64 = (value + (128 as u64)) / (256 as u64);
+    if scaled > ENCODER_RD_COST_U32_MAX {
+        return error.ErrEncoderRdCostOverflow;
+    }
+    return scaled as u32;
+}
+
+fn encoder_rd_checked_add_q8(left: u32, right: u32) !u32 {
+    const value: u64 = (left as u64) + (right as u64);
+    if value > ENCODER_RD_COST_U32_MAX {
+        return error.ErrEncoderRdCostOverflow;
+    }
+    return value as u32;
+}
+
+export fn encoder_rd_cost_q8(distortion: u32, rate_cost_q8: u32, lambda_q8: u32) !EncoderRdCost {
+    const distortion_score: u32 = try encoder_rd_distortion_score_q8(distortion);
+    const rate_score: u32 = try encoder_rd_rate_score_q8(rate_cost_q8, lambda_q8);
+    return EncoderRdCost{
+        distortion: distortion,
+        rate_cost_q8: rate_cost_q8,
+        lambda_q8: lambda_q8,
+        distortion_score_q8: distortion_score,
+        rate_score_q8: rate_score,
+        total_score_q8: try encoder_rd_checked_add_q8(distortion_score, rate_score)
+    };
+}
+
+export fn encoder_rd_score_q8(distortion: u32, rate_cost_q8: u32, lambda_q8: u32) !u32 {
+    const cost: EncoderRdCost = try encoder_rd_cost_q8(distortion, rate_cost_q8, lambda_q8);
+    return cost.total_score_q8;
+}
+
+export fn encoder_rd_is_better(candidate: &EncoderRdCost, incumbent: &EncoderRdCost) bool {
+    if candidate == null {
+        return false;
+    }
+    if incumbent == null {
+        return true;
+    }
+    return candidate.total_score_q8 < incumbent.total_score_q8;
+}
