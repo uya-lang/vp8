@@ -271,7 +271,7 @@
 - [x] 实现 deterministic error merge。
 - [x] 实现 per-frame performance stats。
 - [x] 优化 frame buffer reuse。
-- [ ] 优化 reference frame border extension。
+- [x] 优化 reference frame border extension。
 - [ ] 优化 coefficient scratch layout。
 
 验收标准：

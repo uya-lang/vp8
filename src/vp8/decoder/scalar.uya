@@ -1179,7 +1179,6 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         border_extension_count = border_extension_count + (try decode_inter_macroblocks(decoder, current, &quant, &token_readers[0] as &BoolReader, token_partition_count, &loop_filter));
     }
     frame_buffer_mark_border_dirty(current);
-    border_extension_count = border_extension_count + frame_buffer_extend_border_counted(current);
     if key_frame {
         try frame_pool_refresh_references(&decoder.context.frame_pool, true, true, true);
     }
@@ -1201,7 +1200,7 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         token_partition_count: token_partition_count,
         macroblock_count: decoder.context.grid.mb_count,
         parsed_token_partition_count: token_partition_count,
-        scalar_kernel_border_extended: true,
+        scalar_kernel_border_extended: border_extension_count > 0,
         performance: performance,
         has_output: has_output,
         output: output
