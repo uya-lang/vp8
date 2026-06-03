@@ -177,7 +177,7 @@
   - [x] 将 normal loop filter dispatcher 接入 decoder row delay：当前 row 完成后过滤上一 row，帧结束过滤最后一 row。
   - [x] 实现 simple loop filter 的 Y-only macroblock/subblock dispatcher 并接入 decoder row delay。
 - [x] 实现 reference refresh。
-- [ ] 实现 show_frame output。
+- [x] 实现 show_frame output。
 - [x] 实现 visible crop。
 - [ ] 实现 `decode <input.ivf> --yuv out.yuv`。
 - [x] 实现 `info <input.ivf>`。

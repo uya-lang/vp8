@@ -14,6 +14,7 @@ use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.allocate_decoder_context;
 use vp8.common.decode_context.free_decoder_context;
 use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.decoded_frame_release;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
 use vp8.decoder.scalar.Decoder;
@@ -294,6 +295,48 @@ test "key frame decode applies token residuals into current frame" {
     try assert_eq_i32(current.u.plane.origin[3] as i32, 129);
     try assert_eq_i32(current.u.plane.origin[4] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
+}
+
+test "decode_frame returns output frame only when show_frame is set" {
+    var first_partition: [byte: 256] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
+    try write_minimal_key_frame_partition(&first_writer);
+
+    const probs: Vp8Probs = vp8_default_probs();
+    var token_partition: [byte: 64] = [];
+    var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 64);
+    try write_key_frame_tokens_with_u_dc(&token_writer, &probs);
+
+    var shown_frame: [byte: 330] = [];
+    make_16x16_key_frame(&first_partition[0] as &byte, &token_partition[0] as &byte, bool_writer_byte_count(&token_writer), &shown_frame[0] as &byte);
+
+    var show_context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&show_context);
+    var show_decoder: Decoder = make_decoder(&show_context);
+
+    var shown: DecoderFrameResult = try decoder_decode_frame(&show_decoder, &shown_frame[0] as &byte, 266 + bool_writer_byte_count(&token_writer));
+    defer decoded_frame_release(&shown.output) catch {};
+    try assert_eq_i32(shown.header.show_frame as i32, true as i32);
+    try assert_eq_i32(shown.has_output as i32, true as i32);
+    try assert_eq_i32(shown.output.view.width as i32, 16);
+    try assert_eq_i32(shown.output.view.height as i32, 16);
+    try assert_eq_i32(shown.output.view.y.origin[0] as i32, 128);
+    try assert_eq_i32(shown.output.view.u.origin[0] as i32, 129);
+    try assert_eq_i32(show_context.frame_pool.slot_lease_count0 as i32, 1);
+
+    var hidden_frame: [byte: 330] = [];
+    make_16x16_key_frame(&first_partition[0] as &byte, &token_partition[0] as &byte, bool_writer_byte_count(&token_writer), &hidden_frame[0] as &byte);
+    hidden_frame[0] = hidden_frame[0] & (0xef as byte);
+
+    var hidden_context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&hidden_context);
+    var hidden_decoder: Decoder = make_decoder(&hidden_context);
+
+    const hidden: DecoderFrameResult = try decoder_decode_frame(&hidden_decoder, &hidden_frame[0] as &byte, 266 + bool_writer_byte_count(&token_writer));
+    try assert_eq_i32(hidden.header.show_frame as i32, false as i32);
+    try assert_eq_i32(hidden.has_output as i32, false as i32);
+    try assert_eq_i32(hidden_context.frame_pool.last_slot as i32, hidden_context.frame_pool.current_slot as i32);
+    try assert_eq_i32(hidden_context.frame_pool.slot_lease_count0 as i32, 0);
 }
 
 test "inter frame decode copies last reference for zero motion macroblock" {

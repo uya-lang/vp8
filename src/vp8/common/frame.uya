@@ -76,6 +76,34 @@ fn empty_aligned_frame_plane() AlignedFramePlane {
     };
 }
 
+export fn empty_frame_visible_view() FrameVisibleView {
+    const plane: Plane = Plane{
+        data: null as &byte,
+        origin: null as &byte,
+        width: 0,
+        height: 0,
+        stride: 0,
+        border: 0,
+        storage_len: 0
+    };
+    return FrameVisibleView{
+        width: 0,
+        height: 0,
+        y: plane,
+        u: plane,
+        v: plane
+    };
+}
+
+export fn empty_decoded_frame() DecodedFrame {
+    return DecodedFrame{
+        pool: null as &FramePool,
+        slot: 0,
+        view: empty_frame_visible_view(),
+        released: true
+    };
+}
+
 export fn empty_frame_buffer() FrameBuffer {
     return FrameBuffer{
         width: 0,
@@ -443,6 +471,10 @@ export fn frame_pool_borrow_current_decoded_frame(pool: &FramePool) !DecodedFram
 
 export fn decoded_frame_release(frame: &DecodedFrame) !void {
     if frame.released {
+        return;
+    }
+    if frame.pool == null {
+        frame.released = true;
         return;
     }
     try frame_pool_dec_lease_count(frame.pool, frame.slot);

@@ -32,9 +32,12 @@ use vp8.common.coeff_context.coeff_context_store_v_after_decode;
 use vp8.common.coeff_context.coeff_context_store_y_after_decode;
 use vp8.common.coeff_context.coeff_context_store_y2_after_decode;
 use vp8.common.coeff_context.free_above_left_coeff_context;
+use vp8.common.frame.DecodedFrame;
 use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.empty_decoded_frame;
 use vp8.common.frame.frame_buffer_extend_border;
 use vp8.common.frame.frame_buffer_mark_border_dirty;
+use vp8.common.frame.frame_pool_borrow_current_decoded_frame;
 use vp8.common.frame.frame_pool_get_slot;
 use vp8.common.frame.frame_pool_refresh_references;
 use vp8.common.mb_info.make_macroblock_coeff_summary;
@@ -136,7 +139,9 @@ export struct DecoderFrameResult {
     token_partition_count: u8,
     macroblock_count: usize,
     parsed_token_partition_count: u8,
-    scalar_kernel_border_extended: bool
+    scalar_kernel_border_extended: bool,
+    has_output: bool,
+    output: DecodedFrame
 }
 
 fn copy_default_probs(decoder: &Decoder) void {
@@ -905,6 +910,13 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         try frame_pool_refresh_references(&decoder.context.frame_pool, true, true, true);
     }
 
+    var output: DecodedFrame = empty_decoded_frame();
+    var has_output: bool = false;
+    if header.show_frame {
+        output = try frame_pool_borrow_current_decoded_frame(&decoder.context.frame_pool);
+        has_output = true;
+    }
+
     return DecoderFrameResult{
         header: header,
         segmentation: segmentation,
@@ -913,7 +925,9 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
         token_partition_count: token_partition_count,
         macroblock_count: decoder.context.grid.mb_count,
         parsed_token_partition_count: token_partition_count,
-        scalar_kernel_border_extended: true
+        scalar_kernel_border_extended: true,
+        has_output: has_output,
+        output: output
     };
 }
 
