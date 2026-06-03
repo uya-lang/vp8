@@ -94,6 +94,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf > $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.psnr.all=' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.ssim.all=' $(ENCODE_CLI_DIR)/encode.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out-repeat.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 16 --out $(ENCODE_CLI_DIR)/out-q16.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 40 --target-bitrate 240000 --out $(ENCODE_CLI_DIR)/out-vbr.ivf

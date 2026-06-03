@@ -25,6 +25,24 @@ export struct EncoderPsnrReport {
     all: EncoderPsnrMetric
 }
 
+export struct EncoderSsimMetric {
+    sample_count: usize,
+    ssim: f64,
+    ssim_x10000: i32
+}
+
+export struct EncoderSsimReport {
+    y: EncoderSsimMetric,
+    u: EncoderSsimMetric,
+    v: EncoderSsimMetric,
+    all: EncoderSsimMetric
+}
+
+export struct EncoderQualityReport {
+    psnr: EncoderPsnrReport,
+    ssim: EncoderSsimReport
+}
+
 fn encoder_quality_plane_sample_count(width: usize, height: usize) !usize {
     if width == 0 || height == 0 {
         return error.ErrEncoderQualityInvalidInput;
@@ -76,6 +94,30 @@ fn encoder_quality_metric_from_sse(sse: u64, sample_count: usize) !EncoderPsnrMe
     };
 }
 
+fn encoder_quality_ssim_metric_from_value(ssim: f64, sample_count: usize) !EncoderSsimMetric {
+    if sample_count == 0 {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    var scaled: i32 = 0;
+    if ssim >= 0.0 {
+        scaled = ((ssim * (10000.0 as f64)) + (0.5 as f64)) as i32;
+    } else {
+        scaled = ((ssim * (10000.0 as f64)) - (0.5 as f64)) as i32;
+    }
+    return EncoderSsimMetric{
+        sample_count: sample_count,
+        ssim: ssim,
+        ssim_x10000: scaled
+    };
+}
+
+fn encoder_quality_nonnegative_variance(value: f64) f64 {
+    if value < 0.0 && value > (0.0 - 0.0000001) {
+        return 0.0;
+    }
+    return value;
+}
+
 export fn calculate_encoder_plane_psnr(reference: &YuvPlaneView, reconstructed: &Plane) !EncoderPsnrMetric {
     const sample_count: usize = try encoder_quality_validate_plane(reference, reconstructed);
     var sse: u64 = 0 as u64;
@@ -92,6 +134,44 @@ export fn calculate_encoder_plane_psnr(reference: &YuvPlaneView, reconstructed: 
         row = row + 1;
     }
     return try encoder_quality_metric_from_sse(sse, sample_count);
+}
+
+export fn calculate_encoder_plane_ssim(reference: &YuvPlaneView, reconstructed: &Plane) !EncoderSsimMetric {
+    const sample_count: usize = try encoder_quality_validate_plane(reference, reconstructed);
+    var sum_reference: f64 = 0.0;
+    var sum_reconstructed: f64 = 0.0;
+    var sum_reference_squared: f64 = 0.0;
+    var sum_reconstructed_squared: f64 = 0.0;
+    var sum_cross: f64 = 0.0;
+    var row: usize = 0;
+    while row < reference.height {
+        const reference_row: usize = row * reference.stride;
+        const reconstructed_row: usize = row * reconstructed.stride;
+        var col: usize = 0;
+        while col < reference.width {
+            const reference_sample: f64 = reference.data[reference_row + col] as f64;
+            const reconstructed_sample: f64 = reconstructed.origin[reconstructed_row + col] as f64;
+            sum_reference = sum_reference + reference_sample;
+            sum_reconstructed = sum_reconstructed + reconstructed_sample;
+            sum_reference_squared = sum_reference_squared + (reference_sample * reference_sample);
+            sum_reconstructed_squared = sum_reconstructed_squared + (reconstructed_sample * reconstructed_sample);
+            sum_cross = sum_cross + (reference_sample * reconstructed_sample);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const inv_count: f64 = (1.0 as f64) / (sample_count as f64);
+    const mean_reference: f64 = sum_reference * inv_count;
+    const mean_reconstructed: f64 = sum_reconstructed * inv_count;
+    const variance_reference: f64 = encoder_quality_nonnegative_variance((sum_reference_squared * inv_count) - (mean_reference * mean_reference));
+    const variance_reconstructed: f64 = encoder_quality_nonnegative_variance((sum_reconstructed_squared * inv_count) - (mean_reconstructed * mean_reconstructed));
+    const covariance: f64 = (sum_cross * inv_count) - (mean_reference * mean_reconstructed);
+    const c1: f64 = 6.5025;
+    const c2: f64 = 58.5225;
+    const numerator: f64 = (((2.0 as f64) * mean_reference * mean_reconstructed) + c1) * (((2.0 as f64) * covariance) + c2);
+    const denominator: f64 = (((mean_reference * mean_reference) + (mean_reconstructed * mean_reconstructed)) + c1) * (variance_reference + variance_reconstructed + c2);
+    return try encoder_quality_ssim_metric_from_value(numerator / denominator, sample_count);
 }
 
 export fn calculate_encoder_psnr_yuv_to_visible(reference: &YuvFrameView, reconstructed: &FrameVisibleView) !EncoderPsnrReport {
@@ -113,5 +193,45 @@ export fn calculate_encoder_psnr_yuv_to_visible(reference: &YuvFrameView, recons
         u: u,
         v: v,
         all: try encoder_quality_metric_from_sse(total_sse, total_samples)
+    };
+}
+
+fn encoder_quality_combine_ssim(y: &EncoderSsimMetric, u: &EncoderSsimMetric, v: &EncoderSsimMetric) !EncoderSsimMetric {
+    const yu_samples: usize = y.sample_count + u.sample_count;
+    if yu_samples < y.sample_count {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    const total_samples: usize = yu_samples + v.sample_count;
+    if total_samples < yu_samples {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    const weighted: f64 = ((y.ssim * (y.sample_count as f64)) + (u.ssim * (u.sample_count as f64)) + (v.ssim * (v.sample_count as f64))) / (total_samples as f64);
+    return try encoder_quality_ssim_metric_from_value(weighted, total_samples);
+}
+
+export fn calculate_encoder_ssim_yuv_to_visible(reference: &YuvFrameView, reconstructed: &FrameVisibleView) !EncoderSsimReport {
+    if reference == null || reconstructed == null {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+    try validate_yuv_frame_view(reference);
+    if reference.width != reconstructed.width || reference.height != reconstructed.height {
+        return error.ErrEncoderQualityInvalidInput;
+    }
+
+    const y: EncoderSsimMetric = try calculate_encoder_plane_ssim(&reference.y, &reconstructed.y);
+    const u: EncoderSsimMetric = try calculate_encoder_plane_ssim(&reference.u, &reconstructed.u);
+    const v: EncoderSsimMetric = try calculate_encoder_plane_ssim(&reference.v, &reconstructed.v);
+    return EncoderSsimReport{
+        y: y,
+        u: u,
+        v: v,
+        all: try encoder_quality_combine_ssim(&y, &u, &v)
+    };
+}
+
+export fn calculate_encoder_quality_yuv_to_visible(reference: &YuvFrameView, reconstructed: &FrameVisibleView) !EncoderQualityReport {
+    return EncoderQualityReport{
+        psnr: try calculate_encoder_psnr_yuv_to_visible(reference, reconstructed),
+        ssim: try calculate_encoder_ssim_yuv_to_visible(reference, reconstructed)
     };
 }

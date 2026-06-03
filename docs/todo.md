@@ -341,7 +341,7 @@
 - [x] token probability stats。
 - [x] probability update decision。
 - [x] 输出 PSNR。
-- [ ] 输出 SSIM 或预留 hook。
+- [x] 输出 SSIM 或预留 hook。
 
 验收标准：
 

@@ -6,7 +6,10 @@ use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.quality.EncoderPsnrMetric;
 use vp8.encoder.quality.EncoderPsnrReport;
+use vp8.encoder.quality.EncoderSsimMetric;
+use vp8.encoder.quality.EncoderSsimReport;
 use vp8.encoder.quality.calculate_encoder_psnr_yuv_to_visible;
+use vp8.encoder.quality.calculate_encoder_ssim_yuv_to_visible;
 
 fn make_test_plane(data: &byte, len: usize, width: usize, height: usize, stride: usize) Plane {
     return Plane{
@@ -34,6 +37,24 @@ fn dummy_psnr_metric() EncoderPsnrMetric {
 fn dummy_psnr_report() EncoderPsnrReport {
     const metric: EncoderPsnrMetric = dummy_psnr_metric();
     return EncoderPsnrReport{
+        y: metric,
+        u: metric,
+        v: metric,
+        all: metric
+    };
+}
+
+fn dummy_ssim_metric() EncoderSsimMetric {
+    return EncoderSsimMetric{
+        sample_count: 0,
+        ssim: 0.0,
+        ssim_x10000: 0
+    };
+}
+
+fn dummy_ssim_report() EncoderSsimReport {
+    const metric: EncoderSsimMetric = dummy_ssim_metric();
+    return EncoderSsimReport{
         y: metric,
         u: metric,
         v: metric,
@@ -99,6 +120,68 @@ test "encoder PSNR rejects mismatched geometry" {
     _ = calculate_encoder_psnr_yuv_to_visible(&reference, &visible) catch {
         failed = 1;
         dummy_psnr_report();
+    };
+
+    try assert_eq_i32(failed, 1);
+}
+
+test "encoder SSIM reports one for identical frames" {
+    var input: [byte: 6] = [ 10, 20, 30, 40, 50, 60 ];
+    const reference: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6, 2, 2);
+    const visible: FrameVisibleView = FrameVisibleView{
+        width: 2,
+        height: 2,
+        y: make_test_plane(&input[0] as &byte, 4, 2, 2, 2),
+        u: make_test_plane(&input[4] as &byte, 1, 1, 1, 1),
+        v: make_test_plane(&input[5] as &byte, 1, 1, 1, 1)
+    };
+
+    const report: EncoderSsimReport = try calculate_encoder_ssim_yuv_to_visible(&reference, &visible);
+
+    try assert_eq_i32(report.y.ssim_x10000, 10000);
+    try assert_eq_i32(report.u.ssim_x10000, 10000);
+    try assert_eq_i32(report.v.ssim_x10000, 10000);
+    try assert_eq_i32(report.all.ssim_x10000, 10000);
+}
+
+test "encoder SSIM computes per-plane and aggregate scaled values" {
+    var reference_data: [byte: 6] = [ 0, 0, 0, 0, 0, 0 ];
+    var reconstructed_data: [byte: 6] = [ 1, 1, 1, 1, 0, 255 ];
+    const reference: YuvFrameView = try make_i420_frame_view(&reference_data[0] as &byte, 6, 2, 2);
+    const visible: FrameVisibleView = FrameVisibleView{
+        width: 2,
+        height: 2,
+        y: make_test_plane(&reconstructed_data[0] as &byte, 4, 2, 2, 2),
+        u: make_test_plane(&reconstructed_data[4] as &byte, 1, 1, 1, 1),
+        v: make_test_plane(&reconstructed_data[5] as &byte, 1, 1, 1, 1)
+    };
+
+    const report: EncoderSsimReport = try calculate_encoder_ssim_yuv_to_visible(&reference, &visible);
+
+    try assert_eq_i32(report.y.ssim_x10000 > 8660, true as i32);
+    try assert_eq_i32(report.y.ssim_x10000 < 8675, true as i32);
+    try assert_eq_i32(report.u.ssim_x10000, 10000);
+    try assert_eq_i32(report.v.ssim_x10000, 1);
+    try assert_eq_i32(report.all.ssim_x10000 > 7440, true as i32);
+    try assert_eq_i32(report.all.ssim_x10000 < 7450, true as i32);
+}
+
+test "encoder SSIM rejects mismatched geometry" {
+    var reference_data: [byte: 6] = [];
+    var reconstructed_data: [byte: 6] = [];
+    const reference: YuvFrameView = try make_i420_frame_view(&reference_data[0] as &byte, 6, 2, 2);
+    const visible: FrameVisibleView = FrameVisibleView{
+        width: 2,
+        height: 2,
+        y: make_test_plane(&reconstructed_data[0] as &byte, 4, 1, 4, 1),
+        u: make_test_plane(&reconstructed_data[4] as &byte, 1, 1, 1, 1),
+        v: make_test_plane(&reconstructed_data[5] as &byte, 1, 1, 1, 1)
+    };
+    var failed: i32 = 0;
+
+    _ = calculate_encoder_ssim_yuv_to_visible(&reference, &visible) catch {
+        failed = 1;
+        dummy_ssim_report();
     };
 
     try assert_eq_i32(failed, 1);

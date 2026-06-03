@@ -43,9 +43,12 @@ use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.context.yuv420_frame_view_size;
 use vp8.encoder.keyframe.encode_keyframe_ivf;
 use vp8.encoder.keyframe.estimate_keyframe_ivf_size;
+use vp8.encoder.quality.EncoderQualityReport;
 use vp8.encoder.quality.EncoderPsnrMetric;
 use vp8.encoder.quality.EncoderPsnrReport;
-use vp8.encoder.quality.calculate_encoder_psnr_yuv_to_visible;
+use vp8.encoder.quality.EncoderSsimMetric;
+use vp8.encoder.quality.EncoderSsimReport;
+use vp8.encoder.quality.calculate_encoder_quality_yuv_to_visible;
 use vp8.encoder.rate_control.EncoderRateControl;
 use vp8.encoder.rate_control.EncoderRateControlDecision;
 use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
@@ -219,6 +222,23 @@ fn print_encode_psnr_report(report: &EncoderPsnrReport) void {
     print_encode_psnr_metric("u\0" as &byte, &report.u);
     print_encode_psnr_metric("v\0" as &byte, &report.v);
     print_encode_psnr_metric("all\0" as &byte, &report.all);
+}
+
+fn print_encode_ssim_metric(name: &byte, metric: &EncoderSsimMetric) void {
+    var scaled: i32 = metric.ssim_x10000;
+    if scaled < 0 {
+        scaled = 0 - scaled;
+        _ = printf("encode.ssim.%s=-%d.%04d\n", name, scaled / 10000, scaled % 10000);
+        return;
+    }
+    _ = printf("encode.ssim.%s=%d.%04d\n", name, scaled / 10000, scaled % 10000);
+}
+
+fn print_encode_ssim_report(report: &EncoderSsimReport) void {
+    print_encode_ssim_metric("y\0" as &byte, &report.y);
+    print_encode_ssim_metric("u\0" as &byte, &report.u);
+    print_encode_ssim_metric("v\0" as &byte, &report.v);
+    print_encode_ssim_metric("all\0" as &byte, &report.all);
 }
 
 fn env_flag_enabled(name: &const byte) bool {
@@ -445,7 +465,7 @@ fn run_decode_frame(input_path: &byte, frame_index: u32, output_path: &byte, for
     return 2;
 }
 
-fn calculate_encoded_keyframe_psnr(reference: &YuvFrameView, encoded: &byte, encoded_len: usize, width: usize, height: usize) !EncoderPsnrReport {
+fn calculate_encoded_keyframe_quality(reference: &YuvFrameView, encoded: &byte, encoded_len: usize, width: usize, height: usize) !EncoderQualityReport {
     const header: IvfHeader = try parse_ivf_header(encoded, encoded_len);
     var iterator: IvfFrameIterator = try make_ivf_frame_iterator(encoded, encoded_len, &header);
     if !ivf_frame_iterator_has_next(&iterator) {
@@ -463,7 +483,7 @@ fn calculate_encoded_keyframe_psnr(reference: &YuvFrameView, encoded: &byte, enc
         return error.ErrEncodeQualityUnavailable;
     }
 
-    const report: EncoderPsnrReport = try calculate_encoder_psnr_yuv_to_visible(reference, &result.output.view);
+    const report: EncoderQualityReport = try calculate_encoder_quality_yuv_to_visible(reference, &result.output.view);
     return report;
 }
 
@@ -521,8 +541,8 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
         _ = printf("error: failed to encode keyframe IVF\n");
         return 2;
     };
-    const psnr_report: EncoderPsnrReport = calculate_encoded_keyframe_psnr(&frame, out_data, written_len, width, height) catch {
-        _ = printf("error: failed to compute encode PSNR\n");
+    const quality_report: EncoderQualityReport = calculate_encoded_keyframe_quality(&frame, out_data, written_len, width, height) catch {
+        _ = printf("error: failed to compute encode quality metrics\n");
         return 2;
     };
 
@@ -537,7 +557,8 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
         _ = printf("error: failed to write encode output file\n");
         return 2;
     }
-    print_encode_psnr_report(&psnr_report);
+    print_encode_psnr_report(&quality_report.psnr);
+    print_encode_ssim_report(&quality_report.ssim);
     return 0;
 }
 
