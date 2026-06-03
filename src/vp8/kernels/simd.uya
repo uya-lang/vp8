@@ -148,3 +148,9 @@ export fn add_residual_4x4_clamped_u8x16(dst: &byte, dst_stride: usize, residual
         row = row + 1;
     }
 }
+
+export fn inverse_transform_dc_only_4x4_i16x16(dc: i16, output: &i16) void {
+    const residual: i16 = (((dc as i32) + 4) >> 3) as i16;
+    const values: I16x16 = @vector.splat(residual);
+    @vector.store(output, values);
+}

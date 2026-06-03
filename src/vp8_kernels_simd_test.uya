@@ -5,7 +5,9 @@ use vp8.common.plane.Plane;
 use vp8.common.plane.extend_plane_border;
 use vp8.common.plane.make_plane_view;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
+use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
+use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
@@ -288,4 +290,32 @@ test "SIMD residual add clamp matches scalar byte exact across stride" {
         try assert_eq_i32(simd_dst[index] as i32, scalar_dst[index] as i32);
         index = index + 1;
     }
+}
+
+fn assert_simd_dc_only_matches_scalar(dc: i16) !void {
+    var scalar_out: [i16: 20] = [];
+    var simd_out: [i16: 20] = [];
+
+    var index: usize = 0;
+    while index < 20 {
+        scalar_out[index] = -999;
+        simd_out[index] = -999;
+        index = index + 1;
+    }
+
+    inverse_transform_dc_only_4x4(dc, &scalar_out[2] as &i16);
+    inverse_transform_dc_only_4x4_i16x16(dc, &simd_out[2] as &i16);
+
+    index = 0;
+    while index < 20 {
+        try assert_eq_i32(simd_out[index] as i32, scalar_out[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD DC only inverse transform matches scalar output" {
+    try assert_simd_dc_only_matches_scalar(32 as i16);
+    try assert_simd_dc_only_matches_scalar(7 as i16);
+    try assert_simd_dc_only_matches_scalar(-20 as i16);
+    try assert_simd_dc_only_matches_scalar(255 as i16);
 }
