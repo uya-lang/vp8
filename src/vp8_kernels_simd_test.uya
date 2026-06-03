@@ -1,9 +1,13 @@
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 
+use vp8.common.plane.Plane;
+use vp8.common.plane.extend_plane_border;
+use vp8.common.plane.make_plane_view;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
+use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.plane_copy_u8x16;
 use vp8.kernels.simd.plane_fill_u8x16;
 use vp8.kernels.simd.store_i16x8;
@@ -124,4 +128,115 @@ test "SIMD plane fill u8x16 fills rows with scalar tails" {
 
     try assert_eq_i32(dst[2] as i32, 111);
     try assert_eq_i32(dst[3 + (3 * 21)] as i32, 111);
+}
+
+test "SIMD border extension replicates visible edges and rows" {
+    var plane: [byte: 2304] = [];
+    const stride: usize = 64;
+    const width: usize = 19;
+    const height: usize = 3;
+    const border: usize = 16;
+    const padded_width: usize = width + (border * 2);
+
+    var index: usize = 0;
+    while index < 2304 {
+        plane[index] = 231 as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < height {
+        var col: usize = 0;
+        while col < width {
+            plane[((border + row) * stride) + border + col] = (10 + (row * 32) + col) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    extend_plane_border_u8x16(&plane[0] as &byte, stride, width, height, border);
+
+    row = 0;
+    while row < height {
+        const data_row: usize = border + row;
+        const left_value: i32 = (10 + (row * 32)) as i32;
+        const right_value: i32 = (10 + (row * 32) + width - 1) as i32;
+
+        var col: usize = 0;
+        while col < border {
+            try assert_eq_i32(plane[(data_row * stride) + col] as i32, left_value);
+            col = col + 1;
+        }
+
+        col = 0;
+        while col < border {
+            try assert_eq_i32(plane[(data_row * stride) + border + width + col] as i32, right_value);
+            col = col + 1;
+        }
+
+        try assert_eq_i32(plane[(data_row * stride) + padded_width] as i32, 231);
+        row = row + 1;
+    }
+
+    var top_row: usize = 0;
+    while top_row < border {
+        var col: usize = 0;
+        while col < padded_width {
+            try assert_eq_i32(plane[(top_row * stride) + col] as i32, plane[(border * stride) + col] as i32);
+            col = col + 1;
+        }
+        try assert_eq_i32(plane[(top_row * stride) + padded_width] as i32, 231);
+        top_row = top_row + 1;
+    }
+
+    var bottom_row: usize = 0;
+    while bottom_row < border {
+        const dst_row: usize = border + height + bottom_row;
+        const src_row: usize = border + height - 1;
+        var col: usize = 0;
+        while col < padded_width {
+            try assert_eq_i32(plane[(dst_row * stride) + col] as i32, plane[(src_row * stride) + col] as i32);
+            col = col + 1;
+        }
+        try assert_eq_i32(plane[(dst_row * stride) + padded_width] as i32, 231);
+        bottom_row = bottom_row + 1;
+    }
+}
+
+test "SIMD border extension matches scalar plane extension byte exact" {
+    var scalar: [byte: 2304] = [];
+    var simd: [byte: 2304] = [];
+    const stride: usize = 64;
+    const width: usize = 19;
+    const height: usize = 3;
+    const border: usize = 16;
+
+    var index: usize = 0;
+    while index < 2304 {
+        scalar[index] = 199 as byte;
+        simd[index] = 199 as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < height {
+        var col: usize = 0;
+        while col < width {
+            const value: byte = (20 + (row * 31) + col) as byte;
+            scalar[((border + row) * stride) + border + col] = value;
+            simd[((border + row) * stride) + border + col] = value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var scalar_plane: Plane = try make_plane_view(&scalar[0] as &byte, 2304, width, height, stride, border);
+    extend_plane_border(&scalar_plane);
+    extend_plane_border_u8x16(&simd[0] as &byte, stride, width, height, border);
+
+    index = 0;
+    while index < 2304 {
+        try assert_eq_i32(simd[index] as i32, scalar[index] as i32);
+        index = index + 1;
+    }
 }

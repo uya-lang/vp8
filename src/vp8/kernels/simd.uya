@@ -71,3 +71,32 @@ export fn plane_fill_u8x16(dst: &byte, dst_stride: usize, width: usize, height: 
         row = row + 1;
     }
 }
+
+export fn extend_plane_border_u8x16(data: &byte, stride: usize, width: usize, height: usize, border: usize) void {
+    if border == 0 {
+        return;
+    }
+
+    const padded_width: usize = width + (border * (2 as usize));
+
+    var row: usize = 0;
+    while row < height {
+        const data_row: usize = border + row;
+        const row_base: usize = data_row * stride;
+        const visible_base: usize = row_base + border;
+        const left_value: byte = data[visible_base];
+        const right_value: byte = data[visible_base + width - 1];
+
+        plane_fill_u8x16(&data[row_base] as &byte, stride, border, 1, left_value);
+        plane_fill_u8x16(&data[row_base + border + width] as &byte, stride, border, 1, right_value);
+
+        row = row + 1;
+    }
+
+    const top_source_base: usize = border * stride;
+    plane_copy_u8x16(&data[0] as &byte, stride, &data[top_source_base] as &byte, 0, padded_width, border);
+
+    const bottom_source_base: usize = (border + height - 1) * stride;
+    const bottom_dst_base: usize = (border + height) * stride;
+    plane_copy_u8x16(&data[bottom_dst_base] as &byte, stride, &data[bottom_source_base] as &byte, 0, padded_width, border);
+}
