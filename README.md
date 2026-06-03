@@ -7,9 +7,10 @@ decoder is correct.
 
 ## Current Status
 
-This repository is still an early scaffold. It can parse basic IVF container
-metadata and VP8 uncompressed frame tags, but it does not yet decode, encode,
-or write real VP8 pictures.
+This repository has a scalar decoder work-in-progress. It can parse IVF
+container metadata, decode the supported scalar VP8 path for tiny built-in
+samples, and write visible I420 YUV output. Broader conformance coverage,
+SIMD, parallelism, and encoder support are still pending.
 
 Current command surface:
 
@@ -17,8 +18,10 @@ Current command surface:
 - `vp8uya version`
 - `vp8uya info <input.ivf>` prints IVF width, height, frame count, timebase,
   fps, and the number of bounded frame payloads found.
-- `vp8uya decode <input.ivf> --yuv <out.yuv>` reports that decoding is not
-  implemented yet.
+- `vp8uya decode <input.ivf> --yuv <out.yuv>` writes decoded I420 output for
+  supported scalar VP8 frames.
+- `vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>` writes one
+  decoded visible frame by IVF frame index.
 
 ## Build
 
@@ -47,9 +50,10 @@ build/vp8uya --help
 
 ## Tests And Benchmarks
 
-`make test` currently verifies the scaffold files and CLI help output. Codec
-correctness tests will be added with the bitstream, boolean coder, container,
-decoder, and kernel phases.
+`make test` runs UYA unit tests for bitstream, boolean coder, container,
+decoder context, scalar kernels, and scalar decoder behavior. It also generates
+five tiny IVF samples, decodes them through the CLI, and checks their YUV MD5
+values against built-in goldens.
 
 `bench/` is reserved for benchmark harnesses and baseline records. Benchmarks
 must keep scalar and SIMD paths comparable and must not become correctness
@@ -61,5 +65,5 @@ This project intentionally does not depend on libvpx, FFmpeg, C/C++
 intrinsics, or external assembly in runtime codec code. External tools may be
 used only for test fixture generation and differential validation.
 
-Until the Phase 1 through Phase 7 tasks are complete, this project has no real
-VP8 decoding or encoding capability.
+Until conformance work is complete, decoder support is limited to the covered
+scalar path and built-in fixture shapes. Encoder support is not implemented.

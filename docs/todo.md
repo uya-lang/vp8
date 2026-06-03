@@ -185,7 +185,7 @@
 
 验收标准：
 
-- [ ] 至少 5 个 tiny IVF 样本输出 YUV MD5 与 golden 一致。
+- [x] 至少 5 个 tiny IVF 样本输出 YUV MD5 与 golden 一致。
 - [ ] 至少 1 个 inter sample 能完整 decode。
 - [ ] 强制 scalar 路径可通过全部 decoder 测试。
 
