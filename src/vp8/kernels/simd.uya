@@ -64,6 +64,49 @@ fn store_clipped_i16x16_to_u8(dst: &byte, values: I16x16) void {
     }
 }
 
+fn write_4x4_values_u8x16(dst: &byte, dst_stride: usize, values: &byte) void {
+    const block: U8x16 = load_u8x16(values as &u8);
+    if dst_stride == 4 {
+        store_u8x16(dst as &u8, block);
+        return;
+    }
+
+    var lanes: [byte: 16] = [];
+    store_u8x16(&lanes[0] as &u8, block);
+
+    var row: usize = 0;
+    while row < 4 {
+        const dst_base: usize = row * dst_stride;
+        const value_base: usize = row * 4;
+        var col: usize = 0;
+        while col < 4 {
+            dst[dst_base + col] = lanes[value_base + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn fill_4x4_u8x16(dst: &byte, dst_stride: usize, value: byte) void {
+    const block: U8x16 = @vector.splat(value as u8);
+    if dst_stride == 4 {
+        store_u8x16(dst as &u8, block);
+        return;
+    }
+
+    var lanes: [byte: 16] = [];
+    store_u8x16(&lanes[0] as &u8, block);
+    write_4x4_values_u8x16(dst, dst_stride, &lanes[0] as &byte);
+}
+
+fn avg2_u8(a: byte, b: byte) byte {
+    return (((a as i32) + (b as i32) + 1) >> 1) as byte;
+}
+
+fn avg3_u8(a: byte, b: byte, c: byte) byte {
+    return (((a as i32) + ((b as i32) * 2) + (c as i32) + 2) >> 2) as byte;
+}
+
 fn make_i32x4(a: i32, b: i32, c: i32, d: i32) I32x4 {
     var lanes: [i32: 4] = [];
     lanes[0] = a;
@@ -205,6 +248,209 @@ export fn predict_y16x16_true_motion_u8x16(dst: &byte, dst_stride: usize, above:
         store_clipped_i16x16_to_u8(&dst[row * dst_stride] as &byte, predicted);
         row = row + 1;
     }
+}
+
+export fn predict_y4x4_dc_u8x16(dst: &byte, dst_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) void {
+    var sum: i32 = 0;
+    var value: byte = 128 as byte;
+
+    if has_above {
+        var col: usize = 0;
+        while col < 4 {
+            sum = sum + (above[col] as i32);
+            col = col + 1;
+        }
+    }
+
+    if has_left {
+        var row: usize = 0;
+        while row < 4 {
+            sum = sum + (left[row] as i32);
+            row = row + 1;
+        }
+    }
+
+    if has_above && has_left {
+        value = ((sum + 4) >> 3) as byte;
+    } else if has_above || has_left {
+        value = ((sum + 2) >> 2) as byte;
+    }
+
+    fill_4x4_u8x16(dst, dst_stride, value);
+}
+
+export fn predict_y4x4_true_motion_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    var above_lanes: [i16: 16] = [
+        above[0] as i16, above[1] as i16, above[2] as i16, above[3] as i16,
+        above[0] as i16, above[1] as i16, above[2] as i16, above[3] as i16,
+        above[0] as i16, above[1] as i16, above[2] as i16, above[3] as i16,
+        above[0] as i16, above[1] as i16, above[2] as i16, above[3] as i16
+    ];
+    var left_lanes: [i16: 16] = [
+        left[0] as i16, left[0] as i16, left[0] as i16, left[0] as i16,
+        left[1] as i16, left[1] as i16, left[1] as i16, left[1] as i16,
+        left[2] as i16, left[2] as i16, left[2] as i16, left[2] as i16,
+        left[3] as i16, left[3] as i16, left[3] as i16, left[3] as i16
+    ];
+    const above_values: I16x16 = @vector.load(&above_lanes[0] as &i16);
+    const left_values: I16x16 = @vector.load(&left_lanes[0] as &i16);
+    const above_left_values: I16x16 = @vector.splat(above_left as i16);
+    const predicted: I16x16 = (left_values + above_values) - above_left_values;
+    var predicted_lanes: [i16: 16] = [];
+    var values: [byte: 16] = [];
+    @vector.store(&predicted_lanes[0] as &i16, predicted);
+
+    var index: usize = 0;
+    while index < 16 {
+        values[index] = clip_i16_to_u8(predicted_lanes[index]);
+        index = index + 1;
+    }
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_vertical_edge_u8x16(dst: &byte, dst_stride: usize, above: &byte, above_left: byte) void {
+    var values: [byte: 16] = [
+        avg3_u8(above_left, above[0], above[1]),
+        avg3_u8(above[0], above[1], above[2]),
+        avg3_u8(above[1], above[2], above[3]),
+        avg3_u8(above[2], above[3], above[4]),
+        avg3_u8(above_left, above[0], above[1]),
+        avg3_u8(above[0], above[1], above[2]),
+        avg3_u8(above[1], above[2], above[3]),
+        avg3_u8(above[2], above[3], above[4]),
+        avg3_u8(above_left, above[0], above[1]),
+        avg3_u8(above[0], above[1], above[2]),
+        avg3_u8(above[1], above[2], above[3]),
+        avg3_u8(above[2], above[3], above[4]),
+        avg3_u8(above_left, above[0], above[1]),
+        avg3_u8(above[0], above[1], above[2]),
+        avg3_u8(above[1], above[2], above[3]),
+        avg3_u8(above[2], above[3], above[4])
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_horizontal_edge_u8x16(dst: &byte, dst_stride: usize, left: &byte, above_left: byte) void {
+    var values: [byte: 16] = [
+        avg3_u8(above_left, left[0], left[1]), avg3_u8(above_left, left[0], left[1]), avg3_u8(above_left, left[0], left[1]), avg3_u8(above_left, left[0], left[1]),
+        avg3_u8(left[0], left[1], left[2]), avg3_u8(left[0], left[1], left[2]), avg3_u8(left[0], left[1], left[2]), avg3_u8(left[0], left[1], left[2]),
+        avg3_u8(left[1], left[2], left[3]), avg3_u8(left[1], left[2], left[3]), avg3_u8(left[1], left[2], left[3]), avg3_u8(left[1], left[2], left[3]),
+        avg3_u8(left[2], left[3], left[3]), avg3_u8(left[2], left[3], left[3]), avg3_u8(left[2], left[3], left[3]), avg3_u8(left[2], left[3], left[3])
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_down_left_u8x16(dst: &byte, dst_stride: usize, above: &byte) void {
+    var p: [byte: 7] = [
+        avg3_u8(above[0], above[1], above[2]),
+        avg3_u8(above[1], above[2], above[3]),
+        avg3_u8(above[2], above[3], above[4]),
+        avg3_u8(above[3], above[4], above[5]),
+        avg3_u8(above[4], above[5], above[6]),
+        avg3_u8(above[5], above[6], above[7]),
+        avg3_u8(above[6], above[7], above[7])
+    ];
+    var values: [byte: 16] = [
+        p[0], p[1], p[2], p[3],
+        p[1], p[2], p[3], p[4],
+        p[2], p[3], p[4], p[5],
+        p[3], p[4], p[5], p[6]
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_down_right_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    const p0: byte = avg3_u8(left[0], above_left, above[0]);
+    const p1: byte = avg3_u8(above_left, above[0], above[1]);
+    const p2: byte = avg3_u8(above[0], above[1], above[2]);
+    const p3: byte = avg3_u8(above[1], above[2], above[3]);
+    const p4: byte = avg3_u8(left[1], left[0], above_left);
+    const p5: byte = avg3_u8(left[2], left[1], left[0]);
+    const p6: byte = avg3_u8(left[3], left[2], left[1]);
+    var values: [byte: 16] = [
+        p0, p1, p2, p3,
+        p4, p0, p1, p2,
+        p5, p4, p0, p1,
+        p6, p5, p4, p0
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_vertical_right_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    const p0: byte = avg2_u8(above_left, above[0]);
+    const p1: byte = avg2_u8(above[0], above[1]);
+    const p2: byte = avg2_u8(above[1], above[2]);
+    const p3: byte = avg2_u8(above[2], above[3]);
+    const p4: byte = avg3_u8(left[0], above_left, above[0]);
+    const p5: byte = avg3_u8(above_left, above[0], above[1]);
+    const p6: byte = avg3_u8(above[0], above[1], above[2]);
+    const p7: byte = avg3_u8(above[1], above[2], above[3]);
+    const p8: byte = avg3_u8(left[1], left[0], above_left);
+    const p9: byte = avg3_u8(left[2], left[1], left[0]);
+    var values: [byte: 16] = [
+        p0, p1, p2, p3,
+        p4, p5, p6, p7,
+        p8, p0, p1, p2,
+        p9, p4, p5, p6
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_vertical_left_u8x16(dst: &byte, dst_stride: usize, above: &byte) void {
+    const p0: byte = avg2_u8(above[0], above[1]);
+    const p1: byte = avg2_u8(above[1], above[2]);
+    const p2: byte = avg2_u8(above[2], above[3]);
+    const p3: byte = avg2_u8(above[3], above[4]);
+    const p4: byte = avg3_u8(above[0], above[1], above[2]);
+    const p5: byte = avg3_u8(above[1], above[2], above[3]);
+    const p6: byte = avg3_u8(above[2], above[3], above[4]);
+    const p7: byte = avg3_u8(above[3], above[4], above[5]);
+    const p8: byte = avg3_u8(above[4], above[5], above[6]);
+    const p9: byte = avg3_u8(above[5], above[6], above[7]);
+    var values: [byte: 16] = [
+        p0, p1, p2, p3,
+        p4, p5, p6, p7,
+        p1, p2, p3, p8,
+        p5, p6, p7, p9
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_horizontal_down_u8x16(dst: &byte, dst_stride: usize, above: &byte, left: &byte, above_left: byte) void {
+    const p0: byte = avg2_u8(left[0], above_left);
+    const p1: byte = avg3_u8(left[0], above_left, above[0]);
+    const p2: byte = avg3_u8(above_left, above[0], above[1]);
+    const p3: byte = avg3_u8(above[0], above[1], above[2]);
+    const p4: byte = avg2_u8(left[1], left[0]);
+    const p5: byte = avg3_u8(left[1], left[0], above_left);
+    const p6: byte = avg2_u8(left[2], left[1]);
+    const p7: byte = avg3_u8(left[2], left[1], left[0]);
+    const p8: byte = avg2_u8(left[3], left[2]);
+    const p9: byte = avg3_u8(left[3], left[2], left[1]);
+    var values: [byte: 16] = [
+        p0, p1, p2, p3,
+        p4, p5, p0, p1,
+        p6, p7, p4, p5,
+        p8, p9, p6, p7
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
+}
+
+export fn predict_y4x4_horizontal_up_u8x16(dst: &byte, dst_stride: usize, left: &byte) void {
+    const p0: byte = avg2_u8(left[0], left[1]);
+    const p1: byte = avg3_u8(left[0], left[1], left[2]);
+    const p2: byte = avg2_u8(left[1], left[2]);
+    const p3: byte = avg3_u8(left[1], left[2], left[3]);
+    const p4: byte = avg2_u8(left[2], left[3]);
+    const p5: byte = avg3_u8(left[2], left[3], left[3]);
+    const p6: byte = left[3];
+    var values: [byte: 16] = [
+        p0, p1, p2, p3,
+        p2, p3, p4, p5,
+        p4, p5, p6, p6,
+        p6, p6, p6, p6
+    ];
+    write_4x4_values_u8x16(dst, dst_stride, &values[0] as &byte);
 }
 
 export fn add_residual_4x4_clamped_u8x16(dst: &byte, dst_stride: usize, residual: &i16) void {

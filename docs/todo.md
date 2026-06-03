@@ -238,7 +238,7 @@
 - [x] SIMD DC-only inverse transform。
 - [x] SIMD 4x4 inverse DCT batch。
 - [x] SIMD intra 16x16 predictors。
-- [ ] SIMD intra 4x4 高频 predictors。
+- [x] SIMD intra 4x4 高频 predictors。
 - [ ] SIMD UV predictors。
 - [ ] SIMD inter copy 16x16/8x8/4x4。
 - [ ] SIMD sub-pixel horizontal filter。
