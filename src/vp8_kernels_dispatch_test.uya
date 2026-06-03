@@ -6,9 +6,11 @@ use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.simd_detect_capabilities;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.kernel_table_add_residual_4x4_clamped;
+use vp8.kernels.dispatch.kernel_table_dequant_block_4x4;
 use vp8.kernels.dispatch.kernel_table_forward_dct_4x4;
 use vp8.kernels.dispatch.kernel_table_forward_walsh_hadamard_y2_4x4;
 use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
+use vp8.kernels.dispatch.kernel_table_quantize_block_4x4;
 use vp8.kernels.dispatch.kernel_table_sad_4x4;
 use vp8.kernels.dispatch.kernel_table_sad_8x8;
 use vp8.kernels.dispatch.kernel_table_sad_16x16;
@@ -24,6 +26,7 @@ use vp8.kernels.dispatch.kernel_table_variance_16x16;
 use vp8.kernels.dispatch.make_default_kernel_table;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
+use vp8.token.parse.CoefficientBlockSummary;
 
 fn assert_copy_result(dst: &byte, stride: usize) !void {
     try assert_eq_i32(dst[0] as i32, 1);
@@ -42,6 +45,13 @@ fn assert_i16_block_eq(actual: &i16, expected: &i16) !void {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
     }
+}
+
+fn assert_summary_eq(actual: &CoefficientBlockSummary, expected: &CoefficientBlockSummary) !void {
+    try assert_eq_i32(actual.has_coeff as i32, expected.has_coeff as i32);
+    try assert_eq_i32(actual.dc_only as i32, expected.dc_only as i32);
+    try assert_eq_i32(actual.coefficient_count as i32, expected.coefficient_count as i32);
+    try assert_eq_i32(actual.eob_position as i32, expected.eob_position as i32);
 }
 
 fn fill_sad16_fixture(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) void {
@@ -94,6 +104,8 @@ test "kernel table exposes scalar function pointers" {
     try expect(table.add_residual_4x4_clamped_fn != null);
     try expect(table.forward_dct_4x4_fn != null);
     try expect(table.forward_walsh_hadamard_y2_4x4_fn != null);
+    try expect(table.quantize_block_4x4_fn != null);
+    try expect(table.dequant_block_4x4_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -151,6 +163,42 @@ test "kernel table exposes scalar function pointers" {
 
     try kernel_table_forward_walsh_hadamard_y2_4x4(&table, &wht_input[0] as &i16, 6, &wht_output[0] as &i16);
     try assert_i16_block_eq(&wht_output[0] as &i16, &wht_expected[0] as &i16);
+
+    var quant_input: [i16: 16] = [
+        15, -14, 0, 7,
+        28, 0, -35, 42,
+        0, 49, -56, 0,
+        63, 0, 70, -77
+    ];
+    var qcoeff: [i16: 16] = [];
+    var dqcoeff: [i16: 16] = [];
+    var qcoeff_expected: [i16: 16] = [
+        3, -2, 0, 1,
+        4, 0, -5, 6,
+        0, 7, -8, 0,
+        9, 0, 10, -11
+    ];
+    var dqcoeff_expected: [i16: 16] = [
+        15, -14, 0, 7,
+        28, 0, -35, 42,
+        0, 49, -56, 0,
+        63, 0, 70, -77
+    ];
+    const summary_expected: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: true,
+        dc_only: false,
+        coefficient_count: 11 as byte,
+        eob_position: 16 as byte
+    };
+
+    const summary: CoefficientBlockSummary = try kernel_table_quantize_block_4x4(&table, &quant_input[0] as &i16, 5 as i16, 7 as i16, &qcoeff[0] as &i16, &dqcoeff[0] as &i16);
+    try assert_i16_block_eq(&qcoeff[0] as &i16, &qcoeff_expected[0] as &i16);
+    try assert_i16_block_eq(&dqcoeff[0] as &i16, &dqcoeff_expected[0] as &i16);
+    try assert_summary_eq(&summary, &summary_expected);
+
+    var dequant_output: [i16: 16] = [];
+    try kernel_table_dequant_block_4x4(&table, &qcoeff[0] as &i16, 5 as i16, 7 as i16, &dequant_output[0] as &i16);
+    try assert_i16_block_eq(&dequant_output[0] as &i16, &dqcoeff_expected[0] as &i16);
 
     var sad_src: [byte: 400] = [];
     var sad_reference: [byte: 448] = [];
@@ -232,6 +280,8 @@ test "default kernel table remains scalar until SIMD kernels are registered" {
     try expect(table.add_residual_4x4_clamped_fn != null);
     try expect(table.forward_dct_4x4_fn != null);
     try expect(table.forward_walsh_hadamard_y2_4x4_fn != null);
+    try expect(table.quantize_block_4x4_fn != null);
+    try expect(table.dequant_block_4x4_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -255,6 +305,8 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     try expect(table.add_residual_4x4_clamped_fn != null);
     try expect(table.forward_dct_4x4_fn != null);
     try expect(table.forward_walsh_hadamard_y2_4x4_fn != null);
+    try expect(table.quantize_block_4x4_fn != null);
+    try expect(table.dequant_block_4x4_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -301,6 +353,42 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
 
     try kernel_table_forward_walsh_hadamard_y2_4x4(&table, &wht_input[0] as &i16, 4, &wht_output[0] as &i16);
     try assert_i16_block_eq(&wht_output[0] as &i16, &wht_expected[0] as &i16);
+
+    var quant_input: [i16: 16] = [
+        15, -14, 0, 7,
+        28, 0, -35, 42,
+        0, 49, -56, 0,
+        63, 0, 70, -77
+    ];
+    var qcoeff: [i16: 16] = [];
+    var dqcoeff: [i16: 16] = [];
+    var qcoeff_expected: [i16: 16] = [
+        3, -2, 0, 1,
+        4, 0, -5, 6,
+        0, 7, -8, 0,
+        9, 0, 10, -11
+    ];
+    var dqcoeff_expected: [i16: 16] = [
+        15, -14, 0, 7,
+        28, 0, -35, 42,
+        0, 49, -56, 0,
+        63, 0, 70, -77
+    ];
+    const summary_expected: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: true,
+        dc_only: false,
+        coefficient_count: 11 as byte,
+        eob_position: 16 as byte
+    };
+
+    const summary: CoefficientBlockSummary = try kernel_table_quantize_block_4x4(&table, &quant_input[0] as &i16, 5 as i16, 7 as i16, &qcoeff[0] as &i16, &dqcoeff[0] as &i16);
+    try assert_i16_block_eq(&qcoeff[0] as &i16, &qcoeff_expected[0] as &i16);
+    try assert_i16_block_eq(&dqcoeff[0] as &i16, &dqcoeff_expected[0] as &i16);
+    try assert_summary_eq(&summary, &summary_expected);
+
+    var dequant_output: [i16: 16] = [];
+    try kernel_table_dequant_block_4x4(&table, &qcoeff[0] as &i16, 5 as i16, 7 as i16, &dequant_output[0] as &i16);
+    try assert_i16_block_eq(&dequant_output[0] as &i16, &dqcoeff_expected[0] as &i16);
 
     var src: [byte: 400] = [];
     var reference: [byte: 448] = [];
@@ -352,6 +440,8 @@ test "kernel table wrappers reject unknown entries" {
     var dct_dst: [i16: 16] = [];
     var wht_src: [i16: 16] = [];
     var wht_dst: [i16: 16] = [];
+    var qcoeff: [i16: 16] = [];
+    var dqcoeff: [i16: 16] = [];
     var failed: i32 = 0;
 
     kernel_table_predict_inter_copy(&table, &dst[0] as &byte, 2, &src[0] as &byte, 2, 2, 2) catch {
@@ -375,6 +465,32 @@ test "kernel table wrappers reject unknown entries" {
     failed = 0;
 
     kernel_table_forward_walsh_hadamard_y2_4x4(&table, &wht_src[0] as &i16, 4, &wht_dst[0] as &i16) catch {
+        failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.quantize_block_4x4_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_quantize_block_4x4(&table, &dct_src[0] as &i16, 5 as i16, 7 as i16, &qcoeff[0] as &i16, &dqcoeff[0] as &i16) catch {
+        failed = 1;
+        CoefficientBlockSummary{
+            has_coeff: false,
+            dc_only: false,
+            coefficient_count: 0 as byte,
+            eob_position: 0 as byte
+        };
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.dequant_block_4x4_fn = null as &void;
+    failed = 0;
+
+    kernel_table_dequant_block_4x4(&table, &qcoeff[0] as &i16, 5 as i16, 7 as i16, &dqcoeff[0] as &i16) catch {
         failed = 1;
     };
 

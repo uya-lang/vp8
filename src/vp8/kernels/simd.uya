@@ -1,3 +1,7 @@
+use vp8.encoder.quant.quantize_block_4x4;
+use vp8.token.parse.CoefficientBlockSummary;
+use vp8.token.parse.coefficient_scan_index;
+
 export type U8x16 = @vector(u8, 16);
 export type U8Mask16 = @mask(16);
 export type I16x8 = @vector(i16, 8);
@@ -1585,6 +1589,10 @@ fn simd_load_i16_column_i32x4(input: &i16, input_stride: usize, col: usize) I32x
     return make_i32x4(input[col] as i32, input[row1 + col] as i32, input[row2 + col] as i32, input[row3 + col] as i32);
 }
 
+fn simd_load_i16_i32x4(input: &i16) I32x4 {
+    return make_i32x4(input[0] as i32, input[1] as i32, input[2] as i32, input[3] as i32);
+}
+
 fn simd_store_i32x4_to_i16(output: &i16, values: I32x4) void {
     var lanes: [i32: 4] = [];
     @vector.store(&lanes[0] as &i32, values);
@@ -1601,6 +1609,104 @@ fn simd_wht_round_negative_i32x4(values: I32x4) I32x4 {
     const one: I32x4 = @vector.splat(1);
     const zero: I32x4 = @vector.splat(0);
     return values + @vector.select(negative, one, zero);
+}
+
+fn simd_quantize_coefficient(value: i16, factor: i16) i16 {
+    const factor_i32: i32 = factor as i32;
+    const magnitude: i32 = (simd_abs_i32(value as i32) + (factor_i32 >> 1)) / factor_i32;
+    if value < (0 as i16) {
+        return (0 - magnitude) as i16;
+    }
+    return magnitude as i16;
+}
+
+fn simd_dequantize_coefficient(qcoeff: i16, factor: i16) i16 {
+    return ((qcoeff as i32) * (factor as i32)) as i16;
+}
+
+fn simd_quantize_summary(qcoeff: &i16) !CoefficientBlockSummary {
+    var summary: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 0 as byte
+    };
+
+    var position: usize = 0;
+    while position < 16 {
+        const scan_index: byte = try coefficient_scan_index(position);
+        if qcoeff[scan_index as usize] != (0 as i16) {
+            summary.has_coeff = true;
+            summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
+            summary.eob_position = (position + 1) as byte;
+        }
+        position = position + 1;
+    }
+
+    summary.dc_only = summary.coefficient_count == (1 as byte) && qcoeff[0] != (0 as i16);
+    return summary;
+}
+
+fn simd_quantize_store_chunk(input: &i16, offset: usize, dc_factor: i16, ac_factor: i16, qcoeff: &i16, dqcoeff: &i16) void {
+    const values: I32x4 = simd_load_i16_i32x4(&input[offset] as &i16);
+    var lanes: [i32: 4] = [];
+    var q_lanes: [i32: 4] = [];
+    var dq_lanes: [i32: 4] = [];
+    @vector.store(&lanes[0] as &i32, values);
+
+    var lane: usize = 0;
+    while lane < 4 {
+        const index: usize = offset + lane;
+        var factor: i16 = ac_factor;
+        if index == 0 {
+            factor = dc_factor;
+        }
+
+        const quantized: i16 = simd_quantize_coefficient(lanes[lane] as i16, factor);
+        q_lanes[lane] = quantized as i32;
+        if quantized != (0 as i16) {
+            dq_lanes[lane] = simd_dequantize_coefficient(quantized, factor) as i32;
+        } else {
+            dq_lanes[lane] = 0;
+        }
+        lane = lane + 1;
+    }
+
+    const q_values: I32x4 = make_i32x4(q_lanes[0], q_lanes[1], q_lanes[2], q_lanes[3]);
+    const dq_values: I32x4 = make_i32x4(dq_lanes[0], dq_lanes[1], dq_lanes[2], dq_lanes[3]);
+    simd_store_i32x4_to_i16(&qcoeff[offset] as &i16, q_values);
+    simd_store_i32x4_to_i16(&dqcoeff[offset] as &i16, dq_values);
+}
+
+fn simd_dequant_store_chunk(input: &i16, offset: usize, factors: I32x4, output: &i16) void {
+    const values: I32x4 = simd_load_i16_i32x4(&input[offset] as &i16);
+    const dequantized: I32x4 = values * factors;
+    simd_store_i32x4_to_i16(&output[offset] as &i16, dequantized);
+}
+
+export fn quantize_block_4x4_i16x16(input: &i16, dc_factor: i16, ac_factor: i16, qcoeff: &i16, dqcoeff: &i16) !CoefficientBlockSummary {
+    if input == null || qcoeff == null || dqcoeff == null {
+        return error.ErrEncoderQuantizeInvalidInput;
+    }
+    if dc_factor <= (0 as i16) || ac_factor <= (0 as i16) {
+        return error.ErrEncoderQuantizeInvalidFactor;
+    }
+
+    simd_quantize_store_chunk(input, 0, dc_factor, ac_factor, qcoeff, dqcoeff);
+    simd_quantize_store_chunk(input, 4, dc_factor, ac_factor, qcoeff, dqcoeff);
+    simd_quantize_store_chunk(input, 8, dc_factor, ac_factor, qcoeff, dqcoeff);
+    simd_quantize_store_chunk(input, 12, dc_factor, ac_factor, qcoeff, dqcoeff);
+
+    return try simd_quantize_summary(qcoeff);
+}
+
+export fn dequant_block_4x4_i16x16(input: &i16, dc_factor: i16, ac_factor: i16, output: &i16) void {
+    const first_factors: I32x4 = make_i32x4(dc_factor as i32, ac_factor as i32, ac_factor as i32, ac_factor as i32);
+    const ac_factors: I32x4 = @vector.splat(ac_factor as i32);
+    simd_dequant_store_chunk(input, 0, first_factors, output);
+    simd_dequant_store_chunk(input, 4, ac_factors, output);
+    simd_dequant_store_chunk(input, 8, ac_factors, output);
+    simd_dequant_store_chunk(input, 12, ac_factors, output);
 }
 
 export fn forward_dct_4x4_i32x4(input: &i16, input_stride: usize, output: &i16) void {

@@ -6,7 +6,9 @@ use vp8.common.plane.extend_plane_border;
 use vp8.common.plane.make_plane_view;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
+use vp8.encoder.quant.quantize_block_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
+use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
 use vp8.kernels.scalar.loop_filter_normal_horizontal_edge;
@@ -62,8 +64,10 @@ use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
 use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.forward_dct_4x4_i32x4;
 use vp8.kernels.simd.forward_walsh_hadamard_y2_4x4_i32x4;
+use vp8.kernels.simd.dequant_block_4x4_i16x16;
 use vp8.kernels.simd.plane_copy_u8x16;
 use vp8.kernels.simd.plane_fill_u8x16;
+use vp8.kernels.simd.quantize_block_4x4_i16x16;
 use vp8.kernels.simd.predict_inter_copy_16x16_u8x16;
 use vp8.kernels.simd.predict_inter_copy_8x8_u8x16;
 use vp8.kernels.simd.predict_inter_copy_4x4_u8x16;
@@ -102,6 +106,7 @@ use vp8.kernels.simd.variance_16x16_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
+use vp8.token.parse.CoefficientBlockSummary;
 
 type TestU8x16 = @vector(u8, 16);
 type TestI16x8 = @vector(i16, 8);
@@ -113,6 +118,13 @@ fn assert_i16_block_eq(actual: &i16, expected: &i16) !void {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
     }
+}
+
+fn assert_summary_eq(actual: &CoefficientBlockSummary, expected: &CoefficientBlockSummary) !void {
+    try assert_eq_i32(actual.has_coeff as i32, expected.has_coeff as i32);
+    try assert_eq_i32(actual.dc_only as i32, expected.dc_only as i32);
+    try assert_eq_i32(actual.coefficient_count as i32, expected.coefficient_count as i32);
+    try assert_eq_i32(actual.eob_position as i32, expected.eob_position as i32);
 }
 
 test "SIMD helper loads and stores u8x16 blocks" {
@@ -953,6 +965,39 @@ test "SIMD forward Walsh Hadamard Y2 matches scalar golden and strided input" {
     forward_walsh_hadamard_y2_4x4_i32x4(&strided_input[0] as &i16, 6, &simd_strided[0] as &i16);
     try assert_i16_block_eq(&scalar_strided[0] as &i16, &strided_expected[0] as &i16);
     try assert_i16_block_eq(&simd_strided[0] as &i16, &scalar_strided[0] as &i16);
+}
+
+test "SIMD quantize and dequantize match scalar coefficient outputs" {
+    var input: [i16: 16] = [
+        15, -14, 0, 7,
+        28, 0, -35, 42,
+        0, 49, -56, 0,
+        63, 0, 70, -77
+    ];
+    var scalar_qcoeff: [i16: 16] = [];
+    var scalar_dqcoeff: [i16: 16] = [];
+    var simd_qcoeff: [i16: 16] = [ 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99 ];
+    var simd_dqcoeff: [i16: 16] = [ 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77, 77 ];
+    var expected_qcoeff: [i16: 16] = [
+        3, -2, 0, 1,
+        4, 0, -5, 6,
+        0, 7, -8, 0,
+        9, 0, 10, -11
+    ];
+
+    const scalar_summary: CoefficientBlockSummary = try quantize_block_4x4(&input[0] as &i16, 5 as i16, 7 as i16, &scalar_qcoeff[0] as &i16, &scalar_dqcoeff[0] as &i16);
+    const simd_summary: CoefficientBlockSummary = try quantize_block_4x4_i16x16(&input[0] as &i16, 5 as i16, 7 as i16, &simd_qcoeff[0] as &i16, &simd_dqcoeff[0] as &i16);
+
+    try assert_i16_block_eq(&scalar_qcoeff[0] as &i16, &expected_qcoeff[0] as &i16);
+    try assert_i16_block_eq(&simd_qcoeff[0] as &i16, &scalar_qcoeff[0] as &i16);
+    try assert_i16_block_eq(&simd_dqcoeff[0] as &i16, &scalar_dqcoeff[0] as &i16);
+    try assert_summary_eq(&simd_summary, &scalar_summary);
+
+    var scalar_dequantized: [i16: 16] = [];
+    var simd_dequantized: [i16: 16] = [];
+    dequant_block_4x4(&scalar_qcoeff[0] as &i16, 5 as i16, 7 as i16, &scalar_dequantized[0] as &i16);
+    dequant_block_4x4_i16x16(&scalar_qcoeff[0] as &i16, 5 as i16, 7 as i16, &simd_dequantized[0] as &i16);
+    try assert_i16_block_eq(&simd_dequantized[0] as &i16, &scalar_dequantized[0] as &i16);
 }
 
 test "SIMD luma sub-pixel horizontal filter matches scalar byte exact" {
