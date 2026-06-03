@@ -15,6 +15,8 @@ MALFORMED_IVF_DIR := $(BUILD_DIR)/malformed-ivf
 MALFORMED_IVF_SCRIPT := tests/malformed_ivf.py
 MALFORMED_VP8_DIR := $(BUILD_DIR)/malformed-vp8
 MALFORMED_VP8_SCRIPT := tests/malformed_vp8.py
+FUZZ_SMOKE_DIR := $(BUILD_DIR)/fuzz-smoke
+FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 SRC := src/main.uya
@@ -24,7 +26,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-vpxdiff clean require-uya
+.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff clean require-uya
 
 all: build
 
@@ -62,6 +64,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2
 	$(MAKE) test-malformed-ivf
 	$(MAKE) test-malformed-vp8
+	$(MAKE) test-fuzz-smoke
 
 test-decoder-scalar: build
 	set -e; for test_src in $(SCALAR_DECODER_TESTS); do VP8UYA_FORCE_SCALAR=1 $(UYA) test $$test_src; done
@@ -90,6 +93,9 @@ test-malformed-ivf: build
 
 test-malformed-vp8: build
 	python3 $(MALFORMED_VP8_SCRIPT) $(BIN) $(MALFORMED_VP8_DIR)
+
+test-fuzz-smoke: build
+	python3 $(FUZZ_SMOKE_SCRIPT) $(BIN) $(FUZZ_SMOKE_DIR)
 
 test-vpxdiff:
 	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR)

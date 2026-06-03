@@ -55,7 +55,8 @@ decoder context, scalar kernels, and scalar decoder behavior. It also generates
 eight tiny IVF samples, including key+inter, segmentation, and multi-token
 partition samples. It decodes them through the CLI and checks their YUV MD5
 values against built-in goldens. It also runs generated malformed IVF corpus
-and malformed VP8 payload corpus checks for controlled CLI errors.
+and malformed VP8 payload corpus checks for controlled CLI errors, plus a
+deterministic fuzz smoke pass.
 
 `make test-decoder-scalar` runs the decoder suite with
 `VP8UYA_FORCE_SCALAR=1` and is the scalar reference regression gate.
@@ -72,6 +73,9 @@ group.
 `fixtures/malformed_ivf/manifest.json` and checks `info`/`decode` error exits.
 `make test-malformed-vp8` wraps malformed VP8 payloads in valid IVF containers
 and checks `decode`/`decode-frame` error exits while `info` still succeeds.
+`make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
+containers with random VP8 payloads, accepting only success or controlled error
+exits.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.
