@@ -252,7 +252,7 @@
 验收标准：
 
 - [x] 每个 SIMD kernel 与 scalar bit-exact。
-- [ ] decoder scalar-vs-simd 输出 YUV MD5 一致。
+- [x] decoder scalar-vs-simd 输出 YUV MD5 一致。
 - [ ] 720p decoder SIMD 相比 scalar 有稳定收益，且端到端不慢于 scalar 超过 5%。
 - [ ] 每个默认启用的 SIMD kernel 都有生成 C/汇编检查记录。
 
