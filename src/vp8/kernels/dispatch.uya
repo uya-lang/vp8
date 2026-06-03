@@ -25,6 +25,11 @@ export fn make_default_kernel_table(capabilities: &SimdCapabilities) KernelFunct
     return make_scalar_kernel_table();
 }
 
+export fn make_forced_simd_kernel_table(capabilities: &SimdCapabilities) KernelFunctionTable {
+    _ = capabilities;
+    return make_scalar_kernel_table();
+}
+
 export fn kernel_table_predict_inter_copy(table: &KernelFunctionTable, dst: &byte, dst_stride: usize, src: &byte, src_stride: usize, width: usize, height: usize) !void {
     if table.predict_inter_copy_fn == (&predict_inter_copy as &void) {
         predict_inter_copy(dst, dst_stride, src, src_stride, width, height);

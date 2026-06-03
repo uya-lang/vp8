@@ -8,6 +8,7 @@ use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.kernel_table_add_residual_4x4_clamped;
 use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
 use vp8.kernels.dispatch.make_default_kernel_table;
+use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
 
 fn assert_copy_result(dst: &byte, stride: usize) !void {
@@ -74,6 +75,15 @@ test "kernel table residual entry calls through scalar implementation" {
 test "default kernel table remains scalar until SIMD kernels are registered" {
     const capabilities: SimdCapabilities = simd_detect_capabilities();
     const table: KernelFunctionTable = make_default_kernel_table(&capabilities);
+
+    try expect(table.active_level == SimdLevel.scalar);
+    try expect(table.predict_inter_copy_fn != null);
+    try expect(table.add_residual_4x4_clamped_fn != null);
+}
+
+test "forced SIMD kernel table falls back to scalar until SIMD kernels are registered" {
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+    const table: KernelFunctionTable = make_forced_simd_kernel_table(&capabilities);
 
     try expect(table.active_level == SimdLevel.scalar);
     try expect(table.predict_inter_copy_fn != null);
