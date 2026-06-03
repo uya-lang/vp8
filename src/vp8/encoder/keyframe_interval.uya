@@ -1,0 +1,41 @@
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.validate_encoder_config;
+
+error ErrEncoderKeyframeIntervalInvalidInput;
+
+export struct EncoderKeyframeIntervalDecision {
+    is_keyframe: bool,
+    due_to_first_frame: bool,
+    due_to_interval: bool,
+    forced_by_request: bool,
+    frames_until_next_keyframe: u32
+}
+
+fn encoder_keyframe_interval_frames_until_next(interval: u32, frame_index: u32) u32 {
+    const remainder: u32 = frame_index % interval;
+    if remainder == 0 {
+        return interval;
+    }
+    return interval - remainder;
+}
+
+export fn decide_encoder_keyframe_interval(config: &EncoderConfig, frame_index: u32, force_keyframe: bool) !EncoderKeyframeIntervalDecision {
+    if config == null {
+        return error.ErrEncoderKeyframeIntervalInvalidInput;
+    }
+    try validate_encoder_config(config);
+
+    const due_to_first_frame: bool = frame_index == 0;
+    var due_to_interval: bool = false;
+    if !due_to_first_frame && (frame_index % config.keyframe_interval) == 0 {
+        due_to_interval = true;
+    }
+
+    return EncoderKeyframeIntervalDecision{
+        is_keyframe: due_to_first_frame || due_to_interval || force_keyframe,
+        due_to_first_frame: due_to_first_frame,
+        due_to_interval: due_to_interval,
+        forced_by_request: force_keyframe,
+        frames_until_next_keyframe: encoder_keyframe_interval_frames_until_next(config.keyframe_interval, frame_index)
+    };
+}

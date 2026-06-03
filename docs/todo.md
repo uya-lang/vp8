@@ -332,7 +332,7 @@
 - [x] CQP 模式。
 - [x] 简单 VBR 模式。
 - [x] CBR buffer model。
-- [ ] keyframe interval 控制。
+- [x] keyframe interval 控制。
 - [ ] quantizer delta 调整。
 - [ ] loop filter level 自动选择。
 - [ ] RD cost model。

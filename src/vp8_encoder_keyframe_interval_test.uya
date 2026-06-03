@@ -1,0 +1,68 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.keyframe_interval.EncoderKeyframeIntervalDecision;
+use vp8.encoder.keyframe_interval.decide_encoder_keyframe_interval;
+
+fn dummy_keyframe_interval_decision() EncoderKeyframeIntervalDecision {
+    return EncoderKeyframeIntervalDecision{
+        is_keyframe: false,
+        due_to_first_frame: false,
+        due_to_interval: false,
+        forced_by_request: false,
+        frames_until_next_keyframe: 0
+    };
+}
+
+test "keyframe interval forces first frame and periodic keyframes" {
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.keyframe_interval = 4;
+
+    const first: EncoderKeyframeIntervalDecision = try decide_encoder_keyframe_interval(&config, 0, false);
+    try assert_eq_i32(first.is_keyframe as i32, true as i32);
+    try assert_eq_i32(first.due_to_first_frame as i32, true as i32);
+    try assert_eq_i32(first.due_to_interval as i32, false as i32);
+    try assert_eq_i32(first.forced_by_request as i32, false as i32);
+    try assert_eq_i32(first.frames_until_next_keyframe as i32, 4);
+
+    const middle: EncoderKeyframeIntervalDecision = try decide_encoder_keyframe_interval(&config, 1, false);
+    try assert_eq_i32(middle.is_keyframe as i32, false as i32);
+    try assert_eq_i32(middle.frames_until_next_keyframe as i32, 3);
+
+    const periodic: EncoderKeyframeIntervalDecision = try decide_encoder_keyframe_interval(&config, 4, false);
+    try assert_eq_i32(periodic.is_keyframe as i32, true as i32);
+    try assert_eq_i32(periodic.due_to_first_frame as i32, false as i32);
+    try assert_eq_i32(periodic.due_to_interval as i32, true as i32);
+    try assert_eq_i32(periodic.frames_until_next_keyframe as i32, 4);
+}
+
+test "keyframe interval honors force request without resetting cadence" {
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.keyframe_interval = 4;
+
+    const forced: EncoderKeyframeIntervalDecision = try decide_encoder_keyframe_interval(&config, 2, true);
+    try assert_eq_i32(forced.is_keyframe as i32, true as i32);
+    try assert_eq_i32(forced.due_to_first_frame as i32, false as i32);
+    try assert_eq_i32(forced.due_to_interval as i32, false as i32);
+    try assert_eq_i32(forced.forced_by_request as i32, true as i32);
+    try assert_eq_i32(forced.frames_until_next_keyframe as i32, 2);
+}
+
+test "keyframe interval rejects invalid config" {
+    var failed: i32 = 0;
+    _ = decide_encoder_keyframe_interval(null as &EncoderConfig, 0, false) catch {
+        failed = 1;
+        dummy_keyframe_interval_decision();
+    };
+    try assert_eq_i32(failed, 1);
+
+    var invalid: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid.keyframe_interval = 0;
+    failed = 0;
+    _ = decide_encoder_keyframe_interval(&invalid, 0, false) catch {
+        failed = 1;
+        dummy_keyframe_interval_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}
