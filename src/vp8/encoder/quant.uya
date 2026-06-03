@@ -1,3 +1,9 @@
+use vp8.token.parse.CoefficientBlockSummary;
+use vp8.token.parse.coefficient_scan_index;
+
+error ErrEncoderQuantizeInvalidInput;
+error ErrEncoderQuantizeInvalidFactor;
+
 export fn forward_dct_4x4(input: &i16, input_stride: usize, output: &i16) void {
     var tmp: [i32: 16] = [];
 
@@ -91,4 +97,86 @@ export fn forward_walsh_hadamard_y2_4x4(input: &i16, input_stride: usize, output
 
         col = col + 1;
     }
+}
+
+fn abs_i16_to_i32(value: i16) i32 {
+    const wide: i32 = value as i32;
+    if wide < 0 {
+        return 0 - wide;
+    }
+    return wide;
+}
+
+fn quantize_coefficient(value: i16, factor: i16) i16 {
+    const factor_i32: i32 = factor as i32;
+    const magnitude: i32 = (abs_i16_to_i32(value) + (factor_i32 >> 1)) / factor_i32;
+    if value < (0 as i16) {
+        return (0 - magnitude) as i16;
+    }
+    return magnitude as i16;
+}
+
+fn dequantize_coefficient(qcoeff: i16, factor: i16) i16 {
+    return ((qcoeff as i32) * (factor as i32)) as i16;
+}
+
+fn quantize_clear_outputs(qcoeff: &i16, dqcoeff: &i16) void {
+    var index: usize = 0;
+    while index < 16 {
+        qcoeff[index] = 0 as i16;
+        dqcoeff[index] = 0 as i16;
+        index = index + 1;
+    }
+}
+
+fn quantize_summary(qcoeff: &i16) !CoefficientBlockSummary {
+    var summary: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 0 as byte
+    };
+
+    var position: usize = 0;
+    while position < 16 {
+        const scan_index: byte = try coefficient_scan_index(position);
+        if qcoeff[scan_index as usize] != (0 as i16) {
+            summary.has_coeff = true;
+            summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
+            summary.eob_position = (position + 1) as byte;
+        }
+        position = position + 1;
+    }
+
+    summary.dc_only = summary.coefficient_count == (1 as byte) && qcoeff[0] != (0 as i16);
+    return summary;
+}
+
+export fn quantize_block_4x4(input: &i16, dc_factor: i16, ac_factor: i16, qcoeff: &i16, dqcoeff: &i16) !CoefficientBlockSummary {
+    if input == null || qcoeff == null || dqcoeff == null {
+        return error.ErrEncoderQuantizeInvalidInput;
+    }
+    if dc_factor <= (0 as i16) || ac_factor <= (0 as i16) {
+        return error.ErrEncoderQuantizeInvalidFactor;
+    }
+
+    quantize_clear_outputs(qcoeff, dqcoeff);
+
+    var index: usize = 0;
+    while index < 16 {
+        var factor: i16 = ac_factor;
+        if index == 0 {
+            factor = dc_factor;
+        }
+
+        const quantized: i16 = quantize_coefficient(input[index], factor);
+        qcoeff[index] = quantized;
+        if quantized != (0 as i16) {
+            dqcoeff[index] = dequantize_coefficient(quantized, factor);
+        }
+
+        index = index + 1;
+    }
+
+    return try quantize_summary(qcoeff);
 }

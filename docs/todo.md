@@ -291,7 +291,7 @@
 - [x] 实现 UV mode search。
 - [x] 实现 forward DCT。
 - [x] 实现 forward WHT。
-- [ ] 实现 quantize。
+- [x] 实现 quantize。
 - [ ] 实现 coefficient tokenize。
 - [ ] 实现 bool writer partition output。
 - [ ] 实现本地 reconstruct。
