@@ -347,7 +347,7 @@
 
 - [x] 目标 bitrate 下误差在设定范围内。
 - [x] PSNR/bitrate 报告可复现。
-- [ ] speed preset 对速度和质量有可测差异。
+- [x] speed preset 对速度和质量有可测差异。
 
 ## Phase 15: SIMD Encoder Kernels
 

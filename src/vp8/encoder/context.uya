@@ -94,6 +94,9 @@ export fn validate_encoder_config(config: &EncoderConfig) !void {
     if config.keyframe_interval == 0 {
         return error.ErrEncoderConfigInvalidValue;
     }
+    if (config.speed_preset as i32) < (EncoderSpeedPreset.fastest as i32) || (config.speed_preset as i32) > (EncoderSpeedPreset.best as i32) {
+        return error.ErrEncoderConfigInvalidValue;
+    }
     if config.thread_count == 0 {
         return error.ErrEncoderConfigInvalidValue;
     }

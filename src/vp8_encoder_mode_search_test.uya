@@ -6,6 +6,7 @@ use vp8.encoder.mode_search.UvModeSearchResult;
 use vp8.encoder.mode_search.keyframe_b_mode_cost_q8;
 use vp8.encoder.mode_search.predict_intra4x4_mode;
 use vp8.encoder.mode_search.search_intra4x4_mode;
+use vp8.encoder.mode_search.search_intra4x4_mode_limited;
 use vp8.encoder.mode_search.search_intra16x16_mode;
 use vp8.encoder.mode_search.search_uv_mode;
 use vp8.mode.parse.VP8_B_MODE_DC;
@@ -25,7 +26,8 @@ fn dummy_intra4x4_result() Intra4x4ModeSearchResult {
         mode: 255 as byte,
         distortion: 4294967295 as u32,
         rate_cost_q8: 4294967295 as u32,
-        rd_score_q8: 4294967295 as u32
+        rd_score_q8: 4294967295 as u32,
+        evaluated_modes: 0
     };
 }
 
@@ -92,6 +94,48 @@ test "intra4x4 mode search can refine top-edge blocks from left samples" {
     try assert_eq_i32(result.mode as i32, VP8_B_MODE_HU as i32);
     try assert_eq_i32(result.distortion as i32, 0);
     try assert_eq_i32((try keyframe_b_mode_cost_q8(VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_DC)) < result.rate_cost_q8, true as i32);
+}
+
+test "intra4x4 mode search limit exposes preset work difference" {
+    var src: [byte: 16] = [];
+    var above: [byte: 8] = [ 50, 63, 79, 96, 111, 124, 142, 159 ];
+    var left: [byte: 4] = [ 210, 180, 150, 120 ];
+    const above_left: byte = 41 as byte;
+
+    try predict_intra4x4_mode(&src[0] as &byte, 4, &above[0] as &byte, true, &left[0] as &byte, true, above_left, VP8_B_MODE_VE);
+
+    const dc_only: Intra4x4ModeSearchResult = try search_intra4x4_mode_limited(
+        &src[0] as &byte,
+        4,
+        &above[0] as &byte,
+        true,
+        &left[0] as &byte,
+        true,
+        above_left,
+        VP8_B_MODE_DC,
+        VP8_B_MODE_DC,
+        256 as u32,
+        1 as u8
+    );
+    const refined: Intra4x4ModeSearchResult = try search_intra4x4_mode_limited(
+        &src[0] as &byte,
+        4,
+        &above[0] as &byte,
+        true,
+        &left[0] as &byte,
+        true,
+        above_left,
+        VP8_B_MODE_DC,
+        VP8_B_MODE_DC,
+        256 as u32,
+        3 as u8
+    );
+
+    try assert_eq_i32(dc_only.mode as i32, VP8_B_MODE_DC as i32);
+    try assert_eq_i32(dc_only.evaluated_modes as i32, 1);
+    try assert_eq_i32(refined.mode as i32, VP8_B_MODE_VE as i32);
+    try assert_eq_i32(refined.evaluated_modes as i32, 3);
+    try assert_eq_i32(refined.distortion < dc_only.distortion, true as i32);
 }
 
 test "intra4x4 mode search rejects invalid geometry" {

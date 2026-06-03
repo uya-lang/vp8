@@ -102,10 +102,20 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.bitrate.within_tolerance=1' $(ENCODE_CLI_DIR)/encode-vbr.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 40 --target-bitrate 13680 --out $(ENCODE_CLI_DIR)/out-vbr-repeat.ivf > $(ENCODE_CLI_DIR)/encode-vbr-repeat.log
 	cmp $(ENCODE_CLI_DIR)/encode-vbr.log $(ENCODE_CLI_DIR)/encode-vbr-repeat.log
+	python3 -c 'import sys; sys.stdout.buffer.write(bytes((20 + (((i // 16) * 37 + (i % 16) * 19 + (((i // 16) // 4) * (((i % 16) % 5) + 1) * 11)) % 210)) if i < 256 else (96 + ((i * 13) % 64)) for i in range(384)))' > $(ENCODE_CLI_DIR)/speed-input.yuv
+	$(BIN) encode $(ENCODE_CLI_DIR)/speed-input.yuv --width 16 --height 16 --speed fastest --out $(ENCODE_CLI_DIR)/out-speed-fastest.ivf > $(ENCODE_CLI_DIR)/encode-speed-fastest.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/speed-input.yuv --width 16 --height 16 --speed best --out $(ENCODE_CLI_DIR)/out-speed-best.ivf > $(ENCODE_CLI_DIR)/encode-speed-best.log
+	grep -q 'encode.psnr.all=20.19' $(ENCODE_CLI_DIR)/encode-speed-fastest.log
+	grep -q 'encode.speed.preset=fastest' $(ENCODE_CLI_DIR)/encode-speed-fastest.log
+	grep -q 'encode.speed.mode_search_work_units=16' $(ENCODE_CLI_DIR)/encode-speed-fastest.log
+	grep -q 'encode.psnr.all=20.42' $(ENCODE_CLI_DIR)/encode-speed-best.log
+	grep -q 'encode.speed.preset=best' $(ENCODE_CLI_DIR)/encode-speed-best.log
+	grep -q 'encode.speed.mode_search_work_units=112' $(ENCODE_CLI_DIR)/encode-speed-best.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 128 --out $(ENCODE_CLI_DIR)/bad-q.ivf >/dev/null; test $$? -eq 2
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --target-bitrate 0 --out $(ENCODE_CLI_DIR)/bad-vbr.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf
 	cmp $(ENCODE_CLI_DIR)/out-vbr.ivf $(ENCODE_CLI_DIR)/out-vbr-repeat.ivf
+	cmp -s $(ENCODE_CLI_DIR)/out-speed-fastest.ivf $(ENCODE_CLI_DIR)/out-speed-best.ivf; test $$? -eq 1
 	cmp -s $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-q16.ivf; test $$? -eq 1
 	cmp -s $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-vbr.ivf; test $$? -eq 1
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.frame_count=1'

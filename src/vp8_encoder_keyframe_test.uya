@@ -22,10 +22,13 @@ use vp8.decoder.scalar.DecoderFrameResult;
 use vp8.decoder.scalar.decoder_decode_frame;
 use vp8.decoder.scalar.make_decoder;
 use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderSpeedPreset;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.keyframe.EncoderKeyframeEncodeStats;
 use vp8.encoder.keyframe.encode_keyframe_ivf;
+use vp8.encoder.keyframe.encode_keyframe_ivf_with_stats;
 use vp8.mode.parse.VP8_B_MODE_DC;
 
 test "encoder keyframe IVF API writes a parseable one-frame keyframe stream" {
@@ -153,6 +156,46 @@ test "encoder keyframe writes selected non-DC luma 4x4 modes" {
     }
 
     try assert_eq_i32((non_dc_count > 0) as i32, true as i32);
+}
+
+test "encoder speed presets expose measurable work and output differences" {
+    var input: [byte: 384] = [];
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[(row * 16) + col] = (20 + ((((row * 37) + (col * 19) + ((row / 4) * ((col % 5) + 1) * 11)) % (210 as usize)) as i32)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    var index: usize = 256;
+    while index < 384 {
+        input[index] = (96 + (((index * 13) % (64 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+
+    var fastest_out: [byte: 8192] = [];
+    var best_out: [byte: 8192] = [];
+    var fastest_config: EncoderConfig = make_default_encoder_config(16, 16);
+    var best_config: EncoderConfig = make_default_encoder_config(16, 16);
+    fastest_config.speed_preset = EncoderSpeedPreset.fastest;
+    best_config.speed_preset = EncoderSpeedPreset.best;
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+
+    const fastest_stats: EncoderKeyframeEncodeStats = try encode_keyframe_ivf_with_stats(&fastest_config, &frame, &fastest_out[0] as &byte, 8192);
+    const best_stats: EncoderKeyframeEncodeStats = try encode_keyframe_ivf_with_stats(&best_config, &frame, &best_out[0] as &byte, 8192);
+
+    try assert_eq_i32((fastest_stats.mode_search_work_units < best_stats.mode_search_work_units) as i32, true as i32);
+    var differs: bool = fastest_stats.written_len != best_stats.written_len;
+    index = 0;
+    while !differs && index < fastest_stats.written_len {
+        if fastest_out[index] != best_out[index] {
+            differs = true;
+        }
+        index = index + 1;
+    }
+    try assert_eq_i32(differs as i32, true as i32);
 }
 
 test "encoder keyframe writes coefficient probability updates from token stats" {

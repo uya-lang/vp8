@@ -81,6 +81,14 @@ test "EncoderConfig validates geometry timing rate control and workers" {
         failed = 1;
     };
     try assert_eq_i32(failed, 1);
+
+    var invalid_speed: EncoderConfig = make_default_encoder_config(16, 16);
+    invalid_speed.speed_preset = 99 as EncoderSpeedPreset;
+    failed = 0;
+    validate_encoder_config(&invalid_speed) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "YuvFrameView captures borrowed YUV420 planes with strides" {
