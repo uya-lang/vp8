@@ -98,6 +98,8 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.frame_count=1'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.width=16'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.height=16'
+	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded.yuv)" -eq 384
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2

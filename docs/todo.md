@@ -324,7 +324,7 @@
 
 - [f] 至少 30 帧 YUV 序列可编码并被 vpxdec 解码。
   - blocked: 2026-06-04 本机 PATH 中没有 `vpxdec`，`command -v vpxdec` 返回 1；`/media/winger/_dde_data/winger/uya` 下也未找到可执行 `vpxdec`，无法执行真实 libvpx 30 帧解码验收。
-- [ ] UYA decoder 解码 encoder 输出无错误。
+- [x] UYA decoder 解码 encoder 输出无错误。
 - [ ] 相同配置输出 deterministic。
 
 ## Phase 14: Rate Control 与质量
