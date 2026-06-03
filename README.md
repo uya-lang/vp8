@@ -55,6 +55,9 @@ decoder context, scalar kernels, and scalar decoder behavior. It also generates
 six tiny IVF samples, including a key+inter sample, decodes them through the
 CLI, and checks their YUV MD5 values against built-in goldens.
 
+`make test-decoder-scalar` runs the decoder suite with
+`VP8UYA_FORCE_SCALAR=1` and is the scalar reference regression gate.
+
 `bench/` is reserved for benchmark harnesses and baseline records. Benchmarks
 must keep scalar and SIMD paths comparable and must not become correctness
 dependencies.

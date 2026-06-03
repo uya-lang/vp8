@@ -9,10 +9,11 @@ TINY_MD5_SCRIPT := tests/tiny_ivf_md5.py
 SRC := src/main.uya
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
 UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_decoder_scalar_test.uya
+SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain test test-tiny-md5 clean require-uya
+.PHONY: all build check check-toolchain test test-decoder-scalar test-tiny-md5 clean require-uya
 
 all: build
 
@@ -37,7 +38,7 @@ check-toolchain: require-uya $(TOOLCHAIN_HELLO)
 	$(TOOLCHAIN_HELLO) >/dev/null
 
 test: build check-toolchain $(SAMPLE_IVF)
-	set -e; for test_src in $(UYA_TESTS); do $(UYA) test $$test_src; done
+	$(MAKE) test-decoder-scalar
 	test -x $(BIN)
 	$(BIN) --help >/dev/null
 	$(BIN) version >/dev/null
@@ -48,7 +49,10 @@ test: build check-toolchain $(SAMPLE_IVF)
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2
-	$(MAKE) test-tiny-md5
+
+test-decoder-scalar: build
+	set -e; for test_src in $(SCALAR_DECODER_TESTS); do VP8UYA_FORCE_SCALAR=1 $(UYA) test $$test_src; done
+	VP8UYA_FORCE_SCALAR=1 python3 $(TINY_MD5_SCRIPT) $(BIN) $(TINY_MD5_DIR)
 
 test-tiny-md5: build
 	python3 $(TINY_MD5_SCRIPT) $(BIN) $(TINY_MD5_DIR)
