@@ -1,0 +1,82 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.quant.forward_dct_4x4;
+
+fn assert_eq_4x4(actual: &i16, expected: &i16) !void {
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "encoder forward DCT matches deterministic VP8 golden blocks" {
+    var out: [i16: 16] = [];
+
+    var dc_input: [i16: 16] = [
+        4, 4, 4, 4,
+        4, 4, 4, 4,
+        4, 4, 4, 4,
+        4, 4, 4, 4
+    ];
+    var dc_expected: [i16: 16] = [
+        32, 1, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+
+    forward_dct_4x4(&dc_input[0] as &i16, 4, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &dc_expected[0] as &i16);
+
+    var horizontal_input: [i16: 16] = [
+        3, 1, 0, -3,
+        3, 1, 0, -3,
+        3, 1, 0, -3,
+        3, 1, 0, -3
+    ];
+    var horizontal_expected: [i16: 16] = [
+        2, 17, -2, 4,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+
+    forward_dct_4x4(&horizontal_input[0] as &i16, 4, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &horizontal_expected[0] as &i16);
+
+    var mixed_input: [i16: 16] = [
+        0, 2, 3, -1,
+        -2, -1, -1, 13,
+        -1, 0, 0, 4,
+        6, 3, 6, 3
+    ];
+    var mixed_expected: [i16: 16] = [
+        17, -11, 5, -1,
+        -7, -4, -1, -3,
+        5, 15, -11, 9,
+        -7, 8, -8, 3
+    ];
+
+    forward_dct_4x4(&mixed_input[0] as &i16, 4, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &mixed_expected[0] as &i16);
+}
+
+test "encoder forward DCT supports strided residual input" {
+    var input: [i16: 24] = [
+        4, 4, 4, 4, 99, 99,
+        4, 4, 4, 4, 99, 99,
+        4, 4, 4, 4, 99, 99,
+        4, 4, 4, 4, 99, 99
+    ];
+    var out: [i16: 16] = [];
+    var expected: [i16: 16] = [
+        32, 1, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+
+    forward_dct_4x4(&input[0] as &i16, 6, &out[0] as &i16);
+    try assert_eq_4x4(&out[0] as &i16, &expected[0] as &i16);
+}

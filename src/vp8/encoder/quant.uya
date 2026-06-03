@@ -1,0 +1,41 @@
+export fn forward_dct_4x4(input: &i16, input_stride: usize, output: &i16) void {
+    var tmp: [i32: 16] = [];
+
+    var row: usize = 0;
+    while row < 4 {
+        const input_base: usize = row * input_stride;
+        const output_base: usize = row * 4;
+
+        const a1: i32 = ((input[input_base] as i32) + (input[input_base + 3] as i32)) * 8;
+        const b1: i32 = ((input[input_base + 1] as i32) + (input[input_base + 2] as i32)) * 8;
+        const c1: i32 = ((input[input_base + 1] as i32) - (input[input_base + 2] as i32)) * 8;
+        const d1: i32 = ((input[input_base] as i32) - (input[input_base + 3] as i32)) * 8;
+
+        tmp[output_base] = a1 + b1;
+        tmp[output_base + 2] = a1 - b1;
+        tmp[output_base + 1] = (c1 * 2217 + d1 * 5352 + 14500) >> 12;
+        tmp[output_base + 3] = (d1 * 2217 - c1 * 5352 + 7500) >> 12;
+
+        row = row + 1;
+    }
+
+    var col: usize = 0;
+    while col < 4 {
+        const a1_col: i32 = tmp[col] + tmp[12 + col];
+        const b1_col: i32 = tmp[4 + col] + tmp[8 + col];
+        const c1_col: i32 = tmp[4 + col] - tmp[8 + col];
+        const d1_col: i32 = tmp[col] - tmp[12 + col];
+
+        output[col] = ((a1_col + b1_col + 7) >> 4) as i16;
+        output[8 + col] = ((a1_col - b1_col + 7) >> 4) as i16;
+
+        var second: i32 = (c1_col * 2217 + d1_col * 5352 + 12000) >> 16;
+        if d1_col != 0 {
+            second = second + 1;
+        }
+        output[4 + col] = second as i16;
+        output[12 + col] = ((d1_col * 2217 - c1_col * 5352 + 51000) >> 16) as i16;
+
+        col = col + 1;
+    }
+}
