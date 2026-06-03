@@ -1,0 +1,7 @@
+fn shared_private(value: i32) i32 {
+    return value + 1;
+}
+
+export fn left_value() i32 {
+    return shared_private(1);
+}

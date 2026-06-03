@@ -32,14 +32,15 @@ FUZZ_SMOKE_DIR := $(BUILD_DIR)/fuzz-smoke
 FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
+ENCODE_CLI_DIR := $(BUILD_DIR)/encode-cli
 SRC := src/main.uya
 SRC_FILES := $(shell find src -name '*.uya' -print)
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
 VECTOR_CAPABILITY_TEST := src/vp8_vector_capability_test.uya
 ASM_X86_TEST := src/vp8_kernels_asm_x86_test.uya
-UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_common_cpu_test.uya src/vp8_encoder_config_test.uya src/vp8_encoder_mode_search_test.uya src/vp8_encoder_transform_test.uya src/vp8_encoder_partition_output_test.uya src/vp8_encoder_reconstruct_test.uya src/vp8_encoder_loop_filter_test.uya $(VECTOR_CAPABILITY_TEST) src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_kernels_dispatch_test.uya src/vp8_kernels_simd_test.uya src/vp8_decoder_error_merge_test.uya src/vp8_decoder_token_partition_test.uya src/vp8_decoder_row_pipeline_test.uya src/vp8_decoder_scalar_test.uya
+UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_common_cpu_test.uya src/vp8_encoder_config_test.uya src/vp8_encoder_keyframe_test.uya src/vp8_encoder_mode_search_test.uya src/vp8_encoder_transform_test.uya src/vp8_encoder_partition_output_test.uya src/vp8_encoder_reconstruct_test.uya src/vp8_encoder_loop_filter_test.uya $(VECTOR_CAPABILITY_TEST) src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_kernels_dispatch_test.uya src/vp8_kernels_simd_test.uya src/vp8_decoder_error_merge_test.uya src/vp8_decoder_token_partition_test.uya src/vp8_decoder_row_pipeline_test.uya src/vp8_decoder_scalar_test.uya
 SCALAR_DECODER_TESTS := $(UYA_TESTS)
-LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
+LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
 .PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke bench-1080p-smoke clean require-uya
@@ -88,6 +89,13 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.width=640'
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.height=480'
 	$(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.fps=30/1'
+	rm -rf $(ENCODE_CLI_DIR)
+	mkdir -p $(ENCODE_CLI_DIR)
+	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf
+	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.frame_count=1'
+	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.width=16'
+	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.height=16'
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2

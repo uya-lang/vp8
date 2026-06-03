@@ -1,0 +1,6 @@
+use left.mod.left_value;
+use right.mod.right_value;
+
+export extern fn main() i32 {
+    return left_value() + right_value();
+}

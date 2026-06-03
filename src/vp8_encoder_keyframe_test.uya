@@ -1,0 +1,57 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8FrameHeader;
+use vp8.bitstream.header.parse_vp8_key_frame_header;
+use vp8.bitstream.header.parse_vp8_frame_tag_checked;
+use vp8.bitstream.header.Vp8FrameTag;
+use vp8.container.ivf.IvfFrame;
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.ivf_frame_iterator_has_next;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.keyframe.encode_keyframe_ivf;
+
+test "encoder keyframe IVF API writes a parseable one-frame keyframe stream" {
+    var input: [byte: 384] = [];
+    var index: usize = 0;
+    while index < 256 {
+        input[index] = (64 + (((index * 17) % (96 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+    while index < 384 {
+        input[index] = (96 + (((index * 7) % (64 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+
+    var out: [byte: 4096] = [];
+    const config: EncoderConfig = make_default_encoder_config(16, 16);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+
+    const written: usize = try encode_keyframe_ivf(&config, &frame, &out[0] as &byte, 4096);
+
+    const ivf: IvfHeader = try parse_ivf_header(&out[0] as &byte, written);
+    try assert_eq_i32(ivf.width as i32, 16);
+    try assert_eq_i32(ivf.height as i32, 16);
+    try assert_eq_i32(ivf.frame_count as i32, 1);
+
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, written, &ivf);
+    const ivf_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    try assert_eq_i32(ivf_frame.index as i32, 0);
+    try assert_eq_i32(ivf_frame.payload.len as i32 > 10, true as i32);
+    try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, false as i32);
+
+    const tag: Vp8FrameTag = try parse_vp8_frame_tag_checked(ivf_frame.payload.data, ivf_frame.payload.len);
+    try assert_eq_i32(tag.frame_type as i32, 0);
+    try assert_eq_i32(tag.show_frame as i32, true as i32);
+
+    const key_header: Vp8FrameHeader = try parse_vp8_key_frame_header(ivf_frame.payload.data, ivf_frame.payload.len);
+    try assert_eq_i32(key_header.width as i32, 16);
+    try assert_eq_i32(key_header.height as i32, 16);
+    try assert_eq_i32(key_header.first_partition_size as i32 > 0, true as i32);
+}

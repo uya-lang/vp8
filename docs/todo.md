@@ -296,7 +296,7 @@
 - [x] 实现 bool writer partition output。
 - [x] 实现本地 reconstruct。
 - [x] 实现 key frame loop filter。
-- [ ] 实现 `encode <input.yuv> --width --height --out out.ivf`。
+- [x] 实现 `encode <input.yuv> --width --height --out out.ivf`。
 
 验收标准：
 

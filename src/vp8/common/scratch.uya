@@ -18,6 +18,7 @@ const TOKEN_DECODE_MB_BLOCKS: usize = 25;
 const TOKEN_DECODE_BLOCK_SUMMARY_BITS: usize = 2;
 const TOKEN_DECODE_BLOCK_SUMMARY_MASK: byte = 3 as byte;
 const MB_COEFF_SCRATCH_RING_MAX_DEPTH: usize = 8;
+const I16_BYTE_SIZE: usize = 2;
 
 export struct RowScratchArena {
     raw: &byte,
@@ -231,7 +232,7 @@ export fn row_scratch_alloc_bytes(arena: &RowScratchArena, size: usize, alignmen
 }
 
 export fn token_decode_row_scratch_bytes() usize {
-    return TOKEN_DECODE_ROW_BLOCKS * TOKEN_DECODE_BLOCK_COEFFS * (@size_of(i16) as usize);
+    return TOKEN_DECODE_ROW_BLOCKS * TOKEN_DECODE_BLOCK_COEFFS * I16_BYTE_SIZE;
 }
 
 export fn token_decode_macroblock_output_blocks() usize {
@@ -248,7 +249,7 @@ fn token_decode_row_output_block_count(mb_cols: usize) !usize {
 fn token_decode_row_output_coeff_bytes(mb_cols: usize) !usize {
     const block_count: usize = try token_decode_row_output_block_count(mb_cols);
     const coeff_count: usize = try scratch_checked_mul(block_count, TOKEN_DECODE_BLOCK_COEFFS);
-    return try scratch_checked_mul(coeff_count, @size_of(i16) as usize);
+    return try scratch_checked_mul(coeff_count, I16_BYTE_SIZE);
 }
 
 fn token_decode_row_output_summary_bytes(mb_cols: usize) !usize {

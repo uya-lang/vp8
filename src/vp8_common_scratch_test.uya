@@ -27,6 +27,8 @@ use vp8.common.scratch.token_decode_row_set_block_summary;
 use vp8.common.scratch.token_decode_row_output_bytes;
 use vp8.common.scratch.token_decode_row_scratch_bytes;
 
+const SCRATCH_TEST_I16_BYTE_SIZE: usize = 2;
+
 fn assert_aligned(ptr: &byte, alignment: usize) !void {
     try expect((@usize_from_ptr(ptr as &void) % alignment) == 0);
 }
@@ -78,7 +80,7 @@ test "TokenDecodeRowScratch allocates row-local coefficient blocks from arena" {
     defer free_row_scratch_arena(&arena);
 
     const scratch: TokenDecodeRowScratch = try allocate_token_decode_row_scratch(&arena);
-    const block_bytes: usize = 16 * (@size_of(i16) as usize);
+    const block_bytes: usize = 16 * SCRATCH_TEST_I16_BYTE_SIZE;
     const coeff_addr: usize = @usize_from_ptr(scratch.coefficients as &void);
     const y2_coeff_addr: usize = @usize_from_ptr(scratch.y2_coefficients as &void);
     const y2_dequantized_addr: usize = @usize_from_ptr(scratch.y2_dequantized as &void);
