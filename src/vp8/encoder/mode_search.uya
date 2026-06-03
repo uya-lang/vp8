@@ -1,0 +1,181 @@
+use vp8.kernels.scalar.clip_i32_to_u8;
+use vp8.mode.parse.VP8_Y_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_H;
+use vp8.mode.parse.VP8_Y_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_V;
+
+error ErrIntra16x16ModeSearchInvalidGeometry;
+error ErrIntra16x16ModeSearchInvalidMode;
+
+export struct Intra16x16ModeSearchResult {
+    mode: byte,
+    distortion: u32
+}
+
+fn validate_intra16x16_search_input(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) !void {
+    if src == null {
+        return error.ErrIntra16x16ModeSearchInvalidGeometry;
+    }
+    if src_stride < 16 {
+        return error.ErrIntra16x16ModeSearchInvalidGeometry;
+    }
+    if has_above && above == null {
+        return error.ErrIntra16x16ModeSearchInvalidGeometry;
+    }
+    if has_left && left == null {
+        return error.ErrIntra16x16ModeSearchInvalidGeometry;
+    }
+}
+
+fn abs_diff_u8(actual: byte, predicted: byte) u32 {
+    const diff: i32 = (actual as i32) - (predicted as i32);
+    if diff < 0 {
+        return (0 - diff) as u32;
+    }
+    return diff as u32;
+}
+
+fn intra16x16_dc_value(above: &byte, has_above: bool, left: &byte, has_left: bool) byte {
+    var sum: i32 = 0;
+    if has_above {
+        var col: usize = 0;
+        while col < 16 {
+            sum = sum + (above[col] as i32);
+            col = col + 1;
+        }
+    }
+    if has_left {
+        var row: usize = 0;
+        while row < 16 {
+            sum = sum + (left[row] as i32);
+            row = row + 1;
+        }
+    }
+
+    if has_above && has_left {
+        return ((sum + 16) >> 5) as byte;
+    }
+    if has_above || has_left {
+        return ((sum + 8) >> 4) as byte;
+    }
+    return 128 as byte;
+}
+
+fn sad_against_constant(src: &byte, src_stride: usize, predicted: byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        const base: usize = row * src_stride;
+        var col: usize = 0;
+        while col < 16 {
+            cost = cost + abs_diff_u8(src[base + col], predicted);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn sad_against_vertical(src: &byte, src_stride: usize, above: &byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        const base: usize = row * src_stride;
+        var col: usize = 0;
+        while col < 16 {
+            cost = cost + abs_diff_u8(src[base + col], above[col]);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn sad_against_horizontal(src: &byte, src_stride: usize, left: &byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        const base: usize = row * src_stride;
+        const predicted: byte = left[row];
+        var col: usize = 0;
+        while col < 16 {
+            cost = cost + abs_diff_u8(src[base + col], predicted);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn sad_against_true_motion(src: &byte, src_stride: usize, above: &byte, left: &byte, above_left: byte) u32 {
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 16 {
+        const base: usize = row * src_stride;
+        const left_value: i32 = left[row] as i32;
+        var col: usize = 0;
+        while col < 16 {
+            const predicted: byte = clip_i32_to_u8(left_value + (above[col] as i32) - (above_left as i32));
+            cost = cost + abs_diff_u8(src[base + col], predicted);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+export fn intra16x16_mode_sad(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    try validate_intra16x16_search_input(src, src_stride, above, has_above, left, has_left);
+
+    if mode == VP8_Y_MODE_DC {
+        return sad_against_constant(src, src_stride, intra16x16_dc_value(above, has_above, left, has_left));
+    }
+    if mode == VP8_Y_MODE_V {
+        if !has_above {
+            return error.ErrIntra16x16ModeSearchInvalidMode;
+        }
+        return sad_against_vertical(src, src_stride, above);
+    }
+    if mode == VP8_Y_MODE_H {
+        if !has_left {
+            return error.ErrIntra16x16ModeSearchInvalidMode;
+        }
+        return sad_against_horizontal(src, src_stride, left);
+    }
+    if mode == VP8_Y_MODE_TM {
+        if !has_above || !has_left {
+            return error.ErrIntra16x16ModeSearchInvalidMode;
+        }
+        return sad_against_true_motion(src, src_stride, above, left, above_left);
+    }
+
+    return error.ErrIntra16x16ModeSearchInvalidMode;
+}
+
+fn update_best_intra16x16_mode(best: &Intra16x16ModeSearchResult, mode: byte, distortion: u32) void {
+    if distortion < best.distortion {
+        best.mode = mode;
+        best.distortion = distortion;
+    }
+}
+
+export fn search_intra16x16_mode(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte) !Intra16x16ModeSearchResult {
+    try validate_intra16x16_search_input(src, src_stride, above, has_above, left, has_left);
+
+    var best: Intra16x16ModeSearchResult = Intra16x16ModeSearchResult{
+        mode: VP8_Y_MODE_DC,
+        distortion: try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_DC)
+    };
+
+    if has_above {
+        update_best_intra16x16_mode(&best, VP8_Y_MODE_V, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_V));
+    }
+    if has_left {
+        update_best_intra16x16_mode(&best, VP8_Y_MODE_H, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_H));
+    }
+    if has_above && has_left {
+        update_best_intra16x16_mode(&best, VP8_Y_MODE_TM, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_TM));
+    }
+
+    return best;
+}

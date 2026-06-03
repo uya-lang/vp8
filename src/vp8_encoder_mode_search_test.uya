@@ -1,0 +1,157 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.mode_search.Intra16x16ModeSearchResult;
+use vp8.encoder.mode_search.search_intra16x16_mode;
+use vp8.mode.parse.VP8_Y_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_H;
+use vp8.mode.parse.VP8_Y_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_V;
+
+fn dummy_intra16x16_result() Intra16x16ModeSearchResult {
+    return Intra16x16ModeSearchResult{
+        mode: 255 as byte,
+        distortion: 4294967295 as u32
+    };
+}
+
+test "intra16x16 mode search chooses vertical prediction" {
+    var src: [byte: 256] = [];
+    var above: [byte: 16] = [];
+    var left: [byte: 16] = [];
+
+    var index: usize = 0;
+    while index < 16 {
+        above[index] = (30 + (index as i32)) as byte;
+        left[index] = (200 - (index as i32)) as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            src[(row * 16) + col] = above[col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const result: Intra16x16ModeSearchResult = try search_intra16x16_mode(&src[0] as &byte, 16, &above[0] as &byte, true, &left[0] as &byte, true, 99 as byte);
+    try assert_eq_i32(result.mode as i32, VP8_Y_MODE_V as i32);
+    try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "intra16x16 mode search chooses horizontal prediction" {
+    var src: [byte: 256] = [];
+    var above: [byte: 16] = [];
+    var left: [byte: 16] = [];
+
+    var index: usize = 0;
+    while index < 16 {
+        above[index] = (10 + (index as i32)) as byte;
+        left[index] = (50 + ((index as i32) * 3)) as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            src[(row * 16) + col] = left[row];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const result: Intra16x16ModeSearchResult = try search_intra16x16_mode(&src[0] as &byte, 16, &above[0] as &byte, true, &left[0] as &byte, true, 22 as byte);
+    try assert_eq_i32(result.mode as i32, VP8_Y_MODE_H as i32);
+    try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "intra16x16 mode search chooses true motion prediction" {
+    var src: [byte: 256] = [];
+    var above: [byte: 16] = [];
+    var left: [byte: 16] = [];
+    const above_left: byte = 100 as byte;
+
+    var index: usize = 0;
+    while index < 16 {
+        above[index] = (100 + (index as i32)) as byte;
+        left[index] = (70 + (index as i32)) as byte;
+        index = index + 1;
+    }
+
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            src[(row * 16) + col] = ((left[row] as i32) + (above[col] as i32) - (above_left as i32)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const result: Intra16x16ModeSearchResult = try search_intra16x16_mode(&src[0] as &byte, 16, &above[0] as &byte, true, &left[0] as &byte, true, above_left);
+    try assert_eq_i32(result.mode as i32, VP8_Y_MODE_TM as i32);
+    try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "intra16x16 mode search uses DC at unavailable edges and ties" {
+    var src: [byte: 256] = [];
+    var above: [byte: 16] = [];
+    var left: [byte: 16] = [];
+
+    var index: usize = 0;
+    while index < 16 {
+        above[index] = 128 as byte;
+        left[index] = 128 as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 256 {
+        src[index] = 128 as byte;
+        index = index + 1;
+    }
+
+    const top_left: Intra16x16ModeSearchResult = try search_intra16x16_mode(&src[0] as &byte, 16, null as &byte, false, null as &byte, false, 0 as byte);
+    try assert_eq_i32(top_left.mode as i32, VP8_Y_MODE_DC as i32);
+    try assert_eq_i32(top_left.distortion as i32, 0);
+
+    const tie: Intra16x16ModeSearchResult = try search_intra16x16_mode(&src[0] as &byte, 16, &above[0] as &byte, true, &left[0] as &byte, true, 128 as byte);
+    try assert_eq_i32(tie.mode as i32, VP8_Y_MODE_DC as i32);
+    try assert_eq_i32(tie.distortion as i32, 0);
+}
+
+test "intra16x16 mode search rejects invalid geometry" {
+    var src: [byte: 256] = [];
+    var above: [byte: 16] = [];
+    var left: [byte: 16] = [];
+    var failed: i32 = 0;
+
+    _ = search_intra16x16_mode(null as &byte, 16, &above[0] as &byte, true, &left[0] as &byte, true, 128 as byte) catch {
+        failed = 1;
+        dummy_intra16x16_result();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = search_intra16x16_mode(&src[0] as &byte, 15, &above[0] as &byte, true, &left[0] as &byte, true, 128 as byte) catch {
+        failed = 1;
+        dummy_intra16x16_result();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = search_intra16x16_mode(&src[0] as &byte, 16, null as &byte, true, &left[0] as &byte, true, 128 as byte) catch {
+        failed = 1;
+        dummy_intra16x16_result();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = search_intra16x16_mode(&src[0] as &byte, 16, &above[0] as &byte, true, null as &byte, true, 128 as byte) catch {
+        failed = 1;
+        dummy_intra16x16_result();
+    };
+    try assert_eq_i32(failed, 1);
+}
