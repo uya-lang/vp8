@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "description": "Generated malformed VP8 payload corpus wrapped in valid IVF containers. Binary cases are emitted under build/malformed-vp8 and are intentionally not tracked.",
+  "cases": [
+    {
+      "name": "short-frame-tag",
+      "kind": "short-frame-tag"
+    },
+    {
+      "name": "inter-partition-overrun",
+      "kind": "inter-partition-overrun"
+    },
+    {
+      "name": "bad-key-start-code",
+      "kind": "bad-key-start-code"
+    },
+    {
+      "name": "key-partition-too-small",
+      "kind": "key-partition-too-small"
+    },
+    {
+      "name": "key-size-mismatch",
+      "kind": "key-size-mismatch"
+    },
+    {
+      "name": "empty-inter-partition",
+      "kind": "empty-inter-partition"
+    }
+  ]
+}

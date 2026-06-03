@@ -8,7 +8,7 @@ end-to-end tiny IVF MD5 check. `tests/tiny_ivf_md5.py` generates eight built-in
 IVF samples, including key+inter, segmentation, and multi-token partition
 samples, under `build/tiny-md5/`, decodes them with `build/vp8uya`, and
 compares the YUV output with golden MD5 values. It also runs generated
-malformed IVF corpus checks.
+malformed IVF and malformed VP8 payload corpus checks.
 `make test-decoder-scalar` runs the same decoder suite with
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
 Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
@@ -21,6 +21,9 @@ outputs remain under ignored build directories.
 MD5 samples.
 `make test-malformed-ivf` generates malformed IVF cases from
 `fixtures/malformed_ivf/manifest.json` and checks `info`/`decode` return
+controlled errors instead of crashing.
+`make test-malformed-vp8` wraps malformed VP8 payloads in valid IVF containers,
+checks `info` still succeeds, and checks `decode`/`decode-frame` return
 controlled errors instead of crashing.
 `make test-vpxdiff` optionally compares compatible manifest samples with
 `vpxdec`; it skips cleanly when libvpx tools are unavailable.
