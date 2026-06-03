@@ -1,0 +1,131 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.allocate_frame_buffer;
+use vp8.common.frame.frame_buffer_border_dirty;
+use vp8.common.frame.free_frame_buffer;
+use vp8.common.plane.Plane;
+use vp8.decoder.scalar.decoder_apply_row_delayed_loop_filter;
+use vp8.encoder.loop_filter.encoder_apply_key_frame_loop_filter;
+
+fn make_loop_filter(filter_type: u8, level: u8) Vp8LoopFilterHeader {
+    return Vp8LoopFilterHeader{
+        filter_type: filter_type,
+        level: level,
+        sharpness: 0 as u8,
+        delta_enabled: false,
+        delta_update: false,
+        ref_delta: [ 0, 0, 0, 0 ],
+        mode_delta: [ 0, 0, 0, 0 ]
+    };
+}
+
+fn write_vertical_filter_window(data: &byte, stride: usize, row: usize, edge_col: usize) void {
+    const base: usize = row * stride;
+    data[base + edge_col - 4] = 90 as byte;
+    data[base + edge_col - 3] = 100 as byte;
+    data[base + edge_col - 2] = 110 as byte;
+    data[base + edge_col - 1] = 120 as byte;
+    data[base + edge_col] = 125 as byte;
+    data[base + edge_col + 1] = 130 as byte;
+    data[base + edge_col + 2] = 140 as byte;
+    data[base + edge_col + 3] = 150 as byte;
+}
+
+fn write_horizontal_filter_window(data: &byte, stride: usize, col: usize, edge_row: usize) void {
+    data[((edge_row - 4) * stride) + col] = 90 as byte;
+    data[((edge_row - 3) * stride) + col] = 100 as byte;
+    data[((edge_row - 2) * stride) + col] = 110 as byte;
+    data[((edge_row - 1) * stride) + col] = 120 as byte;
+    data[(edge_row * stride) + col] = 125 as byte;
+    data[((edge_row + 1) * stride) + col] = 130 as byte;
+    data[((edge_row + 2) * stride) + col] = 140 as byte;
+    data[((edge_row + 3) * stride) + col] = 150 as byte;
+}
+
+fn write_filter_fixtures(frame: &FrameBuffer) void {
+    write_vertical_filter_window(frame.y.plane.origin, frame.y.plane.stride, 10, 16);
+    write_horizontal_filter_window(frame.y.plane.origin, frame.y.plane.stride, 10, 16);
+    write_vertical_filter_window(frame.u.plane.origin, frame.u.plane.stride, 6, 8);
+    write_horizontal_filter_window(frame.v.plane.origin, frame.v.plane.stride, 6, 8);
+}
+
+fn assert_same_visible_plane(actual: &Plane, expected: &Plane) !void {
+    try assert_eq_i32(actual.width as i32, expected.width as i32);
+    try assert_eq_i32(actual.height as i32, expected.height as i32);
+
+    var row: usize = 0;
+    while row < actual.height {
+        var col: usize = 0;
+        while col < actual.width {
+            try assert_eq_i32(actual.origin[(row * actual.stride) + col] as i32, expected.origin[(row * expected.stride) + col] as i32);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn assert_same_visible_frame(actual: &FrameBuffer, expected: &FrameBuffer) !void {
+    try assert_same_visible_plane(&actual.y.plane, &expected.y.plane);
+    try assert_same_visible_plane(&actual.u.plane, &expected.u.plane);
+    try assert_same_visible_plane(&actual.v.plane, &expected.v.plane);
+}
+
+test "encoder key frame normal loop filter matches decoder key frame filtering" {
+    var encoder_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&encoder_frame);
+    var reference_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&reference_frame);
+    const loop_filter: Vp8LoopFilterHeader = make_loop_filter(0 as u8, 20 as u8);
+
+    write_filter_fixtures(&encoder_frame);
+    write_filter_fixtures(&reference_frame);
+
+    try encoder_apply_key_frame_loop_filter(&encoder_frame, &loop_filter);
+    decoder_apply_row_delayed_loop_filter(&reference_frame, 2, 2, &loop_filter, true);
+
+    try assert_same_visible_frame(&encoder_frame, &reference_frame);
+    try assert_eq_i32(encoder_frame.y.plane.origin[(10 * encoder_frame.y.plane.stride) + 15] as i32, 119);
+    try assert_eq_i32(encoder_frame.u.plane.origin[(6 * encoder_frame.u.plane.stride) + 7] as i32, 119);
+    try assert_eq_i32(encoder_frame.v.plane.origin[(7 * encoder_frame.v.plane.stride) + 6] as i32, 119);
+    try assert_eq_i32(frame_buffer_border_dirty(&encoder_frame) as i32, true as i32);
+}
+
+test "encoder key frame simple loop filter matches decoder and leaves chroma untouched" {
+    var encoder_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&encoder_frame);
+    var reference_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&reference_frame);
+    const loop_filter: Vp8LoopFilterHeader = make_loop_filter(1 as u8, 20 as u8);
+
+    write_filter_fixtures(&encoder_frame);
+    write_filter_fixtures(&reference_frame);
+
+    try encoder_apply_key_frame_loop_filter(&encoder_frame, &loop_filter);
+    decoder_apply_row_delayed_loop_filter(&reference_frame, 2, 2, &loop_filter, true);
+
+    try assert_same_visible_frame(&encoder_frame, &reference_frame);
+    try assert_eq_i32(encoder_frame.y.plane.origin[(10 * encoder_frame.y.plane.stride) + 15] as i32, 119);
+    try assert_eq_i32(encoder_frame.u.plane.origin[(6 * encoder_frame.u.plane.stride) + 7] as i32, 120);
+    try assert_eq_i32(encoder_frame.v.plane.origin[(7 * encoder_frame.v.plane.stride) + 6] as i32, 120);
+    try assert_eq_i32(frame_buffer_border_dirty(&encoder_frame) as i32, true as i32);
+}
+
+test "encoder key frame loop filter rejects invalid frame and loop filter input" {
+    var frame: FrameBuffer = try allocate_frame_buffer(16, 16, 32, 32);
+    defer free_frame_buffer(&frame);
+    const loop_filter: Vp8LoopFilterHeader = make_loop_filter(0 as u8, 20 as u8);
+
+    var failed: i32 = 0;
+    encoder_apply_key_frame_loop_filter(null as &FrameBuffer, &loop_filter) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    encoder_apply_key_frame_loop_filter(&frame, null as &Vp8LoopFilterHeader) catch {
+        failed = 1;
+    };
+    try assert_eq_i32(failed, 1);
+}

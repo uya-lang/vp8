@@ -1,0 +1,84 @@
+use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_buffer_mark_border_dirty;
+use vp8.kernels.scalar.LoopFilterThresholds;
+use vp8.kernels.scalar.build_loop_filter_thresholds;
+use vp8.kernels.scalar.loop_filter_normal_macroblock_edges_yuv;
+use vp8.kernels.scalar.loop_filter_normal_subblock_edges_yuv;
+use vp8.kernels.scalar.loop_filter_simple_macroblock_edges_y;
+use vp8.kernels.scalar.loop_filter_simple_subblock_edges_y;
+
+error ErrEncoderLoopFilterInvalidInput;
+error ErrEncoderLoopFilterInvalidFrame;
+
+fn encoder_loop_filter_mb_dim(pixels: usize) usize {
+    return (pixels + 15) / (16 as usize);
+}
+
+fn validate_encoder_loop_filter_frame(frame: &FrameBuffer) !void {
+    if frame == null {
+        return error.ErrEncoderLoopFilterInvalidInput;
+    }
+    if frame.width == 0 || frame.height == 0 {
+        return error.ErrEncoderLoopFilterInvalidFrame;
+    }
+    if frame.y.plane.origin == null || frame.u.plane.origin == null || frame.v.plane.origin == null {
+        return error.ErrEncoderLoopFilterInvalidFrame;
+    }
+}
+
+fn encoder_loop_filter_normal_enabled(loop_filter: &Vp8LoopFilterHeader, thresholds: &LoopFilterThresholds) bool {
+    return thresholds.enabled && loop_filter.filter_type == (0 as u8);
+}
+
+fn encoder_loop_filter_simple_enabled(loop_filter: &Vp8LoopFilterHeader, thresholds: &LoopFilterThresholds) bool {
+    return thresholds.enabled && loop_filter.filter_type != (0 as u8);
+}
+
+fn encoder_apply_key_frame_normal_loop_filter(frame: &FrameBuffer, mb_cols: usize, mb_rows: usize, thresholds: &LoopFilterThresholds) void {
+    var mb_y: usize = 0;
+    while mb_y < mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < mb_cols {
+            loop_filter_normal_macroblock_edges_yuv(&frame.y.plane, &frame.u.plane, &frame.v.plane, mb_x, mb_y, thresholds);
+            loop_filter_normal_subblock_edges_yuv(&frame.y.plane, &frame.u.plane, &frame.v.plane, mb_x, mb_y, thresholds);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
+fn encoder_apply_key_frame_simple_loop_filter(frame: &FrameBuffer, mb_cols: usize, mb_rows: usize, thresholds: &LoopFilterThresholds) void {
+    var mb_y: usize = 0;
+    while mb_y < mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < mb_cols {
+            loop_filter_simple_macroblock_edges_y(&frame.y.plane, mb_x, mb_y, thresholds);
+            loop_filter_simple_subblock_edges_y(&frame.y.plane, mb_x, mb_y, thresholds);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
+export fn encoder_apply_key_frame_loop_filter(frame: &FrameBuffer, loop_filter: &Vp8LoopFilterHeader) !void {
+    try validate_encoder_loop_filter_frame(frame);
+    if loop_filter == null {
+        return error.ErrEncoderLoopFilterInvalidInput;
+    }
+
+    const thresholds: LoopFilterThresholds = build_loop_filter_thresholds(loop_filter.level as i32, loop_filter.sharpness, true);
+    if !thresholds.enabled {
+        return;
+    }
+
+    const mb_cols: usize = encoder_loop_filter_mb_dim(frame.width);
+    const mb_rows: usize = encoder_loop_filter_mb_dim(frame.height);
+    if encoder_loop_filter_normal_enabled(loop_filter, &thresholds) {
+        encoder_apply_key_frame_normal_loop_filter(frame, mb_cols, mb_rows, &thresholds);
+    } else if encoder_loop_filter_simple_enabled(loop_filter, &thresholds) {
+        encoder_apply_key_frame_simple_loop_filter(frame, mb_cols, mb_rows, &thresholds);
+    }
+
+    frame_buffer_mark_border_dirty(frame);
+}
