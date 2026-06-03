@@ -7,6 +7,10 @@ use vp8.common.plane.make_plane_view;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
 use vp8.kernels.scalar.inverse_transform_4x4;
+use vp8.kernels.scalar.loop_filter_normal_horizontal_edge;
+use vp8.kernels.scalar.loop_filter_normal_mb_horizontal_edge;
+use vp8.kernels.scalar.loop_filter_normal_mb_vertical_edge;
+use vp8.kernels.scalar.loop_filter_normal_vertical_edge;
 use vp8.kernels.scalar.loop_filter_simple_horizontal_edge;
 use vp8.kernels.scalar.loop_filter_simple_vertical_edge;
 use vp8.kernels.scalar.predict_inter_copy;
@@ -35,6 +39,10 @@ use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
+use vp8.kernels.simd.loop_filter_normal_horizontal_edge_u8x16;
+use vp8.kernels.simd.loop_filter_normal_mb_horizontal_edge_u8x16;
+use vp8.kernels.simd.loop_filter_normal_mb_vertical_edge_u8x16;
+use vp8.kernels.simd.loop_filter_normal_vertical_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_horizontal_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
 use vp8.kernels.simd.extend_plane_border_u8x16;
@@ -781,5 +789,114 @@ test "SIMD simple loop filter matches scalar byte exact" {
 
     loop_filter_simple_horizontal_edge(&scalar_horizontal[0] as &byte, 16, 5, 16, 40 as u8);
     loop_filter_simple_horizontal_edge_u8x16(&simd_horizontal[0] as &byte, 16, 5, 16, 40 as u8);
+    try assert_y16_buffers_equal(&scalar_horizontal[0] as &byte, &simd_horizontal[0] as &byte, 256);
+}
+
+fn write_normal_vertical_fixture(data: &byte, stride: usize, edge_col: usize, rows: usize) void {
+    var row: usize = 0;
+    while row < rows {
+        const base: usize = row * stride;
+        if row < (rows / 2) {
+            data[base + edge_col - 4] = 90 as byte;
+            data[base + edge_col - 3] = 100 as byte;
+            data[base + edge_col - 2] = 110 as byte;
+            data[base + edge_col - 1] = 120 as byte;
+            data[base + edge_col] = 125 as byte;
+            data[base + edge_col + 1] = 130 as byte;
+            data[base + edge_col + 2] = 140 as byte;
+            data[base + edge_col + 3] = 150 as byte;
+        } else {
+            data[base + edge_col - 4] = 10 as byte;
+            data[base + edge_col - 3] = 20 as byte;
+            data[base + edge_col - 2] = 30 as byte;
+            data[base + edge_col - 1] = 40 as byte;
+            data[base + edge_col] = 220 as byte;
+            data[base + edge_col + 1] = 230 as byte;
+            data[base + edge_col + 2] = 240 as byte;
+            data[base + edge_col + 3] = 250 as byte;
+        }
+        row = row + 1;
+    }
+}
+
+fn write_normal_horizontal_fixture(data: &byte, stride: usize, edge_row: usize, cols: usize) void {
+    var col: usize = 0;
+    while col < cols {
+        const p3: usize = ((edge_row - 4) * stride) + col;
+        const p2: usize = ((edge_row - 3) * stride) + col;
+        const p1: usize = ((edge_row - 2) * stride) + col;
+        const p0: usize = ((edge_row - 1) * stride) + col;
+        const q0: usize = (edge_row * stride) + col;
+        const q1: usize = ((edge_row + 1) * stride) + col;
+        const q2: usize = ((edge_row + 2) * stride) + col;
+        const q3: usize = ((edge_row + 3) * stride) + col;
+        if col < (cols / 2) {
+            data[p3] = 90 as byte;
+            data[p2] = 100 as byte;
+            data[p1] = 110 as byte;
+            data[p0] = 120 as byte;
+            data[q0] = 125 as byte;
+            data[q1] = 130 as byte;
+            data[q2] = 140 as byte;
+            data[q3] = 150 as byte;
+        } else {
+            data[p3] = 10 as byte;
+            data[p2] = 20 as byte;
+            data[p1] = 30 as byte;
+            data[p0] = 40 as byte;
+            data[q0] = 220 as byte;
+            data[q1] = 230 as byte;
+            data[q2] = 240 as byte;
+            data[q3] = 250 as byte;
+        }
+        col = col + 1;
+    }
+}
+
+test "SIMD normal loop filter matches scalar byte exact" {
+    var scalar_vertical: [byte: 256] = [];
+    var simd_vertical: [byte: 256] = [];
+    var scalar_horizontal: [byte: 256] = [];
+    var simd_horizontal: [byte: 256] = [];
+    var index: usize = 0;
+    while index < 256 {
+        scalar_vertical[index] = 77 as byte;
+        simd_vertical[index] = 77 as byte;
+        scalar_horizontal[index] = 33 as byte;
+        simd_horizontal[index] = 33 as byte;
+        index = index + 1;
+    }
+
+    write_normal_vertical_fixture(&scalar_vertical[0] as &byte, 16, 8, 16);
+    write_normal_vertical_fixture(&simd_vertical[0] as &byte, 16, 8, 16);
+    loop_filter_normal_vertical_edge(&scalar_vertical[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    loop_filter_normal_vertical_edge_u8x16(&simd_vertical[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    try assert_y16_buffers_equal(&scalar_vertical[0] as &byte, &simd_vertical[0] as &byte, 256);
+
+    write_normal_horizontal_fixture(&scalar_horizontal[0] as &byte, 16, 8, 16);
+    write_normal_horizontal_fixture(&simd_horizontal[0] as &byte, 16, 8, 16);
+    loop_filter_normal_horizontal_edge(&scalar_horizontal[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    loop_filter_normal_horizontal_edge_u8x16(&simd_horizontal[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    try assert_y16_buffers_equal(&scalar_horizontal[0] as &byte, &simd_horizontal[0] as &byte, 256);
+
+    index = 0;
+    while index < 256 {
+        scalar_vertical[index] = 91 as byte;
+        simd_vertical[index] = 91 as byte;
+        scalar_horizontal[index] = 41 as byte;
+        simd_horizontal[index] = 41 as byte;
+        index = index + 1;
+    }
+
+    write_normal_vertical_fixture(&scalar_vertical[0] as &byte, 16, 8, 16);
+    write_normal_vertical_fixture(&simd_vertical[0] as &byte, 16, 8, 16);
+    loop_filter_normal_mb_vertical_edge(&scalar_vertical[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    loop_filter_normal_mb_vertical_edge_u8x16(&simd_vertical[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    try assert_y16_buffers_equal(&scalar_vertical[0] as &byte, &simd_vertical[0] as &byte, 256);
+
+    write_normal_horizontal_fixture(&scalar_horizontal[0] as &byte, 16, 8, 16);
+    write_normal_horizontal_fixture(&simd_horizontal[0] as &byte, 16, 8, 16);
+    loop_filter_normal_mb_horizontal_edge(&scalar_horizontal[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
+    loop_filter_normal_mb_horizontal_edge_u8x16(&simd_horizontal[0] as &byte, 16, 8, 16, 40 as u8, 40 as u8, 20 as u8);
     try assert_y16_buffers_equal(&scalar_horizontal[0] as &byte, &simd_horizontal[0] as &byte, 256);
 }

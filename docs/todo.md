@@ -244,7 +244,7 @@
 - [x] SIMD sub-pixel horizontal filter。
 - [x] SIMD sub-pixel vertical filter。
 - [x] SIMD simple loop filter。
-- [ ] SIMD normal loop filter。
+- [x] SIMD normal loop filter。
 - [ ] 可选 `@asm` x86 sub-pixel microkernel。
 - [ ] 可选 `@asm` ARM NEON sub-pixel microkernel。
 
