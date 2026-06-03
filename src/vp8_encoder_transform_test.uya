@@ -3,7 +3,21 @@ use std.testing.assert_eq_i32;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
+use vp8.encoder.quant.EncoderCoefficientToken;
+use vp8.encoder.quant.tokenize_quantized_block_4x4;
 use vp8.token.parse.CoefficientBlockSummary;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT1;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT2;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT3;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT4;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT5;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT6;
+use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
+use vp8.token.parse.VP8_COEFF_TOKEN_FOUR;
+use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
+use vp8.token.parse.VP8_COEFF_TOKEN_THREE;
+use vp8.token.parse.VP8_COEFF_TOKEN_TWO;
+use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
 
 fn assert_eq_4x4(actual: &i16, expected: &i16) !void {
     var index: usize = 0;
@@ -11,6 +25,25 @@ fn assert_eq_4x4(actual: &i16, expected: &i16) !void {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
     }
+}
+
+fn assert_token(
+    token: &EncoderCoefficientToken,
+    position: byte,
+    token_id: byte,
+    coefficient: i16,
+    magnitude: i16,
+    sign: u8,
+    extra_bits: u16,
+    extra_bit_count: u8
+) !void {
+    try assert_eq_i32(token.position as i32, position as i32);
+    try assert_eq_i32(token.token as i32, token_id as i32);
+    try assert_eq_i32(token.coefficient as i32, coefficient as i32);
+    try assert_eq_i32(token.magnitude as i32, magnitude as i32);
+    try assert_eq_i32(token.sign as i32, sign as i32);
+    try assert_eq_i32(token.extra_bits as i32, extra_bits as i32);
+    try assert_eq_i32(token.extra_bit_count as i32, extra_bit_count as i32);
 }
 
 test "encoder forward DCT matches deterministic VP8 golden blocks" {
@@ -264,4 +297,81 @@ test "encoder quantize block clears all-zero output and rejects invalid factors"
         return;
     };
     try assert_eq_i32(1, 0);
+}
+
+test "encoder coefficient tokenize emits scan-order VP8 tokens and trailing eob" {
+    var qcoeff: [i16: 16] = [
+        1, 0, 7, 10,
+        -2, 6, 11, 66,
+        5, 18, 35, 67,
+        19, 34, -2114, 0
+    ];
+    var tokens: [EncoderCoefficientToken: 16] = [];
+
+    const count: usize = try tokenize_quantized_block_4x4(&qcoeff[0] as &i16, 0, &tokens[0] as &EncoderCoefficientToken, 16);
+
+    try assert_eq_i32(count as i32, 16);
+    try assert_token(&tokens[0] as &EncoderCoefficientToken, 0 as byte, VP8_COEFF_TOKEN_ONE, 1 as i16, 1 as i16, 0 as u8, 0 as u16, 0 as u8);
+    try assert_token(&tokens[1] as &EncoderCoefficientToken, 1 as byte, VP8_COEFF_TOKEN_ZERO, 0 as i16, 0 as i16, 0 as u8, 0 as u16, 0 as u8);
+    try assert_token(&tokens[2] as &EncoderCoefficientToken, 2 as byte, VP8_COEFF_TOKEN_TWO, -2 as i16, 2 as i16, 1 as u8, 0 as u16, 0 as u8);
+    try assert_token(&tokens[3] as &EncoderCoefficientToken, 3 as byte, VP8_COEFF_TOKEN_CAT1, 5 as i16, 5 as i16, 0 as u8, 0 as u16, 1 as u8);
+    try assert_token(&tokens[4] as &EncoderCoefficientToken, 4 as byte, VP8_COEFF_TOKEN_CAT1, 6 as i16, 6 as i16, 0 as u8, 1 as u16, 1 as u8);
+    try assert_token(&tokens[5] as &EncoderCoefficientToken, 5 as byte, VP8_COEFF_TOKEN_CAT2, 7 as i16, 7 as i16, 0 as u8, 0 as u16, 2 as u8);
+    try assert_token(&tokens[6] as &EncoderCoefficientToken, 6 as byte, VP8_COEFF_TOKEN_CAT2, 10 as i16, 10 as i16, 0 as u8, 3 as u16, 2 as u8);
+    try assert_token(&tokens[7] as &EncoderCoefficientToken, 7 as byte, VP8_COEFF_TOKEN_CAT3, 11 as i16, 11 as i16, 0 as u8, 0 as u16, 3 as u8);
+    try assert_token(&tokens[8] as &EncoderCoefficientToken, 8 as byte, VP8_COEFF_TOKEN_CAT3, 18 as i16, 18 as i16, 0 as u8, 7 as u16, 3 as u8);
+    try assert_token(&tokens[9] as &EncoderCoefficientToken, 9 as byte, VP8_COEFF_TOKEN_CAT4, 19 as i16, 19 as i16, 0 as u8, 0 as u16, 4 as u8);
+    try assert_token(&tokens[10] as &EncoderCoefficientToken, 10 as byte, VP8_COEFF_TOKEN_CAT4, 34 as i16, 34 as i16, 0 as u8, 15 as u16, 4 as u8);
+    try assert_token(&tokens[11] as &EncoderCoefficientToken, 11 as byte, VP8_COEFF_TOKEN_CAT5, 35 as i16, 35 as i16, 0 as u8, 0 as u16, 5 as u8);
+    try assert_token(&tokens[12] as &EncoderCoefficientToken, 12 as byte, VP8_COEFF_TOKEN_CAT5, 66 as i16, 66 as i16, 0 as u8, 31 as u16, 5 as u8);
+    try assert_token(&tokens[13] as &EncoderCoefficientToken, 13 as byte, VP8_COEFF_TOKEN_CAT6, 67 as i16, 67 as i16, 0 as u8, 0 as u16, 11 as u8);
+    try assert_token(&tokens[14] as &EncoderCoefficientToken, 14 as byte, VP8_COEFF_TOKEN_CAT6, -2114 as i16, 2114 as i16, 1 as u8, 2047 as u16, 11 as u8);
+    try assert_token(&tokens[15] as &EncoderCoefficientToken, 15 as byte, VP8_COEFF_TOKEN_EOB, 0 as i16, 0 as i16, 0 as u8, 0 as u16, 0 as u8);
+}
+
+test "encoder coefficient tokenize supports start position and omits full-block eob" {
+    var skip_dc_qcoeff: [i16: 16] = [
+        9, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ];
+    var tokens: [EncoderCoefficientToken: 16] = [];
+
+    const skip_dc_count: usize = try tokenize_quantized_block_4x4(&skip_dc_qcoeff[0] as &i16, 1, &tokens[0] as &EncoderCoefficientToken, 16);
+    try assert_eq_i32(skip_dc_count as i32, 1);
+    try assert_token(&tokens[0] as &EncoderCoefficientToken, 1 as byte, VP8_COEFF_TOKEN_EOB, 0 as i16, 0 as i16, 0 as u8, 0 as u16, 0 as u8);
+
+    skip_dc_qcoeff[15] = 4 as i16;
+    const full_count: usize = try tokenize_quantized_block_4x4(&skip_dc_qcoeff[0] as &i16, 1, &tokens[0] as &EncoderCoefficientToken, 16);
+    try assert_eq_i32(full_count as i32, 15);
+    try assert_token(&tokens[14] as &EncoderCoefficientToken, 15 as byte, VP8_COEFF_TOKEN_FOUR, 4 as i16, 4 as i16, 0 as u8, 0 as u16, 0 as u8);
+}
+
+test "encoder coefficient tokenize rejects invalid input capacity and magnitude" {
+    var qcoeff: [i16: 16] = [];
+    var tokens: [EncoderCoefficientToken: 1] = [];
+
+    var rejected_start: bool = false;
+    _ = tokenize_quantized_block_4x4(&qcoeff[0] as &i16, 17, &tokens[0] as &EncoderCoefficientToken, 1) catch {
+        rejected_start = true;
+        0 as usize;
+    };
+    try assert_eq_i32(rejected_start as i32, true as i32);
+
+    qcoeff[0] = 1 as i16;
+    var rejected_capacity: bool = false;
+    _ = tokenize_quantized_block_4x4(&qcoeff[0] as &i16, 0, &tokens[0] as &EncoderCoefficientToken, 0) catch {
+        rejected_capacity = true;
+        0 as usize;
+    };
+    try assert_eq_i32(rejected_capacity as i32, true as i32);
+
+    qcoeff[0] = 2115 as i16;
+    var rejected_magnitude: bool = false;
+    _ = tokenize_quantized_block_4x4(&qcoeff[0] as &i16, 0, &tokens[0] as &EncoderCoefficientToken, 1) catch {
+        rejected_magnitude = true;
+        0 as usize;
+    };
+    try assert_eq_i32(rejected_magnitude as i32, true as i32);
 }

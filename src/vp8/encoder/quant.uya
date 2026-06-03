@@ -1,8 +1,34 @@
 use vp8.token.parse.CoefficientBlockSummary;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT1;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT2;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT3;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT4;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT5;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT6;
+use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
+use vp8.token.parse.VP8_COEFF_TOKEN_FOUR;
+use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
+use vp8.token.parse.VP8_COEFF_TOKEN_THREE;
+use vp8.token.parse.VP8_COEFF_TOKEN_TWO;
+use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
 use vp8.token.parse.coefficient_scan_index;
 
 error ErrEncoderQuantizeInvalidInput;
 error ErrEncoderQuantizeInvalidFactor;
+error ErrEncoderTokenizeInvalidInput;
+error ErrEncoderTokenizeInvalidPosition;
+error ErrEncoderTokenizeOutputTooSmall;
+error ErrEncoderTokenizeCoefficientTooLarge;
+
+export struct EncoderCoefficientToken {
+    position: byte,
+    token: byte,
+    coefficient: i16,
+    magnitude: i16,
+    sign: u8,
+    extra_bits: u16,
+    extra_bit_count: u8
+}
 
 export fn forward_dct_4x4(input: &i16, input_stride: usize, output: &i16) void {
     var tmp: [i32: 16] = [];
@@ -179,4 +205,145 @@ export fn quantize_block_4x4(input: &i16, dc_factor: i16, ac_factor: i16, qcoeff
     }
 
     return try quantize_summary(qcoeff);
+}
+
+fn make_eob_token(position: usize) EncoderCoefficientToken {
+    return EncoderCoefficientToken{
+        position: position as byte,
+        token: VP8_COEFF_TOKEN_EOB,
+        coefficient: 0 as i16,
+        magnitude: 0 as i16,
+        sign: 0 as u8,
+        extra_bits: 0 as u16,
+        extra_bit_count: 0 as u8
+    };
+}
+
+fn make_zero_token(position: usize) EncoderCoefficientToken {
+    return EncoderCoefficientToken{
+        position: position as byte,
+        token: VP8_COEFF_TOKEN_ZERO,
+        coefficient: 0 as i16,
+        magnitude: 0 as i16,
+        sign: 0 as u8,
+        extra_bits: 0 as u16,
+        extra_bit_count: 0 as u8
+    };
+}
+
+fn make_coefficient_token(position: usize, coefficient: i16, token: byte, magnitude: i16, extra_bits: u16, extra_bit_count: u8) EncoderCoefficientToken {
+    var sign: u8 = 0 as u8;
+    if coefficient < (0 as i16) {
+        sign = 1 as u8;
+    }
+
+    return EncoderCoefficientToken{
+        position: position as byte,
+        token: token,
+        coefficient: coefficient,
+        magnitude: magnitude,
+        sign: sign,
+        extra_bits: extra_bits,
+        extra_bit_count: extra_bit_count
+    };
+}
+
+fn tokenize_nonzero_coefficient(position: usize, coefficient: i16) !EncoderCoefficientToken {
+    const magnitude_i32: i32 = abs_i16_to_i32(coefficient);
+    if magnitude_i32 > 2114 {
+        return error.ErrEncoderTokenizeCoefficientTooLarge;
+    }
+
+    const magnitude: i16 = magnitude_i32 as i16;
+    if magnitude == (1 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_ONE, magnitude, 0 as u16, 0 as u8);
+    }
+    if magnitude == (2 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_TWO, magnitude, 0 as u16, 0 as u8);
+    }
+    if magnitude == (3 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_THREE, magnitude, 0 as u16, 0 as u8);
+    }
+    if magnitude == (4 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_FOUR, magnitude, 0 as u16, 0 as u8);
+    }
+    if magnitude <= (6 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_CAT1, magnitude, (magnitude - (5 as i16)) as u16, 1 as u8);
+    }
+    if magnitude <= (10 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_CAT2, magnitude, (magnitude - (7 as i16)) as u16, 2 as u8);
+    }
+    if magnitude <= (18 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_CAT3, magnitude, (magnitude - (11 as i16)) as u16, 3 as u8);
+    }
+    if magnitude <= (34 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_CAT4, magnitude, (magnitude - (19 as i16)) as u16, 4 as u8);
+    }
+    if magnitude <= (66 as i16) {
+        return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_CAT5, magnitude, (magnitude - (35 as i16)) as u16, 5 as u8);
+    }
+    return make_coefficient_token(position, coefficient, VP8_COEFF_TOKEN_CAT6, magnitude, (magnitude - (67 as i16)) as u16, 11 as u8);
+}
+
+fn store_encoder_token(tokens: &EncoderCoefficientToken, capacity: usize, count: usize, token: &EncoderCoefficientToken) !void {
+    if count >= capacity {
+        return error.ErrEncoderTokenizeOutputTooSmall;
+    }
+    tokens[count].position = token.position;
+    tokens[count].token = token.token;
+    tokens[count].coefficient = token.coefficient;
+    tokens[count].magnitude = token.magnitude;
+    tokens[count].sign = token.sign;
+    tokens[count].extra_bits = token.extra_bits;
+    tokens[count].extra_bit_count = token.extra_bit_count;
+}
+
+export fn tokenize_quantized_block_4x4(qcoeff: &i16, start_position: usize, tokens: &EncoderCoefficientToken, capacity: usize) !usize {
+    if qcoeff == null || tokens == null {
+        return error.ErrEncoderTokenizeInvalidInput;
+    }
+    if start_position > 16 {
+        return error.ErrEncoderTokenizeInvalidPosition;
+    }
+    if start_position == 16 {
+        return 0 as usize;
+    }
+
+    var last_nonzero_position: usize = 16;
+    var position: usize = start_position;
+    while position < 16 {
+        const scan_index: byte = try coefficient_scan_index(position);
+        if qcoeff[scan_index as usize] != (0 as i16) {
+            last_nonzero_position = position;
+        }
+        position = position + 1;
+    }
+
+    var count: usize = 0;
+    if last_nonzero_position == 16 {
+        var eob_token: EncoderCoefficientToken = make_eob_token(start_position);
+        try store_encoder_token(tokens, capacity, count, &eob_token as &EncoderCoefficientToken);
+        return 1 as usize;
+    }
+
+    position = start_position;
+    while position <= last_nonzero_position {
+        const scan_index: byte = try coefficient_scan_index(position);
+        const coefficient: i16 = qcoeff[scan_index as usize];
+        var token: EncoderCoefficientToken = make_zero_token(position);
+        if coefficient != (0 as i16) {
+            token = try tokenize_nonzero_coefficient(position, coefficient);
+        }
+        try store_encoder_token(tokens, capacity, count, &token as &EncoderCoefficientToken);
+        count = count + 1;
+        position = position + 1;
+    }
+
+    if last_nonzero_position < 15 {
+        var trailing_eob_token: EncoderCoefficientToken = make_eob_token(last_nonzero_position + 1);
+        try store_encoder_token(tokens, capacity, count, &trailing_eob_token as &EncoderCoefficientToken);
+        count = count + 1;
+    }
+
+    return count;
 }

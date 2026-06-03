@@ -292,7 +292,7 @@
 - [x] 实现 forward DCT。
 - [x] 实现 forward WHT。
 - [x] 实现 quantize。
-- [ ] 实现 coefficient tokenize。
+- [x] 实现 coefficient tokenize。
 - [ ] 实现 bool writer partition output。
 - [ ] 实现本地 reconstruct。
 - [ ] 实现 key frame loop filter。
