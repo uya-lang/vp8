@@ -54,7 +54,8 @@ build/vp8uya --help
 decoder context, scalar kernels, and scalar decoder behavior. It also generates
 eight tiny IVF samples, including key+inter, segmentation, and multi-token
 partition samples. It decodes them through the CLI and checks their YUV MD5
-values against built-in goldens.
+values against built-in goldens. It also runs generated malformed IVF corpus
+checks for controlled CLI errors.
 
 `make test-decoder-scalar` runs the decoder suite with
 `VP8UYA_FORCE_SCALAR=1` and is the scalar reference regression gate.
@@ -67,6 +68,8 @@ outputs are generated under `build/tiny-md5/`.
 group.
 `make test-token-partition-md5` runs only manifest samples in the
 `token-partition` group.
+`make test-malformed-ivf` generates malformed IVF cases from
+`fixtures/malformed_ivf/manifest.json` and checks `info`/`decode` error exits.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "description": "Generated malformed IVF corpus for controlled-error CLI checks. Binary cases are emitted under build/malformed-ivf and are intentionally not tracked.",
+  "cases": [
+    {
+      "name": "short-header",
+      "kind": "short-header",
+      "expected_output": "error: invalid IVF header"
+    },
+    {
+      "name": "bad-signature",
+      "kind": "bad-signature",
+      "expected_output": "error: invalid IVF header"
+    },
+    {
+      "name": "small-header-size",
+      "kind": "small-header-size",
+      "expected_output": "error: invalid IVF header"
+    },
+    {
+      "name": "bad-fourcc",
+      "kind": "bad-fourcc",
+      "expected_output": "error: invalid IVF header"
+    },
+    {
+      "name": "large-header-size",
+      "kind": "large-header-size",
+      "expected_output": "error: invalid IVF frame data"
+    },
+    {
+      "name": "truncated-frame-header",
+      "kind": "truncated-frame-header",
+      "expected_output": "error: invalid IVF frame data"
+    },
+    {
+      "name": "truncated-payload",
+      "kind": "truncated-payload",
+      "expected_output": "error: invalid IVF frame data"
+    }
+  ]
+}

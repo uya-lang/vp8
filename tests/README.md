@@ -7,7 +7,8 @@ Current validation is driven by `make test`, which runs UYA unit tests and an
 end-to-end tiny IVF MD5 check. `tests/tiny_ivf_md5.py` generates eight built-in
 IVF samples, including key+inter, segmentation, and multi-token partition
 samples, under `build/tiny-md5/`, decodes them with `build/vp8uya`, and
-compares the YUV output with golden MD5 values.
+compares the YUV output with golden MD5 values. It also runs generated
+malformed IVF corpus checks.
 `make test-decoder-scalar` runs the same decoder suite with
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
 Fixture metadata is tracked in `fixtures/manifest.json`; generated binary
@@ -18,6 +19,9 @@ outputs remain under ignored build directories.
 `make test-segmentation-md5` filters the manifest to segmentation MD5 samples.
 `make test-token-partition-md5` filters the manifest to multi-token-partition
 MD5 samples.
+`make test-malformed-ivf` generates malformed IVF cases from
+`fixtures/malformed_ivf/manifest.json` and checks `info`/`decode` return
+controlled errors instead of crashing.
 `make test-vpxdiff` optionally compares compatible manifest samples with
 `vpxdec`; it skips cleanly when libvpx tools are unavailable.
 

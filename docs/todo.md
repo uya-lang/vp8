@@ -198,7 +198,7 @@
 - [x] 对尺寸非 16 对齐样本做对照。
 - [x] 对 segmentation 样本做对照。
 - [x] 对多 token partition 样本做对照。
-- [ ] 增加 malformed IVF corpus。
+- [x] 增加 malformed IVF corpus。
 - [ ] 增加 malformed VP8 payload corpus。
 - [ ] 增加 fuzz smoke target。
 
