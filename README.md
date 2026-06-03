@@ -52,8 +52,8 @@ build/vp8uya --help
 
 `make test` runs UYA unit tests for bitstream, boolean coder, container,
 decoder context, scalar kernels, and scalar decoder behavior. It also generates
-five tiny IVF samples, decodes them through the CLI, and checks their YUV MD5
-values against built-in goldens.
+six tiny IVF samples, including a key+inter sample, decodes them through the
+CLI, and checks their YUV MD5 values against built-in goldens.
 
 `bench/` is reserved for benchmark harnesses and baseline records. Benchmarks
 must keep scalar and SIMD paths comparable and must not become correctness

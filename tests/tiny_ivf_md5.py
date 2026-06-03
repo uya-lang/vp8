@@ -27,6 +27,7 @@ EXPECTED_MD5 = {
     "v-dc-16x16": "ebcdf5dd1274dc0e22582f169df6137f",
     "gray-32x16": "e979abdb2b582b325de6f5bb97b0e643",
     "gray-17x17": "2671dd258a7442dc814db1376ce7682d",
+    "inter-copy-16x16": "c620b3f0df394a7509cb2a26dde5a3d5",
 }
 
 
@@ -36,6 +37,7 @@ class Sample:
     width: int
     height: int
     variant: str
+    output_frames: int = 1
 
 
 SAMPLES = [
@@ -44,6 +46,7 @@ SAMPLES = [
     Sample("v-dc-16x16", 16, 16, "v-dc"),
     Sample("gray-32x16", 32, 16, "gray"),
     Sample("gray-17x17", 17, 17, "gray"),
+    Sample("inter-copy-16x16", 16, 16, "inter-copy", 2),
 ]
 
 
@@ -180,6 +183,37 @@ def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
     return encoded + bytes(256 - len(encoded))
 
 
+def write_uncompressed_inter_partition(sample: Sample, mb_count: int) -> bytes:
+    writer = BoolWriter(256)
+    writer.write(0, 128)
+    write_literal(writer, 0, 1)
+    write_literal(writer, 0, 6)
+    write_literal(writer, 0, 3)
+    write_literal(writer, 0, 7)
+    writer.write(0, 128)
+    writer.write(0, 128)
+    writer.write(0, 128)
+    writer.write(0, 128)
+    writer.write(0, 128)
+    write_literal(writer, 0, 2)
+
+    for probability in COEFF_UPDATE_PROBS:
+        writer.write(0, probability)
+    for probability in MV_UPDATE_PROBS:
+        writer.write(0, probability)
+
+    for _ in range(mb_count):
+        writer.write(1, 145)
+        writer.write(0, 156)
+        writer.write(0, 2)
+
+    writer.flush()
+    encoded = writer.bytes()
+    if len(encoded) > 256:
+        raise RuntimeError(f"first partition too large for {sample.name}: {len(encoded)}")
+    return encoded + bytes(256 - len(encoded))
+
+
 def write_gray_mb_tokens(writer: BoolWriter) -> None:
     write_eob(writer, 1, 0, 0)
     for _ in range(16):
@@ -230,6 +264,17 @@ def write_token_partition(sample: Sample, mb_count: int) -> bytes:
     return writer.bytes()
 
 
+def write_inter_token_partition(mb_count: int) -> bytes:
+    writer = BoolWriter(4096)
+    for _ in range(mb_count):
+        for _ in range(16):
+            write_eob(writer, 0, 0, 0)
+        for _ in range(8):
+            write_eob(writer, 2, 0, 0)
+    writer.flush()
+    return writer.bytes()
+
+
 def make_vp8_key_frame(sample: Sample) -> bytes:
     mb_cols = math.ceil(sample.width / 16)
     mb_rows = math.ceil(sample.height / 16)
@@ -248,8 +293,28 @@ def make_vp8_key_frame(sample: Sample) -> bytes:
     return bytes(frame)
 
 
+def make_vp8_inter_frame(sample: Sample) -> bytes:
+    mb_cols = math.ceil(sample.width / 16)
+    mb_rows = math.ceil(sample.height / 16)
+    mb_count = mb_cols * mb_rows
+    first_partition = write_uncompressed_inter_partition(sample, mb_count)
+    token_partition = write_inter_token_partition(mb_count)
+    first_partition_size = len(first_partition)
+    tag = 1 | (1 << 4) | (first_partition_size << 5)
+    frame = bytearray()
+    frame.extend(struct.pack("<I", tag)[:3])
+    frame.extend(first_partition)
+    frame.extend(token_partition)
+    return bytes(frame)
+
+
 def make_ivf(sample: Sample) -> bytes:
-    frame = make_vp8_key_frame(sample)
+    if sample.variant == "inter-copy":
+        key_sample = Sample(f"{sample.name}-key", sample.width, sample.height, "u-dc")
+        frames = [make_vp8_key_frame(key_sample), make_vp8_inter_frame(sample)]
+    else:
+        frames = [make_vp8_key_frame(sample)]
+
     header = bytearray()
     header.extend(b"DKIF")
     header.extend(struct.pack("<H", 0))
@@ -259,11 +324,12 @@ def make_ivf(sample: Sample) -> bytes:
     header.extend(struct.pack("<H", sample.height))
     header.extend(struct.pack("<I", 30))
     header.extend(struct.pack("<I", 1))
-    header.extend(struct.pack("<I", 1))
+    header.extend(struct.pack("<I", len(frames)))
     header.extend(struct.pack("<I", 0))
-    header.extend(struct.pack("<I", len(frame)))
-    header.extend(struct.pack("<Q", 0))
-    header.extend(frame)
+    for index, frame in enumerate(frames):
+        header.extend(struct.pack("<I", len(frame)))
+        header.extend(struct.pack("<Q", index))
+        header.extend(frame)
     return bytes(header)
 
 
@@ -281,8 +347,9 @@ def run_sample(bin_path: Path, out_dir: Path, sample: Sample) -> dict[str, objec
     )
     yuv = yuv_path.read_bytes()
     digest = hashlib.md5(yuv).hexdigest()
-    expected_size = sample.width * sample.height
-    expected_size += math.ceil(sample.width / 2) * math.ceil(sample.height / 2) * 2
+    expected_frame_size = sample.width * sample.height
+    expected_frame_size += math.ceil(sample.width / 2) * math.ceil(sample.height / 2) * 2
+    expected_size = expected_frame_size * sample.output_frames
     if len(yuv) != expected_size:
         raise RuntimeError(f"{sample.name}: expected {expected_size} YUV bytes, got {len(yuv)}")
     return {
