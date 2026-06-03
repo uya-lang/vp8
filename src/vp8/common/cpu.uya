@@ -1,3 +1,6 @@
+use std;
+use std.platform.TargetArch;
+
 export enum SimdLevel {
     scalar = 0,
     vector128 = 1,
@@ -7,6 +10,28 @@ export enum SimdLevel {
 }
 
 export const SIMD_LEVEL_COUNT: usize = 5;
+
+export struct SimdBuildCapabilities {
+    scalar: bool,
+    portable_vector128: bool,
+    portable_vector256_tiled: bool,
+    asm_x86: bool,
+    asm_arm: bool
+}
+
+export struct SimdCpuCapabilities {
+    target_arch: TargetArch,
+    scalar: bool,
+    portable_vector128: bool,
+    portable_vector256_tiled: bool,
+    asm_x86: bool,
+    asm_arm: bool
+}
+
+export struct SimdCapabilities {
+    build: SimdBuildCapabilities,
+    cpu: SimdCpuCapabilities
+}
 
 export fn simd_level_default() SimdLevel {
     return SimdLevel.scalar;
@@ -50,4 +75,69 @@ export fn simd_level_is_portable_vector(level: SimdLevel) bool {
 
 export fn simd_level_is_asm(level: SimdLevel) bool {
     return level == SimdLevel.asm_x86 || level == SimdLevel.asm_arm;
+}
+
+export fn simd_detect_build_capabilities() SimdBuildCapabilities {
+    return SimdBuildCapabilities{
+        scalar: true,
+        portable_vector128: true,
+        portable_vector256_tiled: true,
+        asm_x86: false,
+        asm_arm: false
+    };
+}
+
+export fn simd_detect_cpu_capabilities() SimdCpuCapabilities {
+    const arch: TargetArch = std.target_arch;
+    return SimdCpuCapabilities{
+        target_arch: arch,
+        scalar: true,
+        portable_vector128: true,
+        portable_vector256_tiled: true,
+        asm_x86: arch == TargetArch.ta_x86_64,
+        asm_arm: arch == TargetArch.ta_arm || arch == TargetArch.ta_arm64
+    };
+}
+
+export fn simd_detect_capabilities() SimdCapabilities {
+    return SimdCapabilities{
+        build: simd_detect_build_capabilities(),
+        cpu: simd_detect_cpu_capabilities()
+    };
+}
+
+export fn simd_level_build_available(level: SimdLevel, build: &SimdBuildCapabilities) bool {
+    if level == SimdLevel.scalar {
+        return build.scalar;
+    }
+    if level == SimdLevel.vector128 {
+        return build.portable_vector128;
+    }
+    if level == SimdLevel.vector256_tiled {
+        return build.portable_vector256_tiled;
+    }
+    if level == SimdLevel.asm_x86 {
+        return build.asm_x86;
+    }
+    return build.asm_arm;
+}
+
+export fn simd_level_cpu_available(level: SimdLevel, cpu: &SimdCpuCapabilities) bool {
+    if level == SimdLevel.scalar {
+        return cpu.scalar;
+    }
+    if level == SimdLevel.vector128 {
+        return cpu.portable_vector128;
+    }
+    if level == SimdLevel.vector256_tiled {
+        return cpu.portable_vector256_tiled;
+    }
+    if level == SimdLevel.asm_x86 {
+        return cpu.asm_x86;
+    }
+    return cpu.asm_arm;
+}
+
+export fn simd_level_available(level: SimdLevel, capabilities: &SimdCapabilities) bool {
+    return simd_level_build_available(level, &capabilities.build) && simd_level_cpu_available(level, &capabilities.cpu);
 }

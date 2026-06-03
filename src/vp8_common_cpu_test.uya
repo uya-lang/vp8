@@ -1,10 +1,21 @@
 use libc.strcmp;
+use std;
+use std.platform.TargetArch;
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 
+use vp8.common.cpu.SimdBuildCapabilities;
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.SimdCpuCapabilities;
 use vp8.common.cpu.SimdLevel;
 use vp8.common.cpu.SIMD_LEVEL_COUNT;
+use vp8.common.cpu.simd_detect_build_capabilities;
+use vp8.common.cpu.simd_detect_capabilities;
+use vp8.common.cpu.simd_detect_cpu_capabilities;
 use vp8.common.cpu.simd_level_default;
+use vp8.common.cpu.simd_level_available;
+use vp8.common.cpu.simd_level_build_available;
+use vp8.common.cpu.simd_level_cpu_available;
 use vp8.common.cpu.simd_level_index;
 use vp8.common.cpu.simd_level_is_asm;
 use vp8.common.cpu.simd_level_is_portable_vector;
@@ -45,4 +56,54 @@ test "SimdLevel classifies scalar portable vectors and asm levels" {
     try expect(!simd_level_is_asm(SimdLevel.vector256_tiled));
     try expect(simd_level_is_asm(SimdLevel.asm_x86));
     try expect(simd_level_is_asm(SimdLevel.asm_arm));
+}
+
+test "SIMD build detection exposes portable vector support and disabled asm kernels" {
+    const build: SimdBuildCapabilities = simd_detect_build_capabilities();
+
+    try expect(build.scalar);
+    try expect(build.portable_vector128);
+    try expect(build.portable_vector256_tiled);
+    try expect(!build.asm_x86);
+    try expect(!build.asm_arm);
+
+    try expect(simd_level_build_available(SimdLevel.scalar, &build));
+    try expect(simd_level_build_available(SimdLevel.vector128, &build));
+    try expect(simd_level_build_available(SimdLevel.vector256_tiled, &build));
+    try expect(!simd_level_build_available(SimdLevel.asm_x86, &build));
+    try expect(!simd_level_build_available(SimdLevel.asm_arm, &build));
+}
+
+test "SIMD CPU detection reflects target architecture compatibility" {
+    const cpu: SimdCpuCapabilities = simd_detect_cpu_capabilities();
+
+    try expect(cpu.target_arch == std.target_arch);
+    try expect(cpu.scalar);
+    try expect(cpu.portable_vector128);
+    try expect(cpu.portable_vector256_tiled);
+
+    if std.target_arch == TargetArch.ta_x86_64 {
+        try expect(cpu.asm_x86);
+        try expect(!cpu.asm_arm);
+    } else if std.target_arch == TargetArch.ta_arm || std.target_arch == TargetArch.ta_arm64 {
+        try expect(!cpu.asm_x86);
+        try expect(cpu.asm_arm);
+    } else {
+        try expect(!cpu.asm_x86);
+        try expect(!cpu.asm_arm);
+    }
+
+    try expect(simd_level_cpu_available(SimdLevel.scalar, &cpu));
+    try expect(simd_level_cpu_available(SimdLevel.vector128, &cpu));
+    try expect(simd_level_cpu_available(SimdLevel.vector256_tiled, &cpu));
+}
+
+test "SIMD combined detection gates levels by build and CPU availability" {
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+
+    try expect(simd_level_available(SimdLevel.scalar, &capabilities));
+    try expect(simd_level_available(SimdLevel.vector128, &capabilities));
+    try expect(simd_level_available(SimdLevel.vector256_tiled, &capabilities));
+    try expect(!simd_level_available(SimdLevel.asm_x86, &capabilities));
+    try expect(!simd_level_available(SimdLevel.asm_arm, &capabilities));
 }
