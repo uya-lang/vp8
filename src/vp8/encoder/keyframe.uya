@@ -40,19 +40,32 @@ use vp8.encoder.context.validate_encoder_config;
 use vp8.encoder.context.validate_yuv_frame_view;
 use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
 use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
+use vp8.encoder.mode_search.Intra4x4ModeSearchResult;
+use vp8.encoder.mode_search.predict_intra4x4_mode;
+use vp8.encoder.mode_search.search_intra4x4_mode;
 use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
 use vp8.encoder.partition_output.write_encoder_bool_partition_output;
 use vp8.encoder.quant.EncoderCoefficientToken;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
 use vp8.encoder.quant.tokenize_quantized_block_4x4;
+use vp8.encoder.rd_cost.EncoderRdCostModel;
+use vp8.encoder.rd_cost.make_encoder_quantizer_rd_cost_model;
 use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
 use vp8.encoder.token_partition_packing.write_encoder_token_partition_count;
 use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.predict_uv8x8_dc;
-use vp8.kernels.scalar.predict_y4x4_dc;
 use vp8.mode.parse.VP8_B_MODE_DC;
+use vp8.mode.parse.VP8_B_MODE_HD;
+use vp8.mode.parse.VP8_B_MODE_HE;
+use vp8.mode.parse.VP8_B_MODE_HU;
+use vp8.mode.parse.VP8_B_MODE_LD;
+use vp8.mode.parse.VP8_B_MODE_RD;
+use vp8.mode.parse.VP8_B_MODE_TM;
+use vp8.mode.parse.VP8_B_MODE_VE;
+use vp8.mode.parse.VP8_B_MODE_VL;
+use vp8.mode.parse.VP8_B_MODE_VR;
 use vp8.mode.parse.VP8_UV_MODE_DC;
 use vp8.mode.parse.VP8_Y_MODE_B;
 use vp8.mode.parse.vp8_kf_bmode_prob;
@@ -221,26 +234,110 @@ fn encoder_keyframe_write_y_mode_b(writer: &BoolWriter) !void {
     try bool_writer_write(writer, 0 as u8, 145 as byte);
 }
 
-fn encoder_keyframe_write_b_mode_dc(writer: &BoolWriter, above: byte, left: byte) !void {
-    try bool_writer_write(writer, 0 as u8, try vp8_kf_bmode_prob(above, left, 0));
+fn encoder_keyframe_write_b_mode_bit(writer: &BoolWriter, above: byte, left: byte, tree_index: usize, bit: u8) !void {
+    try bool_writer_write(writer, bit, try vp8_kf_bmode_prob(above, left, tree_index));
+}
+
+fn encoder_keyframe_write_b_mode(writer: &BoolWriter, above: byte, left: byte, mode: byte) !void {
+    if mode == VP8_B_MODE_DC {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 0, 0 as u8);
+        return;
+    }
+    try encoder_keyframe_write_b_mode_bit(writer, above, left, 0, 1 as u8);
+    if mode == VP8_B_MODE_TM {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 1, 0 as u8);
+        return;
+    }
+    try encoder_keyframe_write_b_mode_bit(writer, above, left, 1, 1 as u8);
+    if mode == VP8_B_MODE_VE {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 2, 0 as u8);
+        return;
+    }
+    try encoder_keyframe_write_b_mode_bit(writer, above, left, 2, 1 as u8);
+    if mode == VP8_B_MODE_HE {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 3, 0 as u8);
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 4, 0 as u8);
+        return;
+    }
+    if mode == VP8_B_MODE_RD {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 3, 0 as u8);
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 4, 1 as u8);
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 5, 0 as u8);
+        return;
+    }
+    if mode == VP8_B_MODE_VR {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 3, 0 as u8);
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 4, 1 as u8);
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 5, 1 as u8);
+        return;
+    }
+    try encoder_keyframe_write_b_mode_bit(writer, above, left, 3, 1 as u8);
+    if mode == VP8_B_MODE_LD {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 6, 0 as u8);
+        return;
+    }
+    try encoder_keyframe_write_b_mode_bit(writer, above, left, 6, 1 as u8);
+    if mode == VP8_B_MODE_VL {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 7, 0 as u8);
+        return;
+    }
+    try encoder_keyframe_write_b_mode_bit(writer, above, left, 7, 1 as u8);
+    if mode == VP8_B_MODE_HD {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 8, 0 as u8);
+        return;
+    }
+    if mode == VP8_B_MODE_HU {
+        try encoder_keyframe_write_b_mode_bit(writer, above, left, 8, 1 as u8);
+        return;
+    }
+    return error.ErrEncoderKeyframeInvalidInput;
 }
 
 fn encoder_keyframe_write_uv_mode_dc(writer: &BoolWriter) !void {
     try bool_writer_write(writer, 0 as u8, 142 as byte);
 }
 
-fn encoder_keyframe_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid) !void {
-    var above_b: [byte: 4] = [ VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_DC ];
-    var left_b: [byte: 4] = [ VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_DC ];
-    _ = above_b;
+fn encoder_keyframe_b_mode_index(grid: &MacroblockGrid, mb_x: usize, mb_y: usize, block_x: usize, block_y: usize) !usize {
+    if grid == null || mb_x >= grid.mb_cols || mb_y >= grid.mb_rows || block_x >= 4 || block_y >= 4 {
+        return error.ErrEncoderKeyframeOutOfBounds;
+    }
+    return ((((mb_y * grid.mb_cols) + mb_x) * (16 as usize)) + (block_y * (4 as usize)) + block_x);
+}
+
+fn encoder_keyframe_b_mode_at(modes: &byte, grid: &MacroblockGrid, mb_x: usize, mb_y: usize, block_x: usize, block_y: usize) !byte {
+    if modes == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
+    return modes[try encoder_keyframe_b_mode_index(grid, mb_x, mb_y, block_x, block_y)];
+}
+
+fn encoder_keyframe_above_b_mode(modes: &byte, grid: &MacroblockGrid, mb_x: usize, mb_y: usize, block_x: usize, block_y: usize) !byte {
+    if block_y > 0 {
+        return try encoder_keyframe_b_mode_at(modes, grid, mb_x, mb_y, block_x, block_y - 1);
+    }
+    if mb_y > 0 {
+        return try encoder_keyframe_b_mode_at(modes, grid, mb_x, mb_y - 1, block_x, 3);
+    }
+    return VP8_B_MODE_DC;
+}
+
+fn encoder_keyframe_left_b_mode(modes: &byte, grid: &MacroblockGrid, mb_x: usize, mb_y: usize, block_x: usize, block_y: usize) !byte {
+    if block_x > 0 {
+        return try encoder_keyframe_b_mode_at(modes, grid, mb_x, mb_y, block_x - 1, block_y);
+    }
+    if mb_x > 0 {
+        return try encoder_keyframe_b_mode_at(modes, grid, mb_x - 1, mb_y, 3, block_y);
+    }
+    return VP8_B_MODE_DC;
+}
+
+fn encoder_keyframe_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid, y4x4_modes: &byte) !void {
+    if y4x4_modes == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
 
     var mb_y: usize = 0;
     while mb_y < grid.mb_rows {
-        left_b[0] = VP8_B_MODE_DC;
-        left_b[1] = VP8_B_MODE_DC;
-        left_b[2] = VP8_B_MODE_DC;
-        left_b[3] = VP8_B_MODE_DC;
-
         var mb_x: usize = 0;
         while mb_x < grid.mb_cols {
             try encoder_keyframe_write_y_mode_b(writer);
@@ -249,16 +346,10 @@ fn encoder_keyframe_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid) !
             while block_y < 4 {
                 var block_x: usize = 0;
                 while block_x < 4 {
-                    var above: byte = VP8_B_MODE_DC;
-                    var left: byte = VP8_B_MODE_DC;
-                    if block_y == 0 {
-                        above = VP8_B_MODE_DC;
-                    }
-                    if block_x == 0 {
-                        left = left_b[block_y];
-                    }
-                    try encoder_keyframe_write_b_mode_dc(writer, above, left);
-                    left_b[block_y] = VP8_B_MODE_DC;
+                    const above: byte = try encoder_keyframe_above_b_mode(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
+                    const left: byte = try encoder_keyframe_left_b_mode(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
+                    const mode: byte = try encoder_keyframe_b_mode_at(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
+                    try encoder_keyframe_write_b_mode(writer, above, left, mode);
                     block_x = block_x + 1;
                 }
                 block_y = block_y + 1;
@@ -292,19 +383,44 @@ fn encoder_keyframe_load_left_edge(src: &byte, stride: usize, height: usize, out
     }
 }
 
-fn encoder_keyframe_predict_y4x4_dc_recon(frame: &FrameBuffer, x: usize, y: usize) void {
+fn encoder_keyframe_load_above_edge(src: &byte, width: usize, out: &byte) void {
+    var col: usize = 0;
+    while col < width {
+        out[col] = src[col];
+        col = col + 1;
+    }
+}
+
+fn encoder_keyframe_load_y4x4_source(src: &YuvPlaneView, x: usize, y: usize, out: &byte) void {
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            out[(row * 4) + col] = encoder_keyframe_sample_plane_clamped(src, x + col, y + row);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn encoder_keyframe_predict_y4x4_recon(plane: &Plane, x: usize, y: usize, mode: byte) !void {
+    var above: [byte: 8] = [];
     var left: [byte: 4] = [];
-    const offset: usize = (y * frame.y.plane.stride) + x;
+    const offset: usize = (y * plane.stride) + x;
     const has_left: bool = x != 0;
     const has_above: bool = y != 0;
-    var above: &byte = null as &byte;
+    var above_left: byte = 128 as byte;
     if has_above {
-        above = &frame.y.plane.origin[offset - frame.y.plane.stride] as &byte;
+        const above_offset: usize = offset - plane.stride;
+        encoder_keyframe_load_above_edge(&plane.origin[above_offset] as &byte, 8, &above[0] as &byte);
+        if has_left {
+            above_left = plane.origin[above_offset - 1];
+        }
     }
     if has_left {
-        encoder_keyframe_load_left_edge(&frame.y.plane.origin[offset - 1] as &byte, frame.y.plane.stride, 4, &left[0] as &byte);
+        encoder_keyframe_load_left_edge(&plane.origin[offset - 1] as &byte, plane.stride, 4, &left[0] as &byte);
     }
-    predict_y4x4_dc(&frame.y.plane.origin[offset] as &byte, frame.y.plane.stride, above, has_above, &left[0] as &byte, has_left);
+    try predict_intra4x4_mode(&plane.origin[offset] as &byte, plane.stride, &above[0] as &byte, has_above, &left[0] as &byte, has_left, above_left, mode);
 }
 
 fn encoder_keyframe_predict_uv8x8_dc_recon(plane: &Plane, mb_x: usize, mb_y: usize) void {
@@ -527,13 +643,104 @@ fn encoder_keyframe_encode_one_4x4_block(
     return summary;
 }
 
+fn encoder_keyframe_reconstruct_one_4x4_block(
+    src: &YuvPlaneView,
+    recon_plane: &Plane,
+    x: usize,
+    y: usize,
+    dc_factor: i16,
+    ac_factor: i16
+) !void {
+    var residual: [i16: 16] = [];
+    var dct: [i16: 16] = [];
+    var qcoeff: [i16: 16] = [];
+    var dqcoeff: [i16: 16] = [];
+
+    encoder_keyframe_build_residual_4x4(src, recon_plane, x, y, &residual[0] as &i16);
+    forward_dct_4x4(&residual[0] as &i16, 4, &dct[0] as &i16);
+    const summary: CoefficientBlockSummary = try quantize_block_4x4(&dct[0] as &i16, dc_factor, ac_factor, &qcoeff[0] as &i16, &dqcoeff[0] as &i16);
+    try reconstruct_quantized_block_4x4(&qcoeff[0] as &i16, dc_factor, ac_factor, &recon_plane.origin[(y * recon_plane.stride) + x] as &byte, recon_plane.stride, summary.dc_only);
+}
+
+fn encoder_keyframe_select_y4x4_modes(
+    grid: &MacroblockGrid,
+    frame: &YuvFrameView,
+    recon: &FrameBuffer,
+    factors: &DequantFactors,
+    y4x4_modes: &byte,
+    lambda_q8: u32
+) !void {
+    if y4x4_modes == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
+
+    var mb_y: usize = 0;
+    while mb_y < grid.mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < grid.mb_cols {
+            var block_y: usize = 0;
+            while block_y < 4 {
+                var block_x: usize = 0;
+                while block_x < 4 {
+                    var src_block: [byte: 16] = [];
+                    var above: [byte: 8] = [];
+                    var left: [byte: 4] = [];
+                    const x: usize = (mb_x * 16) + (block_x * 4);
+                    const y: usize = (mb_y * 16) + (block_y * 4);
+                    const offset: usize = (y * recon.y.plane.stride) + x;
+                    const has_above: bool = y != 0;
+                    const has_left: bool = x != 0;
+                    var above_left: byte = 128 as byte;
+
+                    encoder_keyframe_load_y4x4_source(&frame.y, x, y, &src_block[0] as &byte);
+                    if has_above {
+                        const above_offset: usize = offset - recon.y.plane.stride;
+                        encoder_keyframe_load_above_edge(&recon.y.plane.origin[above_offset] as &byte, 8, &above[0] as &byte);
+                        if has_left {
+                            above_left = recon.y.plane.origin[above_offset - 1];
+                        }
+                    }
+                    if has_left {
+                        encoder_keyframe_load_left_edge(&recon.y.plane.origin[offset - 1] as &byte, recon.y.plane.stride, 4, &left[0] as &byte);
+                    }
+
+                    const above_mode: byte = try encoder_keyframe_above_b_mode(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
+                    const left_mode: byte = try encoder_keyframe_left_b_mode(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
+                    const result: Intra4x4ModeSearchResult = try search_intra4x4_mode(
+                        &src_block[0] as &byte,
+                        4,
+                        &above[0] as &byte,
+                        has_above,
+                        &left[0] as &byte,
+                        has_left,
+                        above_left,
+                        above_mode,
+                        left_mode,
+                        lambda_q8
+                    );
+                    y4x4_modes[try encoder_keyframe_b_mode_index(grid, mb_x, mb_y, block_x, block_y)] = result.mode;
+                    try encoder_keyframe_predict_y4x4_recon(&recon.y.plane, x, y, result.mode);
+                    try encoder_keyframe_reconstruct_one_4x4_block(&frame.y, &recon.y.plane, x, y, factors.y1_dc, factors.y1_ac);
+
+                    block_x = block_x + 1;
+                }
+                block_y = block_y + 1;
+            }
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
 fn encoder_keyframe_encode_y_blocks(
     writer: &BoolWriter,
     probs: &Vp8Probs,
+    grid: &MacroblockGrid,
     coeff_ctx: &AboveLeftCoeffContext,
     frame: &YuvFrameView,
     recon: &FrameBuffer,
     factors: &DequantFactors,
+    y4x4_modes: &byte,
     mb_x: usize,
     mb_y: usize
 ) !void {
@@ -543,7 +750,8 @@ fn encoder_keyframe_encode_y_blocks(
         while block_x < 4 {
             const x: usize = (mb_x * 16) + (block_x * 4);
             const y: usize = (mb_y * 16) + (block_y * 4);
-            encoder_keyframe_predict_y4x4_dc_recon(recon, x, y);
+            const mode: byte = try encoder_keyframe_b_mode_at(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
+            try encoder_keyframe_predict_y4x4_recon(&recon.y.plane, x, y, mode);
             const context: CoeffContextPair = try coeff_context_get_y(coeff_ctx, mb_x, block_x, block_y);
             const summary: CoefficientBlockSummary = try encoder_keyframe_encode_one_4x4_block(
                 writer,
@@ -614,7 +822,7 @@ fn encoder_keyframe_encode_uv_plane_blocks(
     }
 }
 
-fn encoder_keyframe_encode_tokens(writer: &BoolWriter, grid: &MacroblockGrid, frame: &YuvFrameView, recon: &FrameBuffer, quant: &Vp8QuantHeader) !void {
+fn encoder_keyframe_encode_tokens(writer: &BoolWriter, grid: &MacroblockGrid, frame: &YuvFrameView, recon: &FrameBuffer, quant: &Vp8QuantHeader, y4x4_modes: &byte) !void {
     const probs: Vp8Probs = vp8_default_probs();
     const factors: DequantFactors = build_dequant_factors(quant);
     var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(grid);
@@ -625,7 +833,7 @@ fn encoder_keyframe_encode_tokens(writer: &BoolWriter, grid: &MacroblockGrid, fr
         try coeff_context_start_row(&coeff_ctx);
         var mb_x: usize = 0;
         while mb_x < grid.mb_cols {
-            try encoder_keyframe_encode_y_blocks(writer, &probs, &coeff_ctx, frame, recon, &factors, mb_x, mb_y);
+            try encoder_keyframe_encode_y_blocks(writer, &probs, grid, &coeff_ctx, frame, recon, &factors, y4x4_modes, mb_x, mb_y);
             try encoder_keyframe_encode_uv_plane_blocks(writer, &probs, &coeff_ctx, &frame.u, &recon.u.plane, &factors, mb_x, mb_y, false);
             try encoder_keyframe_encode_uv_plane_blocks(writer, &probs, &coeff_ctx, &frame.v, &recon.v.plane, &factors, mb_x, mb_y, true);
             mb_x = mb_x + 1;
@@ -660,12 +868,25 @@ export fn encode_keyframe_ivf(config: &EncoderConfig, frame: &YuvFrameView, out:
     token_writers[0] = make_bool_writer(token_buf, token_capacity);
 
     const quant: Vp8QuantHeader = encoder_keyframe_make_quant(config);
+    const factors: DequantFactors = build_dequant_factors(&quant);
+    const rd_model: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(config.quantizer);
+    const y4x4_mode_count: usize = try encoder_keyframe_checked_mul(grid.mb_count, 16);
+    const y4x4_modes: &byte = malloc(y4x4_mode_count) as &byte;
+    if y4x4_modes == null {
+        return error.ErrEncoderKeyframeOutOfMemory;
+    }
+    defer free(y4x4_modes as &void);
+
+    var mode_recon: FrameBuffer = try allocate_frame_buffer(config.width, config.height, ENCODER_KEYFRAME_BORDER, ENCODER_KEYFRAME_ALIGNMENT);
+    defer free_frame_buffer(&mode_recon);
+    try encoder_keyframe_select_y4x4_modes(&grid, frame, &mode_recon, &factors, y4x4_modes, rd_model.lambda_q8);
+
     var recon: FrameBuffer = try allocate_frame_buffer(config.width, config.height, ENCODER_KEYFRAME_BORDER, ENCODER_KEYFRAME_ALIGNMENT);
     defer free_frame_buffer(&recon);
 
     try encoder_keyframe_write_fixed_header_bits(&first_writer, config);
-    try encoder_keyframe_write_mode_map(&first_writer, &grid);
-    try encoder_keyframe_encode_tokens(&token_writers[0] as &BoolWriter, &grid, frame, &recon, &quant);
+    try encoder_keyframe_write_mode_map(&first_writer, &grid, y4x4_modes);
+    try encoder_keyframe_encode_tokens(&token_writers[0] as &BoolWriter, &grid, frame, &recon, &quant, y4x4_modes);
 
     const ivf_header: IvfHeader = IvfHeader{
         version: 0,

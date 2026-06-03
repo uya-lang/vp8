@@ -1,9 +1,16 @@
 use std.testing.assert_eq_i32;
 
+use vp8.encoder.mode_search.Intra4x4ModeSearchResult;
 use vp8.encoder.mode_search.Intra16x16ModeSearchResult;
 use vp8.encoder.mode_search.UvModeSearchResult;
+use vp8.encoder.mode_search.keyframe_b_mode_cost_q8;
+use vp8.encoder.mode_search.predict_intra4x4_mode;
+use vp8.encoder.mode_search.search_intra4x4_mode;
 use vp8.encoder.mode_search.search_intra16x16_mode;
 use vp8.encoder.mode_search.search_uv_mode;
+use vp8.mode.parse.VP8_B_MODE_DC;
+use vp8.mode.parse.VP8_B_MODE_HU;
+use vp8.mode.parse.VP8_B_MODE_VE;
 use vp8.mode.parse.VP8_UV_MODE_DC;
 use vp8.mode.parse.VP8_UV_MODE_H;
 use vp8.mode.parse.VP8_UV_MODE_TM;
@@ -12,6 +19,15 @@ use vp8.mode.parse.VP8_Y_MODE_DC;
 use vp8.mode.parse.VP8_Y_MODE_H;
 use vp8.mode.parse.VP8_Y_MODE_TM;
 use vp8.mode.parse.VP8_Y_MODE_V;
+
+fn dummy_intra4x4_result() Intra4x4ModeSearchResult {
+    return Intra4x4ModeSearchResult{
+        mode: 255 as byte,
+        distortion: 4294967295 as u32,
+        rate_cost_q8: 4294967295 as u32,
+        rd_score_q8: 4294967295 as u32
+    };
+}
 
 fn dummy_intra16x16_result() Intra16x16ModeSearchResult {
     return Intra16x16ModeSearchResult{
@@ -25,6 +41,84 @@ fn dummy_uv_result() UvModeSearchResult {
         mode: 255 as byte,
         distortion: 4294967295 as u32
     };
+}
+
+test "intra4x4 mode search chooses vertical edge with RD score" {
+    var src: [byte: 16] = [];
+    var above: [byte: 8] = [ 50, 63, 79, 96, 111, 124, 142, 159 ];
+    var left: [byte: 4] = [ 210, 180, 150, 120 ];
+    const above_left: byte = 41 as byte;
+
+    try predict_intra4x4_mode(&src[0] as &byte, 4, &above[0] as &byte, true, &left[0] as &byte, true, above_left, VP8_B_MODE_VE);
+
+    const result: Intra4x4ModeSearchResult = try search_intra4x4_mode(
+        &src[0] as &byte,
+        4,
+        &above[0] as &byte,
+        true,
+        &left[0] as &byte,
+        true,
+        above_left,
+        VP8_B_MODE_DC,
+        VP8_B_MODE_DC,
+        256 as u32
+    );
+
+    try assert_eq_i32(result.mode as i32, VP8_B_MODE_VE as i32);
+    try assert_eq_i32(result.distortion as i32, 0);
+    try assert_eq_i32(result.rate_cost_q8 as i32, (try keyframe_b_mode_cost_q8(VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_VE)) as i32);
+    try assert_eq_i32(result.rd_score_q8 as i32, result.rate_cost_q8 as i32);
+}
+
+test "intra4x4 mode search can refine top-edge blocks from left samples" {
+    var src: [byte: 16] = [];
+    var left: [byte: 4] = [ 22, 91, 147, 219 ];
+
+    try predict_intra4x4_mode(&src[0] as &byte, 4, null as &byte, false, &left[0] as &byte, true, 128 as byte, VP8_B_MODE_HU);
+
+    const result: Intra4x4ModeSearchResult = try search_intra4x4_mode(
+        &src[0] as &byte,
+        4,
+        null as &byte,
+        false,
+        &left[0] as &byte,
+        true,
+        128 as byte,
+        VP8_B_MODE_DC,
+        VP8_B_MODE_DC,
+        256 as u32
+    );
+
+    try assert_eq_i32(result.mode as i32, VP8_B_MODE_HU as i32);
+    try assert_eq_i32(result.distortion as i32, 0);
+    try assert_eq_i32((try keyframe_b_mode_cost_q8(VP8_B_MODE_DC, VP8_B_MODE_DC, VP8_B_MODE_DC)) < result.rate_cost_q8, true as i32);
+}
+
+test "intra4x4 mode search rejects invalid geometry" {
+    var src: [byte: 16] = [];
+    var above: [byte: 8] = [];
+    var left: [byte: 4] = [];
+    var failed: i32 = 0;
+
+    _ = search_intra4x4_mode(null as &byte, 4, &above[0] as &byte, true, &left[0] as &byte, true, 128 as byte, VP8_B_MODE_DC, VP8_B_MODE_DC, 256 as u32) catch {
+        failed = 1;
+        dummy_intra4x4_result();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = search_intra4x4_mode(&src[0] as &byte, 3, &above[0] as &byte, true, &left[0] as &byte, true, 128 as byte, VP8_B_MODE_DC, VP8_B_MODE_DC, 256 as u32) catch {
+        failed = 1;
+        dummy_intra4x4_result();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = search_intra4x4_mode(&src[0] as &byte, 4, null as &byte, true, &left[0] as &byte, true, 128 as byte, VP8_B_MODE_DC, VP8_B_MODE_DC, 256 as u32) catch {
+        failed = 1;
+        dummy_intra4x4_result();
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "intra16x16 mode search chooses vertical prediction" {

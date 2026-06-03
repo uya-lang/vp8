@@ -1,4 +1,26 @@
+use vp8.encoder.mv_cost.prob_bit_cost_q8;
+use vp8.encoder.rd_cost.encoder_rd_score_q8;
 use vp8.kernels.scalar.clip_i32_to_u8;
+use vp8.kernels.scalar.predict_y4x4_dc;
+use vp8.kernels.scalar.predict_y4x4_down_left;
+use vp8.kernels.scalar.predict_y4x4_down_right;
+use vp8.kernels.scalar.predict_y4x4_horizontal_down;
+use vp8.kernels.scalar.predict_y4x4_horizontal_edge;
+use vp8.kernels.scalar.predict_y4x4_horizontal_up;
+use vp8.kernels.scalar.predict_y4x4_true_motion;
+use vp8.kernels.scalar.predict_y4x4_vertical_edge;
+use vp8.kernels.scalar.predict_y4x4_vertical_left;
+use vp8.kernels.scalar.predict_y4x4_vertical_right;
+use vp8.mode.parse.VP8_B_MODE_DC;
+use vp8.mode.parse.VP8_B_MODE_HD;
+use vp8.mode.parse.VP8_B_MODE_HE;
+use vp8.mode.parse.VP8_B_MODE_HU;
+use vp8.mode.parse.VP8_B_MODE_LD;
+use vp8.mode.parse.VP8_B_MODE_RD;
+use vp8.mode.parse.VP8_B_MODE_TM;
+use vp8.mode.parse.VP8_B_MODE_VE;
+use vp8.mode.parse.VP8_B_MODE_VL;
+use vp8.mode.parse.VP8_B_MODE_VR;
 use vp8.mode.parse.VP8_UV_MODE_DC;
 use vp8.mode.parse.VP8_UV_MODE_H;
 use vp8.mode.parse.VP8_UV_MODE_TM;
@@ -7,11 +29,21 @@ use vp8.mode.parse.VP8_Y_MODE_DC;
 use vp8.mode.parse.VP8_Y_MODE_H;
 use vp8.mode.parse.VP8_Y_MODE_TM;
 use vp8.mode.parse.VP8_Y_MODE_V;
+use vp8.mode.parse.vp8_kf_bmode_prob;
 
+error ErrIntra4x4ModeSearchInvalidGeometry;
+error ErrIntra4x4ModeSearchInvalidMode;
 error ErrIntra16x16ModeSearchInvalidGeometry;
 error ErrIntra16x16ModeSearchInvalidMode;
 error ErrUvModeSearchInvalidGeometry;
 error ErrUvModeSearchInvalidMode;
+
+export struct Intra4x4ModeSearchResult {
+    mode: byte,
+    distortion: u32,
+    rate_cost_q8: u32,
+    rd_score_q8: u32
+}
 
 export struct Intra16x16ModeSearchResult {
     mode: byte,
@@ -44,6 +76,263 @@ fn abs_diff_u8(actual: byte, predicted: byte) u32 {
         return (0 - diff) as u32;
     }
     return diff as u32;
+}
+
+fn validate_intra4x4_edges(above: &byte, has_above: bool, left: &byte, has_left: bool) !void {
+    if has_above && above == null {
+        return error.ErrIntra4x4ModeSearchInvalidGeometry;
+    }
+    if has_left && left == null {
+        return error.ErrIntra4x4ModeSearchInvalidGeometry;
+    }
+}
+
+fn validate_intra4x4_predict_input(dst: &byte, dst_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) !void {
+    if dst == null || dst_stride < 4 {
+        return error.ErrIntra4x4ModeSearchInvalidGeometry;
+    }
+    try validate_intra4x4_edges(above, has_above, left, has_left);
+}
+
+fn validate_intra4x4_search_input(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool) !void {
+    if src == null || src_stride < 4 {
+        return error.ErrIntra4x4ModeSearchInvalidGeometry;
+    }
+    try validate_intra4x4_edges(above, has_above, left, has_left);
+}
+
+export fn predict_intra4x4_mode(
+    dst: &byte,
+    dst_stride: usize,
+    above: &byte,
+    has_above: bool,
+    left: &byte,
+    has_left: bool,
+    above_left: byte,
+    mode: byte
+) !void {
+    try validate_intra4x4_predict_input(dst, dst_stride, above, has_above, left, has_left);
+
+    if mode == VP8_B_MODE_DC {
+        predict_y4x4_dc(dst, dst_stride, above, has_above, left, has_left);
+        return;
+    }
+    if mode == VP8_B_MODE_TM && has_above && has_left {
+        predict_y4x4_true_motion(dst, dst_stride, above, left, above_left);
+        return;
+    }
+    if mode == VP8_B_MODE_VE && has_above {
+        predict_y4x4_vertical_edge(dst, dst_stride, above, above_left);
+        return;
+    }
+    if mode == VP8_B_MODE_HE && has_left {
+        predict_y4x4_horizontal_edge(dst, dst_stride, left, above_left);
+        return;
+    }
+    if mode == VP8_B_MODE_LD && has_above {
+        predict_y4x4_down_left(dst, dst_stride, above);
+        return;
+    }
+    if mode == VP8_B_MODE_RD && has_above && has_left {
+        predict_y4x4_down_right(dst, dst_stride, above, left, above_left);
+        return;
+    }
+    if mode == VP8_B_MODE_VR && has_above && has_left {
+        predict_y4x4_vertical_right(dst, dst_stride, above, left, above_left);
+        return;
+    }
+    if mode == VP8_B_MODE_VL && has_above {
+        predict_y4x4_vertical_left(dst, dst_stride, above);
+        return;
+    }
+    if mode == VP8_B_MODE_HD && has_above && has_left {
+        predict_y4x4_horizontal_down(dst, dst_stride, above, left, above_left);
+        return;
+    }
+    if mode == VP8_B_MODE_HU && has_left {
+        predict_y4x4_horizontal_up(dst, dst_stride, left);
+        return;
+    }
+
+    return error.ErrIntra4x4ModeSearchInvalidMode;
+}
+
+fn b_mode_branch_cost_q8(above_mode: byte, left_mode: byte, tree_index: usize, bit: u8) !u32 {
+    return try prob_bit_cost_q8(try vp8_kf_bmode_prob(above_mode, left_mode, tree_index), bit);
+}
+
+export fn keyframe_b_mode_cost_q8(above_mode: byte, left_mode: byte, mode: byte) !u32 {
+    if mode == VP8_B_MODE_DC {
+        return try b_mode_branch_cost_q8(above_mode, left_mode, 0, 0 as u8);
+    }
+    if mode == VP8_B_MODE_TM {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 0 as u8));
+    }
+    if mode == VP8_B_MODE_VE {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 0 as u8));
+    }
+    if mode == VP8_B_MODE_HE {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 0 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 4, 0 as u8));
+    }
+    if mode == VP8_B_MODE_RD {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 0 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 4, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 5, 0 as u8));
+    }
+    if mode == VP8_B_MODE_VR {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 0 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 4, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 5, 1 as u8));
+    }
+    if mode == VP8_B_MODE_LD {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 6, 0 as u8));
+    }
+    if mode == VP8_B_MODE_VL {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 6, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 7, 0 as u8));
+    }
+    if mode == VP8_B_MODE_HD {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 6, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 7, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 8, 0 as u8));
+    }
+    if mode == VP8_B_MODE_HU {
+        return (try b_mode_branch_cost_q8(above_mode, left_mode, 0, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 1, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 2, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 3, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 6, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 7, 1 as u8)) +
+            (try b_mode_branch_cost_q8(above_mode, left_mode, 8, 1 as u8));
+    }
+    return error.ErrIntra4x4ModeSearchInvalidMode;
+}
+
+export fn intra4x4_mode_sad(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    try validate_intra4x4_search_input(src, src_stride, above, has_above, left, has_left);
+
+    var predicted: [byte: 16] = [];
+    try predict_intra4x4_mode(&predicted[0] as &byte, 4, above, has_above, left, has_left, above_left, mode);
+
+    var cost: u32 = 0;
+    var row: usize = 0;
+    while row < 4 {
+        const src_base: usize = row * src_stride;
+        const predicted_base: usize = row * 4;
+        var col: usize = 0;
+        while col < 4 {
+            cost = cost + abs_diff_u8(src[src_base + col], predicted[predicted_base + col]);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return cost;
+}
+
+fn update_best_intra4x4_mode(best: &Intra4x4ModeSearchResult, mode: byte, distortion: u32, rate_cost_q8: u32, lambda_q8: u32) !void {
+    const rd_score: u32 = try encoder_rd_score_q8(distortion, rate_cost_q8, lambda_q8);
+    if rd_score < best.rd_score_q8 {
+        best.mode = mode;
+        best.distortion = distortion;
+        best.rate_cost_q8 = rate_cost_q8;
+        best.rd_score_q8 = rd_score;
+    }
+}
+
+fn consider_intra4x4_mode(
+    best: &Intra4x4ModeSearchResult,
+    src: &byte,
+    src_stride: usize,
+    above: &byte,
+    has_above: bool,
+    left: &byte,
+    has_left: bool,
+    above_left: byte,
+    above_mode: byte,
+    left_mode: byte,
+    lambda_q8: u32,
+    mode: byte
+) !void {
+    const distortion: u32 = try intra4x4_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, mode);
+    const rate_cost_q8: u32 = try keyframe_b_mode_cost_q8(above_mode, left_mode, mode);
+    try update_best_intra4x4_mode(best, mode, distortion, rate_cost_q8, lambda_q8);
+}
+
+export fn search_intra4x4_mode(
+    src: &byte,
+    src_stride: usize,
+    above: &byte,
+    has_above: bool,
+    left: &byte,
+    has_left: bool,
+    above_left: byte,
+    above_mode: byte,
+    left_mode: byte,
+    lambda_q8: u32
+) !Intra4x4ModeSearchResult {
+    try validate_intra4x4_search_input(src, src_stride, above, has_above, left, has_left);
+
+    const dc_distortion: u32 = try intra4x4_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_B_MODE_DC);
+    const dc_rate_cost_q8: u32 = try keyframe_b_mode_cost_q8(above_mode, left_mode, VP8_B_MODE_DC);
+    var best: Intra4x4ModeSearchResult = Intra4x4ModeSearchResult{
+        mode: VP8_B_MODE_DC,
+        distortion: dc_distortion,
+        rate_cost_q8: dc_rate_cost_q8,
+        rd_score_q8: try encoder_rd_score_q8(dc_distortion, dc_rate_cost_q8, lambda_q8)
+    };
+
+    if has_above && has_left {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_TM);
+    }
+    if has_above {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VE);
+    }
+    if has_left {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HE);
+    }
+    if has_above {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_LD);
+    }
+    if has_above && has_left {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_RD);
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VR);
+    }
+    if has_above {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VL);
+    }
+    if has_above && has_left {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HD);
+    }
+    if has_left {
+        try consider_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HU);
+    }
+
+    return best;
 }
 
 fn intra16x16_dc_value(above: &byte, has_above: bool, left: &byte, has_left: bool) byte {

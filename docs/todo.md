@@ -336,7 +336,7 @@
 - [x] quantizer delta 调整。
 - [x] loop filter level 自动选择。
 - [x] RD cost model。
-- [ ] 4x4 intra RD refine。
+- [x] 4x4 intra RD refine。
 - [ ] inter mode RD refine。
 - [ ] token probability stats。
 - [ ] probability update decision。
