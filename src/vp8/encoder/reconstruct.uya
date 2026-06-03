@@ -1,0 +1,78 @@
+use vp8.kernels.scalar.add_residual_4x4_clamped;
+use vp8.kernels.scalar.dequant_block_4x4;
+use vp8.kernels.scalar.inverse_transform_4x4;
+use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
+
+error ErrEncoderReconstructInvalidInput;
+error ErrEncoderReconstructInvalidGeometry;
+error ErrEncoderReconstructInvalidFactor;
+
+fn validate_reconstruct_block_input(qcoeff: &i16, dst: &byte, dst_stride: usize) !void {
+    if qcoeff == null || dst == null {
+        return error.ErrEncoderReconstructInvalidInput;
+    }
+    if dst_stride < 4 {
+        return error.ErrEncoderReconstructInvalidGeometry;
+    }
+}
+
+fn validate_positive_factor(factor: i16) !void {
+    if factor <= (0 as i16) {
+        return error.ErrEncoderReconstructInvalidFactor;
+    }
+}
+
+export fn reconstruct_quantized_block_4x4(
+    qcoeff: &i16,
+    dc_factor: i16,
+    ac_factor: i16,
+    dst: &byte,
+    dst_stride: usize,
+    dc_only: bool
+) !void {
+    try validate_reconstruct_block_input(qcoeff, dst, dst_stride);
+    try validate_positive_factor(dc_factor);
+    try validate_positive_factor(ac_factor);
+
+    var dequantized: [i16: 16] = [];
+    var residual: [i16: 16] = [];
+
+    dequant_block_4x4(qcoeff, dc_factor, ac_factor, &dequantized[0] as &i16);
+    if dc_only {
+        inverse_transform_dc_only_4x4(dequantized[0], &residual[0] as &i16);
+    } else {
+        inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
+    }
+
+    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+}
+
+export fn reconstruct_y_block_with_y2_dc(
+    qcoeff: &i16,
+    y2_dc: i16,
+    ac_factor: i16,
+    dst: &byte,
+    dst_stride: usize,
+    has_ac: bool
+) !void {
+    try validate_reconstruct_block_input(qcoeff, dst, dst_stride);
+    try validate_positive_factor(ac_factor);
+
+    var dequantized: [i16: 16] = [];
+    var residual: [i16: 16] = [];
+
+    dequantized[0] = y2_dc;
+    var index: usize = 1;
+    while index < 16 {
+        dequantized[index] = ((qcoeff[index] as i32) * (ac_factor as i32)) as i16;
+        index = index + 1;
+    }
+
+    if has_ac {
+        inverse_transform_4x4(&dequantized[0] as &i16, &residual[0] as &i16);
+    } else {
+        inverse_transform_dc_only_4x4(dequantized[0], &residual[0] as &i16);
+    }
+
+    add_residual_4x4_clamped(dst, dst_stride, &residual[0] as &i16);
+}

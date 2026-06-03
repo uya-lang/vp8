@@ -294,7 +294,7 @@
 - [x] 实现 quantize。
 - [x] 实现 coefficient tokenize。
 - [x] 实现 bool writer partition output。
-- [ ] 实现本地 reconstruct。
+- [x] 实现本地 reconstruct。
 - [ ] 实现 key frame loop filter。
 - [ ] 实现 `encode <input.yuv> --width --height --out out.ivf`。
 
