@@ -1,0 +1,89 @@
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_write;
+
+error ErrEncoderTokenPartitionPackingInvalidInput;
+error ErrEncoderTokenPartitionPackingInvalidCount;
+error ErrEncoderTokenPartitionPackingRowOutOfBounds;
+
+export struct EncoderTokenPartitionPackingPlan {
+    mb_rows: usize,
+    token_partition_count: u8,
+    active_partition_count: u8
+}
+
+fn validate_encoder_token_partition_count(token_partition_count: u8) !void {
+    if token_partition_count == (1 as u8) ||
+        token_partition_count == (2 as u8) ||
+        token_partition_count == (4 as u8) ||
+        token_partition_count == (8 as u8) {
+        return;
+    }
+
+    return error.ErrEncoderTokenPartitionPackingInvalidCount;
+}
+
+export fn encoder_token_partition_count_code(token_partition_count: u8) !u8 {
+    if token_partition_count == (1 as u8) {
+        return 0 as u8;
+    }
+    if token_partition_count == (2 as u8) {
+        return 1 as u8;
+    }
+    if token_partition_count == (4 as u8) {
+        return 2 as u8;
+    }
+    if token_partition_count == (8 as u8) {
+        return 3 as u8;
+    }
+    return error.ErrEncoderTokenPartitionPackingInvalidCount;
+}
+
+export fn write_encoder_token_partition_count(writer: &BoolWriter, token_partition_count: u8) !void {
+    if writer == null {
+        return error.ErrEncoderTokenPartitionPackingInvalidInput;
+    }
+
+    const code: u8 = try encoder_token_partition_count_code(token_partition_count);
+    try bool_writer_write(writer, ((code >> 1) & (1 as u8)) as u8, 128 as byte);
+    try bool_writer_write(writer, (code & (1 as u8)) as u8, 128 as byte);
+}
+
+export fn make_encoder_token_partition_packing_plan(mb_rows: usize, token_partition_count: u8) !EncoderTokenPartitionPackingPlan {
+    if mb_rows == 0 {
+        return error.ErrEncoderTokenPartitionPackingInvalidInput;
+    }
+    try validate_encoder_token_partition_count(token_partition_count);
+
+    var active_partition_count: u8 = token_partition_count;
+    if mb_rows < (token_partition_count as usize) {
+        active_partition_count = mb_rows as u8;
+    }
+
+    return EncoderTokenPartitionPackingPlan{
+        mb_rows: mb_rows,
+        token_partition_count: token_partition_count,
+        active_partition_count: active_partition_count
+    };
+}
+
+export fn encoder_token_partition_for_row(plan: &EncoderTokenPartitionPackingPlan, mb_row: usize) !u8 {
+    if plan == null {
+        return error.ErrEncoderTokenPartitionPackingInvalidInput;
+    }
+    try validate_encoder_token_partition_count(plan.token_partition_count);
+    if plan.mb_rows == 0 {
+        return error.ErrEncoderTokenPartitionPackingInvalidInput;
+    }
+    if mb_row >= plan.mb_rows {
+        return error.ErrEncoderTokenPartitionPackingRowOutOfBounds;
+    }
+    return (mb_row % (plan.token_partition_count as usize)) as u8;
+}
+
+export fn encoder_token_writer_for_row(plan: &EncoderTokenPartitionPackingPlan, token_writers: &BoolWriter, mb_row: usize) !&BoolWriter {
+    if token_writers == null {
+        return error.ErrEncoderTokenPartitionPackingInvalidInput;
+    }
+    const partition_id: u8 = try encoder_token_partition_for_row(plan, mb_row);
+    return &token_writers[partition_id as usize] as &BoolWriter;
+}

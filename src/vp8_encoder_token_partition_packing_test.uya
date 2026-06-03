@@ -1,0 +1,145 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.bool_reader.BoolReader;
+use vp8.bitstream.bool_reader.bool_reader_read;
+use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_byte_count;
+use vp8.bitstream.bool_writer.bool_writer_flush;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.bool_writer.make_bool_writer;
+use vp8.bitstream.header.parse_vp8_token_partition_count;
+use vp8.bitstream.header.parse_vp8_token_partition_readers;
+use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
+use vp8.encoder.partition_output.write_encoder_bool_partition_output;
+use vp8.encoder.token_partition_packing.EncoderTokenPartitionPackingPlan;
+use vp8.encoder.token_partition_packing.encoder_token_partition_count_code;
+use vp8.encoder.token_partition_packing.encoder_token_partition_for_row;
+use vp8.encoder.token_partition_packing.encoder_token_writer_for_row;
+use vp8.encoder.token_partition_packing.make_encoder_token_partition_packing_plan;
+use vp8.encoder.token_partition_packing.write_encoder_token_partition_count;
+
+fn dummy_packing_plan() EncoderTokenPartitionPackingPlan {
+    return EncoderTokenPartitionPackingPlan{
+        mb_rows: 0,
+        token_partition_count: 1 as u8,
+        active_partition_count: 0 as u8
+    };
+}
+
+fn dummy_partition_output() EncoderBoolPartitionOutput {
+    return EncoderBoolPartitionOutput{
+        first_partition_size: 0,
+        payload_size: 0,
+        size_table_offset: 0,
+        token_data_offset: 0
+    };
+}
+
+test "token partition packing writes VP8 count code and maps rows" {
+    try assert_eq_i32((try encoder_token_partition_count_code(1 as u8)) as i32, 0);
+    try assert_eq_i32((try encoder_token_partition_count_code(2 as u8)) as i32, 1);
+    try assert_eq_i32((try encoder_token_partition_count_code(4 as u8)) as i32, 2);
+    try assert_eq_i32((try encoder_token_partition_count_code(8 as u8)) as i32, 3);
+
+    const plan: EncoderTokenPartitionPackingPlan = try make_encoder_token_partition_packing_plan(5, 4 as u8);
+    try assert_eq_i32(plan.mb_rows as i32, 5);
+    try assert_eq_i32(plan.token_partition_count as i32, 4);
+    try assert_eq_i32(plan.active_partition_count as i32, 4);
+    try assert_eq_i32((try encoder_token_partition_for_row(&plan, 0)) as i32, 0);
+    try assert_eq_i32((try encoder_token_partition_for_row(&plan, 1)) as i32, 1);
+    try assert_eq_i32((try encoder_token_partition_for_row(&plan, 2)) as i32, 2);
+    try assert_eq_i32((try encoder_token_partition_for_row(&plan, 3)) as i32, 3);
+    try assert_eq_i32((try encoder_token_partition_for_row(&plan, 4)) as i32, 0);
+
+    var buf: [byte: 16] = [];
+    var writer: BoolWriter = make_bool_writer(&buf[0] as &byte, 16);
+    try write_encoder_token_partition_count(&writer, 4 as u8);
+    try bool_writer_flush(&writer);
+    var reader: BoolReader = try make_bool_reader_for_partition(&buf[0] as &byte, bool_writer_byte_count(&writer), -1);
+    try assert_eq_i32((try parse_vp8_token_partition_count(&reader)) as i32, 4);
+}
+
+test "token partition packing selects row writers and roundtrips packed payload" {
+    const plan: EncoderTokenPartitionPackingPlan = try make_encoder_token_partition_packing_plan(6, 2 as u8);
+
+    var first_buf: [byte: 16] = [];
+    var token0_buf: [byte: 16] = [];
+    var token1_buf: [byte: 16] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_buf[0] as &byte, 16);
+    var token_writers: [BoolWriter: 8] = [];
+    token_writers[0] = make_bool_writer(&token0_buf[0] as &byte, 16);
+    token_writers[1] = make_bool_writer(&token1_buf[0] as &byte, 16);
+
+    try write_encoder_token_partition_count(&first_writer, 2 as u8);
+    try bool_writer_write(try encoder_token_writer_for_row(&plan, &token_writers[0] as &BoolWriter, 0), 1 as u8, 128 as byte);
+    try bool_writer_write(try encoder_token_writer_for_row(&plan, &token_writers[0] as &BoolWriter, 1), 0 as u8, 128 as byte);
+    try bool_writer_write(try encoder_token_writer_for_row(&plan, &token_writers[0] as &BoolWriter, 2), 0 as u8, 128 as byte);
+    try bool_writer_write(try encoder_token_writer_for_row(&plan, &token_writers[0] as &BoolWriter, 3), 1 as u8, 128 as byte);
+
+    var frame: [byte: 96] = [];
+    const output: EncoderBoolPartitionOutput = try write_encoder_bool_partition_output(
+        &frame[0] as &byte,
+        96,
+        0,
+        &first_writer,
+        &token_writers[0] as &BoolWriter,
+        plan.token_partition_count
+    );
+
+    var first_reader: BoolReader = try make_bool_reader_for_partition(&frame[0] as &byte, output.first_partition_size, -1);
+    try assert_eq_i32((try parse_vp8_token_partition_count(&first_reader)) as i32, 2);
+
+    var token_readers: [BoolReader: 8] = [];
+    try parse_vp8_token_partition_readers(&frame[0] as &byte, output.payload_size, 0, output.first_partition_size, plan.token_partition_count, &token_readers[0] as &BoolReader);
+    try assert_eq_i32((try bool_reader_read(&token_readers[0] as &BoolReader, 128 as byte)) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&token_readers[0] as &BoolReader, 128 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&token_readers[1] as &BoolReader, 128 as byte)) as i32, 0);
+    try assert_eq_i32((try bool_reader_read(&token_readers[1] as &BoolReader, 128 as byte)) as i32, 1);
+}
+
+test "token partition packing rejects invalid counts rows and writers" {
+    var failed: i32 = 0;
+    _ = make_encoder_token_partition_packing_plan(4, 3 as u8) catch {
+        failed = 1;
+        dummy_packing_plan();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = make_encoder_token_partition_packing_plan(0, 1 as u8) catch {
+        failed = 1;
+        dummy_packing_plan();
+    };
+    try assert_eq_i32(failed, 1);
+
+    const plan: EncoderTokenPartitionPackingPlan = try make_encoder_token_partition_packing_plan(2, 2 as u8);
+    failed = 0;
+    _ = encoder_token_partition_for_row(&plan, 2) catch {
+        failed = 1;
+        0 as u8;
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_token_writer_for_row(&plan, null as &BoolWriter, 0) catch {
+        failed = 1;
+        null as &BoolWriter;
+    };
+    try assert_eq_i32(failed, 1);
+
+    var first_buf: [byte: 16] = [];
+    var token_buf: [byte: 16] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_buf[0] as &byte, 16);
+    var token_writers: [BoolWriter: 8] = [];
+    token_writers[0] = make_bool_writer(&token_buf[0] as &byte, 16);
+    try bool_writer_write(&first_writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&token_writers[0] as &BoolWriter, 0 as u8, 128 as byte);
+    var frame: [byte: 4] = [];
+    failed = 0;
+    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 4, 0, &first_writer, &token_writers[0] as &BoolWriter, 3 as u8) catch {
+        failed = 1;
+        dummy_partition_output();
+    };
+    try assert_eq_i32(failed, 1);
+}
