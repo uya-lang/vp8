@@ -255,7 +255,7 @@
 - [x] decoder scalar-vs-simd 输出 YUV MD5 一致。
 - [f] 720p decoder SIMD 相比 scalar 有稳定收益，且端到端不慢于 scalar 超过 5%。
   - 失败原因（2026-06-03）：当前 `make_forced_simd_kernel_table` 仍返回 scalar table，decoder 端到端 `--force-simd` 尚未注册真实 SIMD kernel；现有 `bench/decode_bench.py` 只覆盖内置 tiny IVF 样本，未提供 720p fixture。`make bench-decode` 只能证明 tiny 样本 MD5 正确且耗时有快有慢，不能作为 720p 稳定收益证据。
-- [ ] 每个默认启用的 SIMD kernel 都有生成 C/汇编检查记录。
+- [x] 每个默认启用的 SIMD kernel 都有生成 C/汇编检查记录。
 
 ## Phase 11: Decoder 并行与性能
 
