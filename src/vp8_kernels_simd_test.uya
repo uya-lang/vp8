@@ -4,6 +4,8 @@ use std.testing.expect;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
+use vp8.kernels.simd.plane_copy_u8x16;
+use vp8.kernels.simd.plane_fill_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
@@ -66,4 +68,60 @@ test "SIMD helper loads and stores i32x4 blocks" {
         try assert_eq_i32(dst[index + 1], src[index + 1]);
         index = index + 1;
     }
+}
+
+test "SIMD plane copy u8x16 copies rows with scalar tails" {
+    var src: [byte: 96] = [];
+    var dst: [byte: 96] = [];
+
+    var index: usize = 0;
+    while index < 96 {
+        src[index] = (index + 1) as byte;
+        dst[index] = 222 as byte;
+        index = index + 1;
+    }
+
+    plane_copy_u8x16(&dst[5] as &byte, 24, &src[7] as &byte, 22, 18, 3);
+
+    var row: usize = 0;
+    while row < 3 {
+        var col: usize = 0;
+        while col < 18 {
+            const dst_index: usize = 5 + (row * 24) + col;
+            const src_index: usize = 7 + (row * 22) + col;
+            try assert_eq_i32(dst[dst_index] as i32, src[src_index] as i32);
+            col = col + 1;
+        }
+        try assert_eq_i32(dst[5 + (row * 24) + 18] as i32, 222);
+        row = row + 1;
+    }
+
+    try assert_eq_i32(dst[4] as i32, 222);
+    try assert_eq_i32(dst[5 + (3 * 24)] as i32, 222);
+}
+
+test "SIMD plane fill u8x16 fills rows with scalar tails" {
+    var dst: [byte: 96] = [];
+
+    var index: usize = 0;
+    while index < 96 {
+        dst[index] = 111 as byte;
+        index = index + 1;
+    }
+
+    plane_fill_u8x16(&dst[3] as &byte, 21, 20, 3, 77 as byte);
+
+    var row: usize = 0;
+    while row < 3 {
+        var col: usize = 0;
+        while col < 20 {
+            try assert_eq_i32(dst[3 + (row * 21) + col] as i32, 77);
+            col = col + 1;
+        }
+        try assert_eq_i32(dst[3 + (row * 21) + 20] as i32, 111);
+        row = row + 1;
+    }
+
+    try assert_eq_i32(dst[2] as i32, 111);
+    try assert_eq_i32(dst[3 + (3 * 21)] as i32, 111);
 }

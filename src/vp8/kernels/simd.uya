@@ -28,3 +28,46 @@ export fn load_i32x4(src: &i32) I32x4 {
 export fn store_i32x4(dst: &i32, value: I32x4) void {
     @vector.store(dst, value);
 }
+
+export fn plane_copy_u8x16(dst: &byte, dst_stride: usize, src: &byte, src_stride: usize, width: usize, height: usize) void {
+    var row: usize = 0;
+    while row < height {
+        const dst_base: usize = row * dst_stride;
+        const src_base: usize = row * src_stride;
+        var col: usize = 0;
+
+        while (col + 16) <= width {
+            const values: U8x16 = load_u8x16(&src[src_base + col] as &u8);
+            store_u8x16(&dst[dst_base + col] as &u8, values);
+            col = col + 16;
+        }
+
+        while col < width {
+            dst[dst_base + col] = src[src_base + col];
+            col = col + 1;
+        }
+
+        row = row + 1;
+    }
+}
+
+export fn plane_fill_u8x16(dst: &byte, dst_stride: usize, width: usize, height: usize, value: byte) void {
+    const values: U8x16 = @vector.splat(value as u8);
+    var row: usize = 0;
+    while row < height {
+        const dst_base: usize = row * dst_stride;
+        var col: usize = 0;
+
+        while (col + 16) <= width {
+            store_u8x16(&dst[dst_base + col] as &u8, values);
+            col = col + 16;
+        }
+
+        while col < width {
+            dst[dst_base + col] = value;
+            col = col + 1;
+        }
+
+        row = row + 1;
+    }
+}

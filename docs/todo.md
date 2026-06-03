@@ -232,7 +232,7 @@
 
 ## Phase 10: SIMD Decoder Kernels
 
-- [ ] SIMD plane copy/fill。
+- [x] SIMD plane copy/fill。
 - [ ] SIMD border extension。
 - [ ] SIMD residual add/clamp。
 - [ ] SIMD DC-only inverse transform。

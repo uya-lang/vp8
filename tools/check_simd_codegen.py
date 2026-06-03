@@ -58,6 +58,17 @@ HELPERS = (
     },
 )
 
+SIMD_KERNELS = (
+    {
+        "name": "plane_copy_u8x16",
+        "symbol": "vp8_kernels_simd_plane_copy_u8x16",
+    },
+    {
+        "name": "plane_fill_u8x16",
+        "symbol": "vp8_kernels_simd_plane_fill_u8x16",
+    },
+)
+
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inspect UYA SIMD helper C/assembly lowering")
@@ -131,10 +142,20 @@ def inspect_c(c_text: str) -> list[dict[str, object]]:
     return results
 
 
+def inspect_kernel_symbols(c_text: str) -> list[dict[str, str]]:
+    results = []
+    for kernel in SIMD_KERNELS:
+        symbol = kernel["symbol"]
+        if symbol not in c_text:
+            raise RuntimeError(f"missing generated C SIMD kernel symbol: {symbol}")
+        results.append({"name": kernel["name"], "symbol": symbol})
+    return results
+
+
 def inspect_assembly(asm_text: str) -> list[str]:
     labels = []
-    for helper in HELPERS:
-        label = f"{helper['symbol']}:"
+    for entry in HELPERS + SIMD_KERNELS:
+        label = f"{entry['symbol']}:"
         if label not in asm_text:
             raise RuntimeError(f"missing generated assembly label: {label}")
         labels.append(label)
@@ -147,6 +168,7 @@ def write_report(
     generated_c: Path,
     generated_asm: Path,
     c_results: list[dict[str, object]],
+    kernel_results: list[dict[str, str]],
     asm_labels: list[str],
     c_memcpy_mentions: int,
     asm_memcpy_mentions: int,
@@ -156,6 +178,9 @@ def write_report(
         rows.append(
             "| {name} | `{symbol}` | `{vector_struct}` | {c_lowering} |".format(**result)
         )
+    kernel_rows = []
+    for result in kernel_results:
+        kernel_rows.append("| {name} | `{symbol}` |".format(**result))
 
     report = f"""# SIMD 生成代码检查记录
 
@@ -178,10 +203,23 @@ def write_report(
 - 当前 C99 后端将 `@vector.load` / `@vector.store` 通过 `__uya_memcpy` 表达，本次生成 C 中 `__uya_memcpy` 出现 {c_memcpy_mentions} 次。
 - 这条记录只证明当前 helper 可生成、可链接、可测试，并记录了实际 lowering；它不证明这些 helper 已经是单条硬件 SIMD load/store。
 
+## SIMD kernel 符号快照
+
+| kernel | generated C symbol |
+| --- | --- |
+{chr(10).join(kernel_rows)}
+
+检查结果：
+
+- 当前 plane copy/fill SIMD kernel 都生成了稳定 C 符号，并在汇编快照中检测到对应 label。
+- `plane_copy_u8x16` 以 16 字节 vector load/store 处理整块，尾部保留 scalar copy。
+- `plane_fill_u8x16` 以 `@vector.splat` + 16 字节 vector store 处理整块，尾部保留 scalar fill。
+- 这些 kernel 目前只作为 forced/测试用 portable SIMD 实现记录，不进入默认 dispatcher。
+
 ## 汇编快照结论
 
 - `cc -std=c99 -O0 -g -fno-builtin -S` 可从生成 C 产出汇编快照。
-- 汇编中检测到 {len(asm_labels)} 个 helper label：`{", ".join(label[:-1] for label in asm_labels)}`。
+- 汇编中检测到 {len(asm_labels)} 个 SIMD helper/kernel label：`{", ".join(label[:-1] for label in asm_labels)}`。
 - 本次汇编快照中 `__uya_memcpy` 出现 {asm_memcpy_mentions} 次。后续若编译器或优化级别改变，应重新检查实际热路径指令。
 
 ## 默认启用判断
@@ -244,6 +282,7 @@ def main(argv: list[str]) -> int:
         c_text = generated_c.read_text(encoding="utf-8")
         asm_text = generated_asm.read_text(encoding="utf-8", errors="replace")
         c_results = inspect_c(c_text)
+        kernel_results = inspect_kernel_symbols(c_text)
         asm_labels = inspect_assembly(asm_text)
         c_memcpy_mentions = c_text.count("__uya_memcpy")
         asm_memcpy_mentions = asm_text.count("__uya_memcpy")
@@ -253,6 +292,7 @@ def main(argv: list[str]) -> int:
             "generated_c": str(generated_c.relative_to(REPO_ROOT)),
             "generated_asm": str(generated_asm.relative_to(REPO_ROOT)),
             "helpers": c_results,
+            "simd_kernels": kernel_results,
             "c_memcpy_mentions": c_memcpy_mentions,
             "asm_memcpy_mentions": asm_memcpy_mentions,
         }
@@ -263,6 +303,7 @@ def main(argv: list[str]) -> int:
             generated_c.relative_to(REPO_ROOT),
             generated_asm.relative_to(REPO_ROOT),
             c_results,
+            kernel_results,
             asm_labels,
             c_memcpy_mentions,
             asm_memcpy_mentions,
@@ -272,7 +313,10 @@ def main(argv: list[str]) -> int:
         print(f"simd-codegen generated_c={generated_c.relative_to(REPO_ROOT)}")
         print(f"simd-codegen generated_asm={generated_asm.relative_to(REPO_ROOT)}")
         print(f"simd-codegen report={report_path.relative_to(REPO_ROOT)}")
-        print(f"simd-codegen helpers={len(c_results)} c_memcpy={c_memcpy_mentions} asm_memcpy={asm_memcpy_mentions}")
+        print(
+            f"simd-codegen helpers={len(c_results)} kernels={len(kernel_results)} "
+            f"c_memcpy={c_memcpy_mentions} asm_memcpy={asm_memcpy_mentions}"
+        )
         print("simd-codegen result=ok")
         return 0
     except Exception as exc:
