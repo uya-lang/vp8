@@ -3,10 +3,14 @@ use std.testing.assert_eq_i32;
 use vp8.encoder.context.EncoderConfig;
 use vp8.encoder.context.EncoderRateControlMode;
 use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.rate_control.EncoderCbrBufferModel;
+use vp8.encoder.rate_control.EncoderCbrBufferUpdate;
 use vp8.encoder.rate_control.EncoderRateControl;
 use vp8.encoder.rate_control.EncoderRateControlDecision;
+use vp8.encoder.rate_control.encoder_cbr_buffer_finish_frame;
 use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
 use vp8.encoder.rate_control.encoder_rate_control_finish_frame;
+use vp8.encoder.rate_control.make_encoder_cbr_buffer_model;
 use vp8.encoder.rate_control.make_encoder_rate_control;
 
 fn dummy_rate_control() EncoderRateControl {
@@ -26,6 +30,25 @@ fn dummy_rate_control_decision() EncoderRateControlDecision {
         quantizer: 0 as u8,
         target_bits: 0,
         is_keyframe: false
+    };
+}
+
+fn dummy_cbr_buffer_model() EncoderCbrBufferModel {
+    return EncoderCbrBufferModel{
+        capacity_bits: 1,
+        fullness_bits: 0,
+        target_bits_per_frame: 1,
+        underflow_count: 0,
+        overflow_count: 0
+    };
+}
+
+fn dummy_cbr_buffer_update() EncoderCbrBufferUpdate {
+    return EncoderCbrBufferUpdate{
+        before_fullness_bits: 0,
+        after_fullness_bits: 0,
+        underflow: false,
+        overflow: false
     };
 }
 
@@ -130,4 +153,60 @@ test "simple VBR quantizer adjustment clamps to VP8 qindex range" {
     try encoder_rate_control_finish_frame(&low, 0);
     const low_decision: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&low, false);
     try assert_eq_i32(low_decision.quantizer as i32, 0);
+}
+
+test "CBR buffer model replenishes budget and clamps underflow overflow" {
+    var model: EncoderCbrBufferModel = try make_encoder_cbr_buffer_model(1000, 4000, 2000);
+
+    const first: EncoderCbrBufferUpdate = try encoder_cbr_buffer_finish_frame(&model, 900);
+    try assert_eq_i32(first.before_fullness_bits as i32, 2000);
+    try assert_eq_i32(first.after_fullness_bits as i32, 2100);
+    try assert_eq_i32(first.underflow as i32, false as i32);
+    try assert_eq_i32(first.overflow as i32, false as i32);
+    try assert_eq_i32(model.fullness_bits as i32, 2100);
+
+    const second: EncoderCbrBufferUpdate = try encoder_cbr_buffer_finish_frame(&model, 3500);
+    try assert_eq_i32(second.before_fullness_bits as i32, 2100);
+    try assert_eq_i32(second.after_fullness_bits as i32, 0);
+    try assert_eq_i32(second.underflow as i32, true as i32);
+    try assert_eq_i32(second.overflow as i32, false as i32);
+    try assert_eq_i32(model.underflow_count as i32, 1);
+
+    var nearly_full: EncoderCbrBufferModel = try make_encoder_cbr_buffer_model(1000, 4000, 3900);
+    const overflow: EncoderCbrBufferUpdate = try encoder_cbr_buffer_finish_frame(&nearly_full, 100);
+    try assert_eq_i32(overflow.before_fullness_bits as i32, 3900);
+    try assert_eq_i32(overflow.after_fullness_bits as i32, 4000);
+    try assert_eq_i32(overflow.underflow as i32, false as i32);
+    try assert_eq_i32(overflow.overflow as i32, true as i32);
+    try assert_eq_i32(nearly_full.overflow_count as i32, 1);
+}
+
+test "CBR buffer model rejects invalid parameters" {
+    var failed: i32 = 0;
+    _ = make_encoder_cbr_buffer_model(0, 4000, 0) catch {
+        failed = 1;
+        dummy_cbr_buffer_model();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = make_encoder_cbr_buffer_model(1000, 0, 0) catch {
+        failed = 1;
+        dummy_cbr_buffer_model();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = make_encoder_cbr_buffer_model(1000, 4000, 5000) catch {
+        failed = 1;
+        dummy_cbr_buffer_model();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    _ = encoder_cbr_buffer_finish_frame(null as &EncoderCbrBufferModel, 1000) catch {
+        failed = 1;
+        dummy_cbr_buffer_update();
+    };
+    try assert_eq_i32(failed, 1);
 }

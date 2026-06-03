@@ -6,6 +6,7 @@ error ErrEncoderRateControlInvalidInput;
 error ErrEncoderRateControlUnsupportedMode;
 error ErrEncoderRateControlFrameIndexOverflow;
 error ErrEncoderRateControlTargetOverflow;
+error ErrEncoderCbrBufferInvalidInput;
 
 const ENCODER_RATE_CONTROL_U32_MAX: u64 = 4294967295;
 const ENCODER_RATE_CONTROL_VBR_TOLERANCE_DIVISOR: u32 = 10;
@@ -25,6 +26,79 @@ export struct EncoderRateControlDecision {
     quantizer: u8,
     target_bits: u32,
     is_keyframe: bool
+}
+
+export struct EncoderCbrBufferModel {
+    capacity_bits: u32,
+    fullness_bits: u32,
+    target_bits_per_frame: u32,
+    underflow_count: u32,
+    overflow_count: u32
+}
+
+export struct EncoderCbrBufferUpdate {
+    before_fullness_bits: u32,
+    after_fullness_bits: u32,
+    underflow: bool,
+    overflow: bool
+}
+
+export fn make_encoder_cbr_buffer_model(target_bits_per_frame: u32, capacity_bits: u32, initial_fullness_bits: u32) !EncoderCbrBufferModel {
+    if target_bits_per_frame == 0 || capacity_bits == 0 {
+        return error.ErrEncoderCbrBufferInvalidInput;
+    }
+    if initial_fullness_bits > capacity_bits {
+        return error.ErrEncoderCbrBufferInvalidInput;
+    }
+
+    return EncoderCbrBufferModel{
+        capacity_bits: capacity_bits,
+        fullness_bits: initial_fullness_bits,
+        target_bits_per_frame: target_bits_per_frame,
+        underflow_count: 0,
+        overflow_count: 0
+    };
+}
+
+fn encoder_cbr_buffer_increment_counter(counter: &u32) void {
+    if counter[0] != 4294967295 {
+        counter[0] = counter[0] + 1;
+    }
+}
+
+export fn encoder_cbr_buffer_finish_frame(model: &EncoderCbrBufferModel, encoded_bits: u32) !EncoderCbrBufferUpdate {
+    if model == null {
+        return error.ErrEncoderCbrBufferInvalidInput;
+    }
+
+    const before: u32 = model.fullness_bits;
+    const available: u64 = (model.fullness_bits as u64) + (model.target_bits_per_frame as u64);
+    const encoded: u64 = encoded_bits as u64;
+    var after: u64 = 0;
+    var underflow: bool = false;
+    var overflow: bool = false;
+
+    if encoded > available {
+        underflow = true;
+        encoder_cbr_buffer_increment_counter(&model.underflow_count);
+        after = 0;
+    } else {
+        after = available - encoded;
+    }
+
+    if after > (model.capacity_bits as u64) {
+        overflow = true;
+        encoder_cbr_buffer_increment_counter(&model.overflow_count);
+        after = model.capacity_bits as u64;
+    }
+
+    model.fullness_bits = after as u32;
+    return EncoderCbrBufferUpdate{
+        before_fullness_bits: before,
+        after_fullness_bits: model.fullness_bits,
+        underflow: underflow,
+        overflow: overflow
+    };
 }
 
 fn encoder_rate_control_target_bits_per_frame(config: &EncoderConfig) !u32 {
