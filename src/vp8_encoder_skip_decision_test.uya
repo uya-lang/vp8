@@ -1,0 +1,133 @@
+use std.testing.assert_eq_i32;
+
+use vp8.encoder.skip_decision.EncoderSkipDecision;
+use vp8.encoder.skip_decision.decide_skip_coefficients;
+use vp8.token.parse.CoefficientBlockSummary;
+
+fn zero_summary() CoefficientBlockSummary {
+    return CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 0 as byte
+    };
+}
+
+fn nonzero_summary(count: byte, dc_only: bool) CoefficientBlockSummary {
+    return CoefficientBlockSummary{
+        has_coeff: true,
+        dc_only: dc_only,
+        coefficient_count: count,
+        eob_position: count
+    };
+}
+
+fn dummy_skip_decision() EncoderSkipDecision {
+    return EncoderSkipDecision{
+        skip_coeff: false,
+        nonzero_block_count: 999,
+        nonzero_coefficient_count: 999
+    };
+}
+
+fn fill_zero_summaries(values: &CoefficientBlockSummary, count: usize) void {
+    var index: usize = 0;
+    while index < count {
+        values[index] = zero_summary();
+        index = index + 1;
+    }
+}
+
+test "skip decision allows macroblock skip when every block is all zero" {
+    var y: [CoefficientBlockSummary: 16] = [];
+    var u: [CoefficientBlockSummary: 4] = [];
+    var v: [CoefficientBlockSummary: 4] = [];
+    fill_zero_summaries(&y[0] as &CoefficientBlockSummary, 16);
+    fill_zero_summaries(&u[0] as &CoefficientBlockSummary, 4);
+    fill_zero_summaries(&v[0] as &CoefficientBlockSummary, 4);
+
+    const decision: EncoderSkipDecision = try decide_skip_coefficients(
+        &y[0] as &CoefficientBlockSummary,
+        16,
+        &u[0] as &CoefficientBlockSummary,
+        4,
+        &v[0] as &CoefficientBlockSummary,
+        4,
+        null as &CoefficientBlockSummary,
+        false
+    );
+
+    try assert_eq_i32(decision.skip_coeff as i32, true as i32);
+    try assert_eq_i32(decision.nonzero_block_count as i32, 0);
+    try assert_eq_i32(decision.nonzero_coefficient_count as i32, 0);
+}
+
+test "skip decision rejects skip when any luma y2 or chroma block has coefficients" {
+    var y: [CoefficientBlockSummary: 16] = [];
+    var u: [CoefficientBlockSummary: 4] = [];
+    var v: [CoefficientBlockSummary: 4] = [];
+    var y2: CoefficientBlockSummary = nonzero_summary(1 as byte, true);
+    fill_zero_summaries(&y[0] as &CoefficientBlockSummary, 16);
+    fill_zero_summaries(&u[0] as &CoefficientBlockSummary, 4);
+    fill_zero_summaries(&v[0] as &CoefficientBlockSummary, 4);
+    y[3] = nonzero_summary(2 as byte, false);
+    u[1] = nonzero_summary(1 as byte, true);
+
+    const decision: EncoderSkipDecision = try decide_skip_coefficients(
+        &y[0] as &CoefficientBlockSummary,
+        16,
+        &u[0] as &CoefficientBlockSummary,
+        4,
+        &v[0] as &CoefficientBlockSummary,
+        4,
+        &y2 as &CoefficientBlockSummary,
+        true
+    );
+
+    try assert_eq_i32(decision.skip_coeff as i32, false as i32);
+    try assert_eq_i32(decision.nonzero_block_count as i32, 3);
+    try assert_eq_i32(decision.nonzero_coefficient_count as i32, 4);
+}
+
+test "skip decision rejects invalid macroblock summary inputs" {
+    var y: [CoefficientBlockSummary: 16] = [];
+    var u: [CoefficientBlockSummary: 4] = [];
+    var v: [CoefficientBlockSummary: 4] = [];
+    fill_zero_summaries(&y[0] as &CoefficientBlockSummary, 16);
+    fill_zero_summaries(&u[0] as &CoefficientBlockSummary, 4);
+    fill_zero_summaries(&v[0] as &CoefficientBlockSummary, 4);
+
+    var failed: i32 = 0;
+    _ = decide_skip_coefficients(
+        &y[0] as &CoefficientBlockSummary,
+        15,
+        &u[0] as &CoefficientBlockSummary,
+        4,
+        &v[0] as &CoefficientBlockSummary,
+        4,
+        null as &CoefficientBlockSummary,
+        false
+    ) catch {
+        failed = 1;
+        dummy_skip_decision();
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    y[0].has_coeff = true;
+    y[0].coefficient_count = 0 as byte;
+    _ = decide_skip_coefficients(
+        &y[0] as &CoefficientBlockSummary,
+        16,
+        &u[0] as &CoefficientBlockSummary,
+        4,
+        &v[0] as &CoefficientBlockSummary,
+        4,
+        null as &CoefficientBlockSummary,
+        false
+    ) catch {
+        failed = 1;
+        dummy_skip_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}

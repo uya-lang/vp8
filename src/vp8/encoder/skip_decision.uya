@@ -1,0 +1,84 @@
+use vp8.token.parse.CoefficientBlockSummary;
+
+error ErrEncoderSkipDecisionInvalidInput;
+error ErrEncoderSkipDecisionInvalidCount;
+error ErrEncoderSkipDecisionInvalidSummary;
+
+const SKIP_DECISION_Y_BLOCKS: usize = 16;
+const SKIP_DECISION_U_BLOCKS: usize = 4;
+const SKIP_DECISION_V_BLOCKS: usize = 4;
+
+export struct EncoderSkipDecision {
+    skip_coeff: bool,
+    nonzero_block_count: usize,
+    nonzero_coefficient_count: usize
+}
+
+fn skip_decision_empty() EncoderSkipDecision {
+    return EncoderSkipDecision{
+        skip_coeff: true,
+        nonzero_block_count: 0,
+        nonzero_coefficient_count: 0
+    };
+}
+
+fn skip_decision_accumulate_summary(decision: &EncoderSkipDecision, summary: &CoefficientBlockSummary) !void {
+    if summary == null {
+        return error.ErrEncoderSkipDecisionInvalidInput;
+    }
+
+    if summary.has_coeff {
+        if summary.coefficient_count == (0 as byte) {
+            return error.ErrEncoderSkipDecisionInvalidSummary;
+        }
+        decision.nonzero_block_count = decision.nonzero_block_count + 1;
+        decision.nonzero_coefficient_count = decision.nonzero_coefficient_count + (summary.coefficient_count as usize);
+        decision.skip_coeff = false;
+    } else {
+        if summary.coefficient_count != (0 as byte) {
+            return error.ErrEncoderSkipDecisionInvalidSummary;
+        }
+    }
+}
+
+fn skip_decision_accumulate_plane(decision: &EncoderSkipDecision, summaries: &CoefficientBlockSummary, count: usize) !void {
+    if count > 0 && summaries == null {
+        return error.ErrEncoderSkipDecisionInvalidInput;
+    }
+
+    var index: usize = 0;
+    while index < count {
+        try skip_decision_accumulate_summary(decision, &summaries[index] as &CoefficientBlockSummary);
+        index = index + 1;
+    }
+}
+
+export fn decide_skip_coefficients(
+    y_blocks: &CoefficientBlockSummary,
+    y_block_count: usize,
+    u_blocks: &CoefficientBlockSummary,
+    u_block_count: usize,
+    v_blocks: &CoefficientBlockSummary,
+    v_block_count: usize,
+    y2_block: &CoefficientBlockSummary,
+    has_y2_block: bool
+) !EncoderSkipDecision {
+    if y_block_count != SKIP_DECISION_Y_BLOCKS || u_block_count != SKIP_DECISION_U_BLOCKS || v_block_count != SKIP_DECISION_V_BLOCKS {
+        return error.ErrEncoderSkipDecisionInvalidCount;
+    }
+    if y_blocks == null || u_blocks == null || v_blocks == null {
+        return error.ErrEncoderSkipDecisionInvalidInput;
+    }
+    if has_y2_block && y2_block == null {
+        return error.ErrEncoderSkipDecisionInvalidInput;
+    }
+
+    var decision: EncoderSkipDecision = skip_decision_empty();
+    try skip_decision_accumulate_plane(&decision, y_blocks, y_block_count);
+    try skip_decision_accumulate_plane(&decision, u_blocks, u_block_count);
+    try skip_decision_accumulate_plane(&decision, v_blocks, v_block_count);
+    if has_y2_block {
+        try skip_decision_accumulate_summary(&decision, y2_block);
+    }
+    return decision;
+}
