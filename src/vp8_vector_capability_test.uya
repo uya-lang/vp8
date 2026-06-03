@@ -1,0 +1,79 @@
+use std.testing.expect;
+
+type U8x16 = @vector(u8, 16);
+type U8x32 = @vector(u8, 32);
+type U8x64 = @vector(u8, 64);
+type U8Mask16 = @mask(16);
+type U8Mask32 = @mask(32);
+type U8Mask64 = @mask(64);
+
+type I16x8 = @vector(i16, 8);
+type I16x16 = @vector(i16, 16);
+type I16Mask8 = @mask(8);
+type I16Mask16 = @mask(16);
+
+type I32x4 = @vector(i32, 4);
+type I32x8 = @vector(i32, 8);
+type I32Mask4 = @mask(4);
+type I32Mask8 = @mask(8);
+
+fn expect_u8x16(value: U8x16, expected: u8) !void {
+    const mask: U8Mask16 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+fn expect_u8x32(value: U8x32, expected: u8) !void {
+    const mask: U8Mask32 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+fn expect_u8x64(value: U8x64, expected: u8) !void {
+    const mask: U8Mask64 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+fn expect_i16x8(value: I16x8, expected: i16) !void {
+    const mask: I16Mask8 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+fn expect_i16x16(value: I16x16, expected: i16) !void {
+    const mask: I16Mask16 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+fn expect_i32x4(value: I32x4, expected: i32) !void {
+    const mask: I32Mask4 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+fn expect_i32x8(value: I32x8, expected: i32) !void {
+    const mask: I32Mask8 = value == @vector.splat(expected);
+    try expect(@vector.all(mask));
+}
+
+test "UYA compiles u8 vector widths for VP8 SIMD planning" {
+    const sum16: U8x16 = @vector.splat(5u8) + @vector.splat(7u8);
+    const sum32: U8x32 = @vector.splat(9u8) + @vector.splat(4u8);
+    const sum64: U8x64 = @vector.splat(3u8) + @vector.splat(11u8);
+
+    try expect_u8x16(sum16, 12u8);
+    try expect_u8x32(sum32, 13u8);
+    try expect_u8x64(sum64, 14u8);
+}
+
+test "UYA compiles i16 vector widths for VP8 SIMD planning" {
+    const diff8: I16x8 = @vector.splat(22) - @vector.splat(7);
+    const diff16: I16x16 = @vector.splat(-18) + @vector.splat(5);
+
+    try expect_i16x8(diff8, 15);
+    try expect_i16x16(diff16, -13);
+}
+
+test "UYA compiles i32 vector widths for VP8 SIMD planning" {
+    const product4: I32x4 = @vector.splat(6) * @vector.splat(7);
+    const sum8: I32x8 = @vector.splat(1024) + @vector.splat(-9);
+
+    try expect_i32x4(product4, 42);
+    try expect_i32x8(sum8, 1015);
+}
