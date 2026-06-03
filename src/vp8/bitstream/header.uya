@@ -244,6 +244,9 @@ export fn parse_vp8_frame_probability_updates(reader: &BoolReader, probs: &Vp8Pr
     }
 
     try parse_vp8_coeff_probability_updates(reader, probs);
+    if key_frame {
+        return;
+    }
     try parse_vp8_mv_probability_updates(reader, probs);
 }
 
@@ -376,15 +379,15 @@ export fn vp8_token_partition_for_row(mb_row: usize, token_partition_count: u8) 
     return (mb_row % (token_partition_count as usize)) as u8;
 }
 
-export fn parse_vp8_token_partition_readers(data: &byte, len: usize, first_partition_size: u32, token_partition_count: u8, readers: &BoolReader) !void {
+export fn parse_vp8_token_partition_readers(data: &byte, len: usize, first_partition_offset: usize, first_partition_size: u32, token_partition_count: u8, readers: &BoolReader) !void {
     try validate_vp8_token_partition_count(token_partition_count);
 
-    if len < 3 {
+    if first_partition_offset > len {
         return error.ErrFirstPartitionOutOfBounds;
     }
 
-    const first_partition_end: usize = 3 + (first_partition_size as usize);
-    if first_partition_end < 3 || first_partition_end > len {
+    const first_partition_end: usize = first_partition_offset + (first_partition_size as usize);
+    if first_partition_end < first_partition_offset || first_partition_end > len {
         return error.ErrFirstPartitionOutOfBounds;
     }
 
@@ -428,6 +431,40 @@ export struct Vp8KeyFrameSize {
     vertical_scale: u8
 }
 
+export struct Vp8KeyFrameColorConfig {
+    color_space: u8,
+    clamping_type: u8
+}
+
+export struct Vp8SkipCoeffHeader {
+    enabled: bool,
+    prob_skip_false: byte
+}
+
+export fn parse_vp8_key_frame_color_config(reader: &BoolReader) !Vp8KeyFrameColorConfig {
+    return Vp8KeyFrameColorConfig{
+        color_space: try read_bit_with_probability(reader, 128 as byte),
+        clamping_type: try read_bit_with_probability(reader, 128 as byte)
+    };
+}
+
+export fn parse_vp8_refresh_entropy(reader: &BoolReader) !bool {
+    return (try read_bit_with_probability(reader, 128 as byte)) != 0;
+}
+
+export fn parse_vp8_skip_coeff_header(reader: &BoolReader) !Vp8SkipCoeffHeader {
+    const enabled: bool = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+    var prob_skip_false: byte = 0 as byte;
+    if enabled {
+        prob_skip_false = (try read_literal(reader, 8 as u8)) as byte;
+    }
+
+    return Vp8SkipCoeffHeader{
+        enabled: enabled,
+        prob_skip_false: prob_skip_false
+    };
+}
+
 export fn parse_vp8_frame_tag(data: &byte, len: usize) !Vp8FrameTag {
     const tag: u32 = try read_le_u24_at(data, len, 0);
     return Vp8FrameTag{
@@ -440,7 +477,15 @@ export fn parse_vp8_frame_tag(data: &byte, len: usize) !Vp8FrameTag {
 
 export fn parse_vp8_frame_tag_checked(data: &byte, len: usize) !Vp8FrameTag {
     const tag: Vp8FrameTag = try parse_vp8_frame_tag(data, len);
-    const remaining: usize = len - 3;
+    var first_partition_offset: usize = 3;
+    if tag.frame_type == (0 as u8) {
+        if len < 10 {
+            return error.ErrFirstPartitionOutOfBounds;
+        }
+        first_partition_offset = 10;
+    }
+
+    const remaining: usize = len - first_partition_offset;
     if (tag.first_partition_size as usize) > remaining {
         return error.ErrFirstPartitionOutOfBounds;
     }
@@ -469,7 +514,7 @@ export fn parse_key_frame_size(data: &byte, len: usize) !Vp8KeyFrameSize {
 }
 
 export fn parse_vp8_key_frame_header(data: &byte, len: usize) !Vp8FrameHeader {
-    const tag: Vp8FrameTag = try parse_vp8_frame_tag_checked(data, len);
+    const tag: Vp8FrameTag = try parse_vp8_frame_tag(data, len);
     const size: Vp8KeyFrameSize = try parse_key_frame_size(data, len);
 
     return Vp8FrameHeader{

@@ -205,7 +205,7 @@
 验收标准：
 
 - [x] `make test` 不需要外部 libvpx 即可通过内置 golden。
-- [ ] `make test-vpxdiff` 在安装 libvpx 时通过。
+- [x] `make test-vpxdiff` 在安装 libvpx 时通过。
 - [ ] malformed corpus 不崩溃、不越界。
 
 ## Phase 9: SIMD 框架

@@ -202,7 +202,14 @@ export fn parse_key_frame_luma_4x4_modes(reader: &BoolReader, above_modes: &byte
     }
 }
 
-export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, info: &MacroblockInfoArrays) !void {
+export fn parse_skip_coefficient_flag(reader: &BoolReader, skip_enabled: bool, prob_skip_false: byte) !bool {
+    if !skip_enabled {
+        return false;
+    }
+    return (try read_bit_with_probability(reader, prob_skip_false)) != 0;
+}
+
+export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, skip_enabled: bool, prob_skip_false: byte, info: &MacroblockInfoArrays) !void {
     var above_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
     var left_b_modes: [byte: 4] = [ 0, 0, 0, 0 ];
     var output_b_modes: [byte: 16] = [];
@@ -211,6 +218,7 @@ export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, info: 
     while mb_y < info.mb_rows {
         var mb_x: usize = 0;
         while mb_x < info.mb_cols {
+            const skip_coeff: bool = try parse_skip_coefficient_flag(reader, skip_enabled, prob_skip_false);
             const y_mode: byte = try parse_key_frame_y_mode(reader, probs);
             if y_mode == VP8_Y_MODE_B {
                 try parse_key_frame_luma_4x4_modes(reader, &above_b_modes[0] as &byte, &left_b_modes[0] as &byte, &output_b_modes[0] as &byte);
@@ -228,7 +236,7 @@ export fn parse_key_frame_mode_map(reader: &BoolReader, probs: &Vp8Probs, info: 
                 y_mode: y_mode,
                 uv_mode: uv_mode,
                 segment_id: 0 as byte,
-                skip_coeff: false,
+                skip_coeff: skip_coeff,
                 ref_frame: VP8_REF_CURRENT,
                 mv_x: 0,
                 mv_y: 0,
@@ -261,13 +269,6 @@ export fn parse_inter_reference_frame(reader: &BoolReader, prob_last: byte, prob
         return VP8_REF_GOLDEN;
     }
     return VP8_REF_ALTREF;
-}
-
-export fn parse_skip_coefficient_flag(reader: &BoolReader, skip_enabled: bool, prob_skip_false: byte) !bool {
-    if !skip_enabled {
-        return false;
-    }
-    return (try read_bit_with_probability(reader, prob_skip_false)) != 0;
 }
 
 fn parse_inter_mv_mode(reader: &BoolReader) !byte {

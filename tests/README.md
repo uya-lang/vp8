@@ -29,8 +29,9 @@ controlled errors instead of crashing.
 `make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
 containers with random VP8 payloads, accepting only success or controlled error
 exits.
-`make test-vpxdiff` optionally compares compatible manifest samples with
-`vpxdec`; it skips cleanly when libvpx tools are unavailable.
+`make test-vpxdiff` optionally generates a small VP8 stream with `vpxenc` and
+compares `vp8uya` output with `vpxdec`; it also compares any compatible
+manifest samples. It skips cleanly when libvpx tools are unavailable.
 
 Future tests should keep external codec tools optional. Built-in tests must run
 without libvpx, FFmpeg, or network access; differential tests may live behind

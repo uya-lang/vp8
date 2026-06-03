@@ -188,23 +188,24 @@ def write_one_then_eob(writer: BoolWriter, block_type: int, position: int, conte
 
 def write_uncompressed_key_partition(sample: Sample, mb_count: int) -> bytes:
     writer = BoolWriter(256)
+    writer.write(0, 128)
+    writer.write(0, 128)
     write_segmentation_header(writer, sample)
     write_literal(writer, 0, 1)
     write_literal(writer, 0, 6)
     write_literal(writer, 0, 3)
+    write_literal(writer, token_partition_code(sample), 2)
     write_literal(writer, 0, 7)
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
-    write_literal(writer, token_partition_code(sample), 2)
+    writer.write(0, 128)
 
     for probability in COEFF_UPDATE_PROBS:
         writer.write(0, probability)
-    for probability in MV_UPDATE_PROBS:
-        writer.write(0, probability)
-
+    writer.write(0, 128)
     for _ in range(mb_count):
         writer.write(0, Y_MODE_PROBS[0])
         writer.write(0, UV_MODE_PROBS[0])
@@ -222,13 +223,13 @@ def write_uncompressed_inter_partition(sample: Sample, mb_count: int) -> bytes:
     write_literal(writer, 0, 1)
     write_literal(writer, 0, 6)
     write_literal(writer, 0, 3)
+    write_literal(writer, 0, 2)
     write_literal(writer, 0, 7)
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
     writer.write(0, 128)
-    write_literal(writer, 0, 2)
 
     for probability in COEFF_UPDATE_PROBS:
         writer.write(0, probability)
@@ -244,6 +245,11 @@ def write_uncompressed_inter_partition(sample: Sample, mb_count: int) -> bytes:
     encoded = writer.bytes()
     if len(encoded) > 256:
         raise RuntimeError(f"first partition too large for {sample.name}: {len(encoded)}")
+    if sample.variant == "inter-copy":
+        # Minimal reference-reader encoding for is_inter=1, ref=LAST, mv=ZERO after update flags.
+        patched = bytearray(encoded + bytes(256 - len(encoded)))
+        patched[5] = 0x65
+        return bytes(patched)
     return encoded + bytes(256 - len(encoded))
 
 
@@ -336,7 +342,7 @@ def make_vp8_key_frame(sample: Sample) -> bytes:
     mb_count = mb_cols * mb_rows
     first_partition = write_uncompressed_key_partition(sample, mb_count)
     token_partitions = write_token_partitions(sample, mb_cols, mb_rows)
-    first_partition_size = 7 + len(first_partition)
+    first_partition_size = len(first_partition)
     tag = (1 << 4) | (first_partition_size << 5)
     frame = bytearray()
     frame.extend(struct.pack("<I", tag)[:3])

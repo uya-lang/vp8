@@ -326,7 +326,7 @@ test "small key frame mode map matches golden macroblock order" {
     defer free_macroblock_info_arrays(&info);
     var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
 
-    try parse_key_frame_mode_map(&reader, &probs, &info);
+    try parse_key_frame_mode_map(&reader, &probs, false, 0 as byte, &info);
 
     const mb00: MacroblockInfoValue = try macroblock_info_get(&info, 0, 0);
     const mb10: MacroblockInfoValue = try macroblock_info_get(&info, 1, 0);
@@ -335,6 +335,32 @@ test "small key frame mode map matches golden macroblock order" {
     try assert_eq_i32(mb00.uv_mode as i32, 0);
     try assert_eq_i32(mb10.y_mode as i32, 1);
     try assert_eq_i32(mb10.uv_mode as i32, 1);
+}
+
+test "key frame mode map reads skip coefficient flag before macroblock modes" {
+    var encoded: [byte: 32] = [];
+    var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
+    const probs: Vp8Probs = vp8_default_probs();
+    const prob_skip_false: byte = 120 as byte;
+
+    try bool_writer_write(&writer, 1 as u8, prob_skip_false);
+    var dc_y_bits: [u8: 1] = [ 0 ];
+    var dc_uv_bits: [u8: 1] = [ 0 ];
+    try write_bits(&writer, &dc_y_bits[0] as &u8, 1, &probs.y_mode_probs[0] as &byte);
+    try write_bits(&writer, &dc_uv_bits[0] as &u8, 1, &probs.uv_mode_probs[0] as &byte);
+    try bool_writer_flush(&writer);
+
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(16, 16);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+    var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
+
+    try parse_key_frame_mode_map(&reader, &probs, true, prob_skip_false, &info);
+
+    const mb00: MacroblockInfoValue = try macroblock_info_get(&info, 0, 0);
+    try assert_eq_i32(mb00.skip_coeff as i32, true as i32);
+    try assert_eq_i32(mb00.y_mode as i32, 0);
+    try assert_eq_i32(mb00.uv_mode as i32, 0);
 }
 
 test "parse inter frame intra inter macroblock flag" {

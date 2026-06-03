@@ -3,13 +3,18 @@ use std.testing.assert_eq_i32;
 use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
+use vp8.bitstream.header.Vp8KeyFrameColorConfig;
 use vp8.bitstream.header.Vp8LoopFilterHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
+use vp8.bitstream.header.Vp8SkipCoeffHeader;
 use vp8.bitstream.header.parse_key_frame_start_code;
 use vp8.bitstream.header.parse_key_frame_size;
 use vp8.bitstream.header.parse_vp8_key_frame_header;
+use vp8.bitstream.header.parse_vp8_key_frame_color_config;
+use vp8.bitstream.header.parse_vp8_refresh_entropy;
+use vp8.bitstream.header.parse_vp8_skip_coeff_header;
 use vp8.bitstream.header.parse_vp8_loop_filter;
 use vp8.bitstream.header.parse_vp8_coeff_probability_updates;
 use vp8.bitstream.header.parse_vp8_frame_probability_updates;
@@ -29,10 +34,12 @@ use vp8.bitstream.bool_reader.BoolReader;
 use vp8.bitstream.bool_reader.bool_reader_error_byte_offset;
 use vp8.bitstream.bool_reader.bool_reader_error_partition_id;
 use vp8.bitstream.bool_reader.bool_reader_partition_id;
+use vp8.bitstream.bool_reader.bool_reader_bit_offset;
 use vp8.bitstream.bool_reader.bool_reader_byte_offset;
 use vp8.bitstream.bool_reader.make_bool_reader;
 use vp8.bitstream.bool_reader.make_bool_reader_for_partition;
 use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_byte_count;
 use vp8.bitstream.bool_writer.bool_writer_flush;
 use vp8.bitstream.bool_writer.bool_writer_write;
 use vp8.bitstream.bool_writer.make_bool_writer;
@@ -401,6 +408,47 @@ test "inter frame probability updates inherit existing state and apply deltas" {
     try assert_eq_i32(probs.mv_probs[2] as i32, 225);
 }
 
+test "key frame probability updates do not read motion vector updates" {
+    var out: [byte: 256] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 256);
+    var index: usize = 0;
+
+    while index < 1056 {
+        try bool_writer_write(&writer, 0 as u8, vp8_coeff_update_probability(index));
+        index = index + 1;
+    }
+    try bool_writer_flush(&writer);
+
+    var coeff_probs: [byte: 1056] = [];
+    var mv_probs: [byte: 38] = [];
+    index = 0;
+    while index < 1056 {
+        coeff_probs[index] = 1 as byte;
+        index = index + 1;
+    }
+    index = 0;
+    while index < 38 {
+        mv_probs[index] = 1 as byte;
+        index = index + 1;
+    }
+
+    var probs: Vp8Probs = Vp8Probs{
+        y_mode_probs: [ 1, 1, 1, 1 ],
+        uv_mode_probs: [ 1, 1, 1 ],
+        coeff_probs: &coeff_probs[0] as &byte,
+        coeff_prob_count: 1056,
+        mv_probs: &mv_probs[0] as &byte,
+        mv_prob_count: 38
+    };
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    try parse_vp8_frame_probability_updates(&reader, &probs, true);
+
+    try assert_eq_i32(probs.coeff_probs[0] as i32, 128);
+    try assert_eq_i32(probs.mv_probs[0] as i32, 162);
+    try assert_eq_i32(probs.mv_probs[37] as i32, 254);
+    try assert_eq_i32(bool_reader_bit_offset(&reader) as i32, 1056);
+}
+
 test "bad probability update reports exact reader partition and byte offset" {
     var data: [byte: 2] = [ 0x00, 0x00 ];
     var reader: BoolReader = try make_bool_reader_for_partition(&data[0] as &byte, 2, 7);
@@ -469,6 +517,37 @@ test "parse VP8 segmentation enabled update data and map probabilities" {
     try assert_eq_i32(segmentation.segment_prob[2] as i32, 255);
 }
 
+test "parse key frame color space and clamping bits" {
+    var out: [byte: 8] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 8);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    const config: Vp8KeyFrameColorConfig = try parse_vp8_key_frame_color_config(&reader);
+
+    try assert_eq_i32(config.color_space as i32, 0);
+    try assert_eq_i32(config.clamping_type as i32, 1);
+}
+
+test "parse refresh entropy and skip coeff headers" {
+    var out: [byte: 8] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 8);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 0, 8 as u8);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    const refresh_entropy: bool = try parse_vp8_refresh_entropy(&reader);
+    const skip: Vp8SkipCoeffHeader = try parse_vp8_skip_coeff_header(&reader);
+
+    try assert_eq_i32(refresh_entropy as i32, true as i32);
+    try assert_eq_i32(skip.enabled as i32, true as i32);
+    try assert_eq_i32(skip.prob_skip_false as i32, 0);
+}
+
 test "parse VP8 loop filter type level sharpness and delta updates" {
     var out: [byte: 32] = [];
     var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 32);
@@ -500,14 +579,14 @@ test "parse VP8 loop filter type level sharpness and delta updates" {
     try assert_eq_i32(loop_filter.sharpness as i32, 5);
     try assert_eq_i32(loop_filter.delta_enabled as i32, true as i32);
     try assert_eq_i32(loop_filter.delta_update as i32, true as i32);
-    try assert_eq_i32(loop_filter.ref_delta[0] as i32, -1);
+    try assert_eq_i32(loop_filter.ref_delta[0] as i32, -3);
     try assert_eq_i32(loop_filter.ref_delta[1] as i32, -1);
     try assert_eq_i32(loop_filter.ref_delta[2] as i32, -1);
     try assert_eq_i32(loop_filter.ref_delta[3] as i32, 1);
-    try assert_eq_i32(loop_filter.mode_delta[0] as i32, 4);
+    try assert_eq_i32(loop_filter.mode_delta[0] as i32, 2);
     try assert_eq_i32(loop_filter.mode_delta[1] as i32, -1);
-    try assert_eq_i32(loop_filter.mode_delta[2] as i32, -51);
-    try assert_eq_i32(loop_filter.mode_delta[3] as i32, -31);
+    try assert_eq_i32(loop_filter.mode_delta[2] as i32, 2);
+    try assert_eq_i32(loop_filter.mode_delta[3] as i32, 4);
 }
 
 test "parse VP8 quant base index and optional deltas" {
@@ -531,9 +610,9 @@ test "parse VP8 quant base index and optional deltas" {
     try assert_eq_i32(quant.base_qindex as i32, 37);
     try assert_eq_i32(quant.y1_dc_delta as i32, -3);
     try assert_eq_i32(quant.y2_dc_delta as i32, 0);
-    try assert_eq_i32(quant.y2_ac_delta as i32, 2);
-    try assert_eq_i32(quant.uv_dc_delta as i32, 0);
-    try assert_eq_i32(quant.uv_ac_delta as i32, -2);
+    try assert_eq_i32(quant.y2_ac_delta as i32, 4);
+    try assert_eq_i32(quant.uv_dc_delta as i32, -2);
+    try assert_eq_i32(quant.uv_ac_delta as i32, 0);
 }
 
 test "parse VP8 token partition count code" {
@@ -569,7 +648,7 @@ test "parse VP8 token partitions from frame payload size table" {
     ];
     var readers: [BoolReader: 8] = [];
 
-    try parse_vp8_token_partition_readers(&frame[0] as &byte, 28, 3, 4 as u8, &readers[0] as &BoolReader);
+    try parse_vp8_token_partition_readers(&frame[0] as &byte, 28, 3, 3, 4 as u8, &readers[0] as &BoolReader);
 
     try assert_eq_i32(bool_reader_partition_id(&readers[0]), 0);
     try assert_eq_i32(bool_reader_partition_id(&readers[1]), 1);
@@ -591,7 +670,7 @@ test "reject VP8 token partition size table overrun" {
     var readers: [BoolReader: 8] = [];
     var failed: i32 = 0;
 
-    _ = parse_vp8_token_partition_readers(&frame[0] as &byte, 18, 3, 4 as u8, &readers[0] as &BoolReader) catch {
+    _ = parse_vp8_token_partition_readers(&frame[0] as &byte, 18, 3, 3, 4 as u8, &readers[0] as &BoolReader) catch {
         failed = 1;
     };
 
@@ -650,13 +729,40 @@ test "reject short VP8 frame tag" {
     try assert_eq_i32(failed, 1);
 }
 
-test "validate VP8 first partition size" {
-    var ok_data: [byte: 5] = [ 0x50, 0x00, 0x00, 0xaa, 0xbb ];
-    var short_data: [byte: 4] = [ 0x50, 0x00, 0x00, 0xaa ];
+test "validate inter VP8 first partition size" {
+    var ok_data: [byte: 5] = [ 0x51, 0x00, 0x00, 0xaa, 0xbb ];
+    var short_data: [byte: 4] = [ 0x51, 0x00, 0x00, 0xaa ];
     var failed: i32 = 0;
 
     const ok: Vp8FrameTag = try parse_vp8_frame_tag_checked(&ok_data[0] as &byte, 5);
     _ = parse_vp8_frame_tag_checked(&short_data[0] as &byte, 4) catch {
+        failed = 1;
+        dummy_tag();
+    };
+
+    try assert_eq_i32(ok.first_partition_size as i32, 2);
+    try assert_eq_i32(failed, 1);
+}
+
+test "validate key VP8 first partition size after key header" {
+    var ok_data: [byte: 12] = [
+        0x50, 0x00, 0x00,
+        0x9d, 0x01, 0x2a,
+        0x10, 0x00,
+        0x10, 0x00,
+        0xaa, 0xbb
+    ];
+    var short_data: [byte: 11] = [
+        0x50, 0x00, 0x00,
+        0x9d, 0x01, 0x2a,
+        0x10, 0x00,
+        0x10, 0x00,
+        0xaa
+    ];
+    var failed: i32 = 0;
+
+    const ok: Vp8FrameTag = try parse_vp8_frame_tag_checked(&ok_data[0] as &byte, 12);
+    _ = parse_vp8_frame_tag_checked(&short_data[0] as &byte, 11) catch {
         failed = 1;
         dummy_tag();
     };

@@ -8,7 +8,11 @@ use vp8.bitstream.header.Vp8LoopFilterHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
+use vp8.bitstream.header.Vp8SkipCoeffHeader;
 use vp8.bitstream.header.parse_vp8_frame_probability_updates;
+use vp8.bitstream.header.parse_vp8_key_frame_color_config;
+use vp8.bitstream.header.parse_vp8_refresh_entropy;
+use vp8.bitstream.header.parse_vp8_skip_coeff_header;
 use vp8.bitstream.header.parse_vp8_frame_tag_checked;
 use vp8.bitstream.header.parse_vp8_key_frame_header;
 use vp8.bitstream.header.parse_vp8_loop_filter;
@@ -388,6 +392,33 @@ fn add_summary_counts(total_has_coeff: &bool, total_dc_only: &bool, total_count:
     }
 }
 
+fn coeff_context_store_macroblock_zero(coeff_ctx: &AboveLeftCoeffContext, mb_x: usize, include_y2: bool) !void {
+    if include_y2 {
+        try coeff_context_store_y2_after_decode(coeff_ctx, mb_x, 0 as byte);
+    }
+
+    var y_block_y: usize = 0;
+    while y_block_y < 4 {
+        var y_block_x: usize = 0;
+        while y_block_x < 4 {
+            try coeff_context_store_y_after_decode(coeff_ctx, mb_x, y_block_x, y_block_y, 0 as byte);
+            y_block_x = y_block_x + 1;
+        }
+        y_block_y = y_block_y + 1;
+    }
+
+    var uv_block_y: usize = 0;
+    while uv_block_y < 2 {
+        var uv_block_x: usize = 0;
+        while uv_block_x < 2 {
+            try coeff_context_store_u_after_decode(coeff_ctx, mb_x, uv_block_x, uv_block_y, 0 as byte);
+            try coeff_context_store_v_after_decode(coeff_ctx, mb_x, uv_block_x, uv_block_y, 0 as byte);
+            uv_block_x = uv_block_x + 1;
+        }
+        uv_block_y = uv_block_y + 1;
+    }
+}
+
 fn reconstruct_dequantized_block(coefficients: &i16, dc_factor: i16, ac_factor: i16, dst: &byte, dst_stride: usize, dc_only: bool) void {
     var dequantized: [i16: 16] = [];
     var residual: [i16: 16] = [];
@@ -583,6 +614,7 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
         while mb_x < decoder.context.grid.mb_cols {
             const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
             const y_mode: byte = decoder.context.mb_info.y_mode[mb_index];
+            const skip_coeff: bool = decoder.context.mb_info.skip_coeff[mb_index] != (0 as byte);
             var total_has_coeff: bool = false;
             var total_dc_only: bool = true;
             var total_count: byte = 0 as byte;
@@ -591,13 +623,17 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
             if y_mode != VP8_Y_MODE_B {
                 predict_key_frame_y16(decoder, frame, mb_x, mb_y);
 
-                const y2_context: CoeffContextPair = try coeff_context_get_y2(&coeff_ctx, mb_x);
-                const y2_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 1, 0, y2_context.above, y2_context.left, &y2_coefficients[0] as &i16);
-                add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y2_summary);
-                try coeff_context_store_y2_after_decode(&coeff_ctx, mb_x, y2_summary.has_coeff as byte);
+                if skip_coeff {
+                    try coeff_context_store_y2_after_decode(&coeff_ctx, mb_x, 0 as byte);
+                } else {
+                    const y2_context: CoeffContextPair = try coeff_context_get_y2(&coeff_ctx, mb_x);
+                    const y2_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 1, 0, y2_context.above, y2_context.left, &y2_coefficients[0] as &i16);
+                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y2_summary);
+                    try coeff_context_store_y2_after_decode(&coeff_ctx, mb_x, y2_summary.has_coeff as byte);
 
-                dequant_block_4x4(&y2_coefficients[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_dequantized[0] as &i16);
-                inverse_walsh_hadamard_y2_4x4(&y2_dequantized[0] as &i16, &y2_dc[0] as &i16);
+                    dequant_block_4x4(&y2_coefficients[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_dequantized[0] as &i16);
+                    inverse_walsh_hadamard_y2_4x4(&y2_dequantized[0] as &i16, &y2_dc[0] as &i16);
+                }
             }
 
             var y_block_y: usize = 0;
@@ -607,24 +643,28 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
                     if y_mode == VP8_Y_MODE_B {
                         try predict_key_frame_y4x4(decoder, frame, mb_x, mb_y, y_block_x, y_block_y);
                     }
-                    const y_context: CoeffContextPair = try coeff_context_get_y(&coeff_ctx, mb_x, y_block_x, y_block_y);
-                    var start_position: usize = 0;
-                    var block_type: usize = 3;
-                    if y_mode != VP8_Y_MODE_B {
-                        start_position = 1;
-                        block_type = 0;
-                    }
-                    const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, block_type, start_position, y_context.above, y_context.left, &coefficients[0] as &i16);
-                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
-                    try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, (y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16)) as byte);
-
-                    const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
-                    if y_mode == VP8_Y_MODE_B {
-                        if y_summary.has_coeff {
-                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                    if skip_coeff {
+                        try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, 0 as byte);
+                    } else {
+                        const y_context: CoeffContextPair = try coeff_context_get_y(&coeff_ctx, mb_x, y_block_x, y_block_y);
+                        var start_position: usize = 0;
+                        var block_type: usize = 3;
+                        if y_mode != VP8_Y_MODE_B {
+                            start_position = 1;
+                            block_type = 0;
                         }
-                    } else if y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16) {
-                        reconstruct_y_block_with_optional_y2_dc(&coefficients[0] as &i16, y2_dc[(y_block_y * (4 as usize)) + y_block_x], factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.has_coeff);
+                        const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, block_type, start_position, y_context.above, y_context.left, &coefficients[0] as &i16);
+                        add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
+                        try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, (y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16)) as byte);
+
+                        const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
+                        if y_mode == VP8_Y_MODE_B {
+                            if y_summary.has_coeff {
+                                reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                            }
+                        } else if y_summary.has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16) {
+                            reconstruct_y_block_with_optional_y2_dc(&coefficients[0] as &i16, y2_dc[(y_block_y * (4 as usize)) + y_block_x], factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.has_coeff);
+                        }
                     }
 
                     y_block_x = y_block_x + 1;
@@ -637,13 +677,17 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
             while uv_block_y < 2 {
                 var uv_block_x: usize = 0;
                 while uv_block_x < 2 {
-                    const u_context: CoeffContextPair = try coeff_context_get_u(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
-                    const u_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, u_context.above, u_context.left, &coefficients[0] as &i16);
-                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &u_summary);
-                    try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
-                    if u_summary.has_coeff {
-                        const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
-                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                    if skip_coeff {
+                        try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, 0 as byte);
+                    } else {
+                        const u_context: CoeffContextPair = try coeff_context_get_u(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
+                        const u_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, u_context.above, u_context.left, &coefficients[0] as &i16);
+                        add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &u_summary);
+                        try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
+                        if u_summary.has_coeff {
+                            const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                        }
                     }
 
                     uv_block_x = uv_block_x + 1;
@@ -655,13 +699,17 @@ fn decode_key_frame_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &
             while uv_block_y < 2 {
                 var uv_block_x_v: usize = 0;
                 while uv_block_x_v < 2 {
-                    const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y);
-                    const v_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, v_context.above, v_context.left, &coefficients[0] as &i16);
-                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &v_summary);
-                    try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y, v_summary.has_coeff as byte);
-                    if v_summary.has_coeff {
-                        const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x_v * (4 as usize));
-                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                    if skip_coeff {
+                        try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y, 0 as byte);
+                    } else {
+                        const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y);
+                        const v_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, v_context.above, v_context.left, &coefficients[0] as &i16);
+                        add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &v_summary);
+                        try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x_v, uv_block_y, v_summary.has_coeff as byte);
+                        if v_summary.has_coeff {
+                            const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x_v * (4 as usize));
+                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                        }
                     }
 
                     uv_block_x_v = uv_block_x_v + 1;
@@ -781,6 +829,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
             var total_has_coeff: bool = false;
             var total_dc_only: bool = true;
             var total_count: byte = 0 as byte;
+            const skip_coeff: bool = decoder.context.mb_info.skip_coeff[mb_index] != (0 as byte);
 
             if decoder.context.mb_info.ref_frame[mb_index] == VP8_REF_CURRENT {
                 predict_key_frame_y16(decoder, frame, mb_x, mb_y);
@@ -789,17 +838,23 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
                 try predict_inter_macroblock(decoder, frame, mb_x, mb_y, decoder.context.mb_info.ref_frame[mb_index], decoder.context.mb_info.mv_x[mb_index], decoder.context.mb_info.mv_y[mb_index]);
             }
 
+            if skip_coeff {
+                try coeff_context_store_macroblock_zero(&coeff_ctx, mb_x, false);
+            }
+
             var y_block_y: usize = 0;
             while y_block_y < 4 {
                 var y_block_x: usize = 0;
                 while y_block_x < 4 {
-                    const y_context: CoeffContextPair = try coeff_context_get_y(&coeff_ctx, mb_x, y_block_x, y_block_y);
-                    const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 0, 0, y_context.above, y_context.left, &coefficients[0] as &i16);
-                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
-                    try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, y_summary.has_coeff as byte);
-                    if y_summary.has_coeff {
-                        const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
-                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                    if !skip_coeff {
+                        const y_context: CoeffContextPair = try coeff_context_get_y(&coeff_ctx, mb_x, y_block_x, y_block_y);
+                        const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 0, 0, y_context.above, y_context.left, &coefficients[0] as &i16);
+                        add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
+                        try coeff_context_store_y_after_decode(&coeff_ctx, mb_x, y_block_x, y_block_y, y_summary.has_coeff as byte);
+                        if y_summary.has_coeff {
+                            const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
+                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_summary.dc_only);
+                        }
                     }
                     y_block_x = y_block_x + 1;
                 }
@@ -810,22 +865,24 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
             while uv_block_y < 2 {
                 var uv_block_x: usize = 0;
                 while uv_block_x < 2 {
-                    const u_context: CoeffContextPair = try coeff_context_get_u(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
-                    const u_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, u_context.above, u_context.left, &coefficients[0] as &i16);
-                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &u_summary);
-                    try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
-                    if u_summary.has_coeff {
-                        const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
-                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
-                    }
+                    if !skip_coeff {
+                        const u_context: CoeffContextPair = try coeff_context_get_u(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
+                        const u_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, u_context.above, u_context.left, &coefficients[0] as &i16);
+                        add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &u_summary);
+                        try coeff_context_store_u_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, u_summary.has_coeff as byte);
+                        if u_summary.has_coeff {
+                            const u_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.u.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.u.plane.origin[u_dst_offset] as &byte, frame.u.plane.stride, u_summary.dc_only);
+                        }
 
-                    const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
-                    const v_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, v_context.above, v_context.left, &coefficients[0] as &i16);
-                    add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &v_summary);
-                    try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, v_summary.has_coeff as byte);
-                    if v_summary.has_coeff {
-                        const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
-                        reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                        const v_context: CoeffContextPair = try coeff_context_get_v(&coeff_ctx, mb_x, uv_block_x, uv_block_y);
+                        const v_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 2, 0, v_context.above, v_context.left, &coefficients[0] as &i16);
+                        add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &v_summary);
+                        try coeff_context_store_v_after_decode(&coeff_ctx, mb_x, uv_block_x, uv_block_y, v_summary.has_coeff as byte);
+                        if v_summary.has_coeff {
+                            const v_dst_offset: usize = (((mb_y * (8 as usize)) + (uv_block_y * (4 as usize))) * frame.v.plane.stride) + (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+                            reconstruct_dequantized_block(&coefficients[0] as &i16, factors.uv_dc, factors.uv_ac, &frame.v.plane.origin[v_dst_offset] as &byte, frame.v.plane.stride, v_summary.dc_only);
+                        }
                     }
                     uv_block_x = uv_block_x + 1;
                 }
@@ -871,32 +928,39 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     if key_frame {
         header = try parse_vp8_key_frame_header(data, len);
         try validate_header_matches_context(decoder, &header);
-        if tag.first_partition_size < (7 as u32) {
-            return error.ErrDecoderInvalidFrame;
-        }
         first_partition_reader_offset = 10;
-        first_partition_reader_len = (tag.first_partition_size - (7 as u32)) as usize;
+        first_partition_reader_len = tag.first_partition_size as usize;
     }
 
     try decoder_context_begin_frame(decoder.context);
 
     var probs: Vp8Probs = decoder_probs(decoder);
+    var skip_coeff_header: Vp8SkipCoeffHeader = Vp8SkipCoeffHeader{ enabled: false, prob_skip_false: 0 as byte };
     var first_partition_reader: BoolReader = try make_bool_reader_for_partition(&data[first_partition_reader_offset] as &byte, first_partition_reader_len, -1);
+    if key_frame {
+        _ = try parse_vp8_key_frame_color_config(&first_partition_reader);
+    }
     const segmentation: Vp8Segmentation = try parse_vp8_segmentation(&first_partition_reader);
     const loop_filter: Vp8LoopFilterHeader = try parse_vp8_loop_filter(&first_partition_reader);
-    const quant: Vp8QuantHeader = try parse_vp8_quant(&first_partition_reader);
     const token_partition_count: u8 = try parse_vp8_token_partition_count(&first_partition_reader);
+    const quant: Vp8QuantHeader = try parse_vp8_quant(&first_partition_reader);
+    if key_frame {
+        _ = try parse_vp8_refresh_entropy(&first_partition_reader);
+    }
     try parse_vp8_frame_probability_updates(&first_partition_reader, &probs, key_frame);
+    if key_frame {
+        skip_coeff_header = try parse_vp8_skip_coeff_header(&first_partition_reader);
+    }
     store_tree_probs(decoder, &probs);
 
     if key_frame {
-        try parse_key_frame_mode_map(&first_partition_reader, &probs, &decoder.context.mb_info);
+        try parse_key_frame_mode_map(&first_partition_reader, &probs, skip_coeff_header.enabled, skip_coeff_header.prob_skip_false, &decoder.context.mb_info);
     } else {
         try parse_inter_mode_map(decoder, &first_partition_reader, &probs);
     }
 
     var token_readers: [BoolReader: 8] = [];
-    try parse_vp8_token_partition_readers(data, len, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
+    try parse_vp8_token_partition_readers(data, len, first_partition_reader_offset, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
 
     const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
     if key_frame {

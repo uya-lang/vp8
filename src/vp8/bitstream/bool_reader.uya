@@ -32,18 +32,27 @@ export fn make_bool_reader(data: &byte, len: usize) !BoolReader {
 }
 
 export fn make_bool_reader_for_partition(data: &byte, len: usize, partition_id: i32) !BoolReader {
-    if len < 2 {
+    if len < 1 {
         return error.ErrBoolReaderOverread;
+    }
+
+    var first_byte: u32 = 0;
+    var second_byte: u32 = 0;
+    var byte_pos: usize = len;
+    if len >= 2 {
+        first_byte = data[0] as u32;
+        second_byte = data[1] as u32;
+        byte_pos = 2;
     }
 
     return BoolReader{
         data: data,
         len: len,
         partition_id: partition_id,
-        byte_pos: 2,
+        byte_pos: byte_pos,
         range: 255,
-        value: ((data[0] as u32) << 8) | (data[1] as u32),
-        bits_left: 8,
+        value: (first_byte << 8) | second_byte,
+        bits_left: 0,
         bit_offset: 0,
         error_partition_id: -1,
         error_byte_offset: 0
@@ -109,10 +118,12 @@ export fn bool_reader_read(reader: &BoolReader, probability: byte) !u8 {
     }
 
     while next_range < 128 {
-        next_range = next_range << 1;
         next_value = next_value << 1;
+        next_range = next_range << 1;
+        next_bits_left = (next_bits_left + (1 as u8)) as u8;
 
-        if next_bits_left == 0 {
+        if next_bits_left == 8 {
+            next_bits_left = 0;
             if next_byte_pos >= reader.len {
                 reader.error_partition_id = reader.partition_id;
                 reader.error_byte_offset = next_byte_pos;
@@ -121,10 +132,7 @@ export fn bool_reader_read(reader: &BoolReader, probability: byte) !u8 {
 
             next_value = next_value | (reader.data[next_byte_pos] as u32);
             next_byte_pos = next_byte_pos + 1;
-            next_bits_left = 8;
         }
-
-        next_bits_left = next_bits_left - 1;
     }
 
     reader.range = next_range;

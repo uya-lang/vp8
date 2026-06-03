@@ -56,17 +56,22 @@ test "read signed value helper applies trailing sign bit" {
     try assert_eq_i32(try read_signed_value(&negative_reader, 3 as u8), -5);
 }
 
-test "VP8 boolean reader rejects short initialization and overread" {
+test "VP8 boolean reader rejects empty initialization and overread" {
     var empty_data: [byte: 1] = [ 0x00 ];
-    const init_fallback: usize = (make_bool_reader(&empty_data[0] as &byte, 1) catch {
+    const init_fallback: usize = (make_bool_reader(&empty_data[0] as &byte, 0) catch {
         BoolReader{ data: &empty_data[0] as &byte, len: 0, partition_id: 0, byte_pos: 0, range: 0, value: 0, bits_left: 0, bit_offset: 99, error_partition_id: -1, error_byte_offset: 0 };
     }).bit_offset;
     try assert_eq_i32(init_fallback as i32, 99);
 
+    var single_byte_data: [byte: 1] = [ 0x00 ];
+    var single_byte_reader: BoolReader = try make_bool_reader(&single_byte_data[0] as &byte, 1);
+    try assert_eq_i32(bool_reader_byte_offset(&single_byte_reader) as i32, 1);
+    try assert_eq_i32((try bool_reader_read(&single_byte_reader, 128 as byte)) as i32, 0);
+
     var data: [byte: 2] = [ 0x00, 0x00 ];
     var reader: BoolReader = try make_bool_reader(&data[0] as &byte, 2);
     var count: i32 = 0;
-    while count < 9 {
+    while count < 8 {
         try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
         count = count + 1;
     }
@@ -80,7 +85,7 @@ test "partition boundary overread keeps reader offsets stable" {
     var data: [byte: 2] = [ 0x00, 0x00 ];
     var reader: BoolReader = try make_bool_reader_for_partition(&data[0] as &byte, 2, 4);
     var count: i32 = 0;
-    while count < 9 {
+    while count < 8 {
         try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
         count = count + 1;
     }
@@ -100,7 +105,7 @@ test "overread error records partition id and byte offset" {
     var reader: BoolReader = try make_bool_reader_for_partition(&data[0] as &byte, 2, 7);
     var count: i32 = 0;
 
-    while count < 9 {
+    while count < 8 {
         try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 0);
         count = count + 1;
     }

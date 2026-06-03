@@ -20,6 +20,7 @@ FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 SRC := src/main.uya
+SRC_FILES := $(shell find src -name '*.uya' -print)
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
 UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_decoder_scalar_test.uya
 SCALAR_DECODER_TESTS := $(UYA_TESTS)
@@ -32,7 +33,7 @@ all: build
 
 build: require-uya $(BIN)
 
-$(BIN): $(SRC) Makefile
+$(BIN): $(SRC_FILES) Makefile
 	mkdir -p $(BUILD_DIR)
 	$(UYA) build $(SRC) -o $@
 
@@ -97,8 +98,8 @@ test-malformed-vp8: build
 test-fuzz-smoke: build
 	python3 $(FUZZ_SMOKE_SCRIPT) $(BIN) $(FUZZ_SMOKE_DIR)
 
-test-vpxdiff:
-	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR)
+test-vpxdiff: build
+	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR) $(BIN)
 
 require-uya:
 	@if ! command -v "$(UYA)" >/dev/null 2>&1 && ! test -x "$(UYA)"; then \
