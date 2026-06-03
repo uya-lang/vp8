@@ -2,9 +2,12 @@ use std.testing.assert_eq_i32;
 
 use vp8.common.cpu.SimdLevel;
 use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderIvfWriter;
 use vp8.encoder.context.EncoderRateControlMode;
 use vp8.encoder.context.EncoderSpeedPreset;
 use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.encoder_ivf_writer_begin;
+use vp8.encoder.context.encoder_ivf_writer_write_frame;
 use vp8.encoder.context.empty_yuv_frame_view;
 use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
@@ -12,6 +15,13 @@ use vp8.encoder.context.make_yuv420_frame_view;
 use vp8.encoder.context.validate_encoder_config;
 use vp8.encoder.context.validate_yuv_frame_view;
 use vp8.encoder.context.yuv420_frame_view_size;
+use vp8.container.ivf.IvfFrame;
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.ivf_frame_iterator_has_next;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
 
 test "EncoderConfig default captures keyframe MVP settings" {
     const config: EncoderConfig = make_default_encoder_config(640, 360);
@@ -136,6 +146,67 @@ test "YuvFrameView rejects invalid strides and short storage" {
     _ = make_i420_frame_view(&data[0] as &byte, 23, 4, 4) catch {
         failed = 1;
         empty_yuv_frame_view();
+    };
+    try assert_eq_i32(failed, 1);
+}
+
+test "encoder IVF writer integrates config timing and packet payloads" {
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.fps_numerator = 24;
+    config.fps_denominator = 1;
+
+    var out: [byte: 64] = [];
+    var writer: EncoderIvfWriter = try encoder_ivf_writer_begin(&out[0] as &byte, 64, &config, 2);
+
+    var first_payload: [byte: 2] = [ 0xaa as byte, 0xbb as byte ];
+    var second_payload: [byte: 1] = [ 0xcc as byte ];
+    try encoder_ivf_writer_write_frame(&writer, &out[0] as &byte, 64, &first_payload[0] as &byte, 2);
+    try encoder_ivf_writer_write_frame(&writer, &out[0] as &byte, 64, &second_payload[0] as &byte, 1);
+
+    try assert_eq_i32(writer.offset as i32, 59);
+    try assert_eq_i32(writer.frame_index as i32, 2);
+    try assert_eq_i32(writer.frame_count as i32, 2);
+    try assert_eq_i32(writer.next_timestamp as i32, 2);
+
+    const header: IvfHeader = try parse_ivf_header(&out[0] as &byte, 59);
+    try assert_eq_i32(header.width as i32, 16);
+    try assert_eq_i32(header.height as i32, 16);
+    try assert_eq_i32(header.timebase_denominator as i32, 24);
+    try assert_eq_i32(header.timebase_numerator as i32, 1);
+    try assert_eq_i32(header.frame_count as i32, 2);
+
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, 59, &header);
+    const frame0: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    try assert_eq_i32(frame0.index as i32, 0);
+    try assert_eq_i32(frame0.timestamp as i32, 0);
+    try assert_eq_i32(frame0.payload.len as i32, 2);
+    try assert_eq_i32(frame0.payload.data[0] as i32, 0xaa);
+    try assert_eq_i32(frame0.payload.data[1] as i32, 0xbb);
+
+    const frame1: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    try assert_eq_i32(frame1.index as i32, 1);
+    try assert_eq_i32(frame1.timestamp as i32, 1);
+    try assert_eq_i32(frame1.payload.len as i32, 1);
+    try assert_eq_i32(frame1.payload.data[0] as i32, 0xcc);
+    try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, false as i32);
+}
+
+test "encoder IVF writer rejects short output buffers" {
+    const config: EncoderConfig = make_default_encoder_config(16, 16);
+    var out: [byte: 44] = [];
+    var failed: i32 = 0;
+
+    _ = encoder_ivf_writer_begin(&out[0] as &byte, 31, &config, 1) catch {
+        failed = 1;
+        EncoderIvfWriter{ offset: 0, frame_index: 0, frame_count: 0, next_timestamp: 0 };
+    };
+    try assert_eq_i32(failed, 1);
+
+    failed = 0;
+    var writer: EncoderIvfWriter = try encoder_ivf_writer_begin(&out[0] as &byte, 44, &config, 1);
+    var payload: [byte: 2] = [ 1, 2 ];
+    _ = encoder_ivf_writer_write_frame(&writer, &out[0] as &byte, 44, &payload[0] as &byte, 2) catch {
+        failed = 1;
     };
     try assert_eq_i32(failed, 1);
 }

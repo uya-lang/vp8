@@ -1,8 +1,17 @@
 use vp8.common.cpu.SimdLevel;
 use vp8.common.frame.frame_buffer_chroma_dim;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.write_ivf_frame_header;
+use vp8.container.ivf.write_ivf_header;
 
 error ErrEncoderConfigInvalidValue;
+error ErrEncoderIvfWriteOutOfBounds;
 error ErrYuvFrameViewInvalidGeometry;
+
+const ENCODER_IVF_HEADER_BYTES: usize = 32;
+const ENCODER_IVF_FRAME_HEADER_BYTES: usize = 12;
+const ENCODER_IVF_U16_MAX: usize = 65535;
+const ENCODER_IVF_U32_MAX: usize = 4294967295;
 
 export enum EncoderRateControlMode {
     constant_quantizer = 0,
@@ -46,6 +55,13 @@ export struct YuvFrameView {
     v: YuvPlaneView
 }
 
+export struct EncoderIvfWriter {
+    offset: usize,
+    frame_index: u32,
+    frame_count: u32,
+    next_timestamp: u64
+}
+
 export fn make_default_encoder_config(width: usize, height: usize) EncoderConfig {
     return EncoderConfig{
         width: width,
@@ -81,6 +97,88 @@ export fn validate_encoder_config(config: &EncoderConfig) !void {
     if config.thread_count == 0 {
         return error.ErrEncoderConfigInvalidValue;
     }
+}
+
+fn encoder_ivf_checked_add(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+    return value;
+}
+
+fn encoder_ivf_ensure_available(len: usize, offset: usize, need: usize) !void {
+    if offset > len {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+
+    const remaining: usize = len - offset;
+    if remaining < need {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+}
+
+fn make_encoder_ivf_header(config: &EncoderConfig, frame_count: u32) !IvfHeader {
+    try validate_encoder_config(config);
+    if config.width > ENCODER_IVF_U16_MAX || config.height > ENCODER_IVF_U16_MAX {
+        return error.ErrEncoderConfigInvalidValue;
+    }
+
+    return IvfHeader{
+        version: 0,
+        header_size: ENCODER_IVF_HEADER_BYTES as u16,
+        width: config.width as u16,
+        height: config.height as u16,
+        timebase_denominator: config.fps_numerator,
+        timebase_numerator: config.fps_denominator,
+        frame_count: frame_count,
+        unused: 0
+    };
+}
+
+export fn encoder_ivf_writer_begin(out: &byte, len: usize, config: &EncoderConfig, frame_count: u32) !EncoderIvfWriter {
+    if out == null {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+
+    const header: IvfHeader = try make_encoder_ivf_header(config, frame_count);
+    try write_ivf_header(out, len, &header);
+    return EncoderIvfWriter{
+        offset: ENCODER_IVF_HEADER_BYTES,
+        frame_index: 0,
+        frame_count: frame_count,
+        next_timestamp: 0
+    };
+}
+
+export fn encoder_ivf_writer_write_frame(writer: &EncoderIvfWriter, out: &byte, len: usize, payload: &byte, payload_len: usize) !void {
+    if out == null {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+    if payload_len > 0 && payload == null {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+    if payload_len > ENCODER_IVF_U32_MAX {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+    if writer.frame_index >= writer.frame_count {
+        return error.ErrEncoderIvfWriteOutOfBounds;
+    }
+
+    const total_frame_bytes: usize = try encoder_ivf_checked_add(ENCODER_IVF_FRAME_HEADER_BYTES, payload_len);
+    try encoder_ivf_ensure_available(len, writer.offset, total_frame_bytes);
+    const payload_offset: usize = writer.offset + ENCODER_IVF_FRAME_HEADER_BYTES;
+
+    try write_ivf_frame_header(out, len, writer.offset, payload_len as u32, writer.next_timestamp);
+    var index: usize = 0;
+    while index < payload_len {
+        out[payload_offset + index] = payload[index];
+        index = index + 1;
+    }
+
+    writer.offset = payload_offset + payload_len;
+    writer.frame_index = writer.frame_index + 1;
+    writer.next_timestamp = writer.next_timestamp + 1;
 }
 
 fn yuv_checked_add(left: usize, right: usize) !usize {
