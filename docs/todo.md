@@ -212,7 +212,7 @@
 
 - [x] 定义 `SimdLevel`。
 - [x] 实现 CPU/构建能力检测。
-- [ ] 实现 kernel function table。
+- [x] 实现 kernel function table。
 - [ ] 实现 `--force-scalar`。
 - [ ] 实现 `--force-simd`。
 - [ ] 实现 scalar-vs-simd test harness。

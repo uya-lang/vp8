@@ -1,0 +1,96 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+use vp8.common.cpu.SimdLevel;
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.simd_detect_capabilities;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.kernel_table_add_residual_4x4_clamped;
+use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
+use vp8.kernels.dispatch.make_default_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
+
+fn assert_copy_result(dst: &byte, stride: usize) !void {
+    try assert_eq_i32(dst[0] as i32, 1);
+    try assert_eq_i32(dst[1] as i32, 2);
+    try assert_eq_i32(dst[2] as i32, 0);
+    try assert_eq_i32(dst[3] as i32, 0);
+    try assert_eq_i32(dst[stride] as i32, 5);
+    try assert_eq_i32(dst[stride + 1] as i32, 6);
+    try assert_eq_i32(dst[stride + 2] as i32, 0);
+    try assert_eq_i32(dst[stride + 3] as i32, 0);
+}
+
+test "kernel table exposes scalar function pointers" {
+    const table: KernelFunctionTable = make_scalar_kernel_table();
+
+    try expect(table.active_level == SimdLevel.scalar);
+    try expect(table.predict_inter_copy_fn != null);
+    try expect(table.add_residual_4x4_clamped_fn != null);
+
+    var src: [byte: 16] = [
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16
+    ];
+    var dst: [byte: 16] = [];
+
+    try kernel_table_predict_inter_copy(&table, &dst[0] as &byte, 4, &src[0] as &byte, 4, 2, 2);
+    try assert_copy_result(&dst[0] as &byte, 4);
+}
+
+test "kernel table residual entry calls through scalar implementation" {
+    const table: KernelFunctionTable = make_scalar_kernel_table();
+    var dst: [byte: 16] = [
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16
+    ];
+    var residual: [i16: 16] = [
+        -3, -2, -1, 0,
+        1, 2, 3, 4,
+        250, 260, -20, -30,
+        0, 0, 0, 0
+    ];
+
+    try kernel_table_add_residual_4x4_clamped(&table, &dst[0] as &byte, 4, &residual[0] as &i16);
+
+    try assert_eq_i32(dst[0] as i32, 0);
+    try assert_eq_i32(dst[1] as i32, 0);
+    try assert_eq_i32(dst[2] as i32, 2);
+    try assert_eq_i32(dst[3] as i32, 4);
+    try assert_eq_i32(dst[4] as i32, 6);
+    try assert_eq_i32(dst[5] as i32, 8);
+    try assert_eq_i32(dst[6] as i32, 10);
+    try assert_eq_i32(dst[7] as i32, 12);
+    try assert_eq_i32(dst[8] as i32, 255);
+    try assert_eq_i32(dst[9] as i32, 255);
+    try assert_eq_i32(dst[10] as i32, 0);
+    try assert_eq_i32(dst[11] as i32, 0);
+}
+
+test "default kernel table remains scalar until SIMD kernels are registered" {
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+    const table: KernelFunctionTable = make_default_kernel_table(&capabilities);
+
+    try expect(table.active_level == SimdLevel.scalar);
+    try expect(table.predict_inter_copy_fn != null);
+    try expect(table.add_residual_4x4_clamped_fn != null);
+}
+
+test "kernel table wrappers reject unknown entries" {
+    var table: KernelFunctionTable = make_scalar_kernel_table();
+    table.predict_inter_copy_fn = null as &void;
+
+    var src: [byte: 4] = [ 1, 2, 3, 4 ];
+    var dst: [byte: 4] = [];
+    var failed: i32 = 0;
+
+    kernel_table_predict_inter_copy(&table, &dst[0] as &byte, 2, &src[0] as &byte, 2, 2, 2) catch {
+        failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
+}
