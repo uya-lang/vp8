@@ -290,7 +290,7 @@
 - [x] 实现 intra 16x16 mode search。
 - [x] 实现 UV mode search。
 - [x] 实现 forward DCT。
-- [ ] 实现 forward WHT。
+- [x] 实现 forward WHT。
 - [ ] 实现 quantize。
 - [ ] 实现 coefficient tokenize。
 - [ ] 实现 bool writer partition output。

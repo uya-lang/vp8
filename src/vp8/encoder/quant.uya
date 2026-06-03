@@ -39,3 +39,56 @@ export fn forward_dct_4x4(input: &i16, input_stride: usize, output: &i16) void {
         col = col + 1;
     }
 }
+
+fn round_wht_negative(value: i32) i32 {
+    if value < 0 {
+        return value + 1;
+    }
+    return value;
+}
+
+export fn forward_walsh_hadamard_y2_4x4(input: &i16, input_stride: usize, output: &i16) void {
+    var tmp: [i32: 16] = [];
+
+    var row: usize = 0;
+    while row < 4 {
+        const input_base: usize = row * input_stride;
+        const output_base: usize = row * 4;
+
+        const a1: i32 = ((input[input_base] as i32) + (input[input_base + 2] as i32)) * 4;
+        const d1: i32 = ((input[input_base + 1] as i32) + (input[input_base + 3] as i32)) * 4;
+        const c1: i32 = ((input[input_base + 1] as i32) - (input[input_base + 3] as i32)) * 4;
+        const b1: i32 = ((input[input_base] as i32) - (input[input_base + 2] as i32)) * 4;
+
+        var dc: i32 = a1 + d1;
+        if a1 != 0 {
+            dc = dc + 1;
+        }
+        tmp[output_base] = dc;
+        tmp[output_base + 1] = b1 + c1;
+        tmp[output_base + 2] = b1 - c1;
+        tmp[output_base + 3] = a1 - d1;
+
+        row = row + 1;
+    }
+
+    var col: usize = 0;
+    while col < 4 {
+        const a1_col: i32 = tmp[col] + tmp[8 + col];
+        const d1_col: i32 = tmp[4 + col] + tmp[12 + col];
+        const c1_col: i32 = tmp[4 + col] - tmp[12 + col];
+        const b1_col: i32 = tmp[col] - tmp[8 + col];
+
+        const a2: i32 = round_wht_negative(a1_col + d1_col);
+        const b2: i32 = round_wht_negative(b1_col + c1_col);
+        const c2: i32 = round_wht_negative(b1_col - c1_col);
+        const d2: i32 = round_wht_negative(a1_col - d1_col);
+
+        output[col] = ((a2 + 3) >> 3) as i16;
+        output[4 + col] = ((b2 + 3) >> 3) as i16;
+        output[8 + col] = ((c2 + 3) >> 3) as i16;
+        output[12 + col] = ((d2 + 3) >> 3) as i16;
+
+        col = col + 1;
+    }
+}
