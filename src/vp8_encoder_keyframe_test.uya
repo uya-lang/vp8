@@ -107,3 +107,27 @@ test "UYA decoder decodes encoder keyframe IVF output" {
     try assert_eq_i32((result.output.view.u.origin != null) as i32, true as i32);
     try assert_eq_i32((result.output.view.v.origin != null) as i32, true as i32);
 }
+
+test "encoder keyframe IVF output is deterministic for fixed input" {
+    var input: [byte: 384] = [];
+    var index: usize = 0;
+    while index < 384 {
+        input[index] = (((index * 37) + (index / 3) + 19) % (251 as usize)) as byte;
+        index = index + 1;
+    }
+
+    var first_out: [byte: 4096] = [];
+    var second_out: [byte: 4096] = [];
+    const config: EncoderConfig = make_default_encoder_config(16, 16);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+
+    const first_len: usize = try encode_keyframe_ivf(&config, &frame, &first_out[0] as &byte, 4096);
+    const second_len: usize = try encode_keyframe_ivf(&config, &frame, &second_out[0] as &byte, 4096);
+
+    try assert_eq_i32(first_len as i32, second_len as i32);
+    index = 0;
+    while index < first_len {
+        try assert_eq_i32(first_out[index] as i32, second_out[index] as i32);
+        index = index + 1;
+    }
+}

@@ -93,6 +93,8 @@ test: build check-toolchain $(SAMPLE_IVF)
 	mkdir -p $(ENCODE_CLI_DIR)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out-repeat.ivf
+	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.frame_count=1'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.width=16'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.height=16'
