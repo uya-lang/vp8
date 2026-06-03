@@ -36,6 +36,9 @@ use vp8.kernels.scalar.predict_y4x4_vertical_right;
 use vp8.kernels.scalar.sad_4x4;
 use vp8.kernels.scalar.sad_8x8;
 use vp8.kernels.scalar.sad_16x16;
+use vp8.kernels.scalar.satd_4x4;
+use vp8.kernels.scalar.satd_8x8;
+use vp8.kernels.scalar.satd_16x16;
 use vp8.kernels.scalar.sse_4x4;
 use vp8.kernels.scalar.sse_8x8;
 use vp8.kernels.scalar.sse_16x16;
@@ -83,6 +86,9 @@ use vp8.kernels.simd.predict_y4x4_vertical_right_u8x16;
 use vp8.kernels.simd.sad_4x4_u8x16;
 use vp8.kernels.simd.sad_8x8_u8x16;
 use vp8.kernels.simd.sad_16x16_u8x16;
+use vp8.kernels.simd.satd_4x4_u8x16;
+use vp8.kernels.simd.satd_8x8_u8x16;
+use vp8.kernels.simd.satd_16x16_u8x16;
 use vp8.kernels.simd.sse_4x4_u8x16;
 use vp8.kernels.simd.sse_8x8_u8x16;
 use vp8.kernels.simd.sse_16x16_u8x16;
@@ -822,6 +828,35 @@ test "SIMD SSE and variance kernels match scalar byte exact across block sizes" 
     try assert_eq_i32(simd_sse4 as i32, scalar_sse4 as i32);
     try assert_eq_i32(scalar_variance4 as i32, 1360);
     try assert_eq_i32(simd_variance4 as i32, scalar_variance4 as i32);
+}
+
+test "SIMD SATD kernels match scalar Hadamard cost across block sizes" {
+    var src16: [byte: 400] = [];
+    var reference16: [byte: 448] = [];
+    fill_distortion_fixture(&src16[3] as &byte, 19, &reference16[7] as &byte, 21, 16, 16);
+
+    const scalar_satd16: u32 = satd_16x16(&src16[3] as &byte, 19, &reference16[7] as &byte, 21);
+    const simd_satd16: u32 = satd_16x16_u8x16(&src16[3] as &byte, 19, &reference16[7] as &byte, 21);
+    try assert_eq_i32(scalar_satd16 as i32, 22912);
+    try assert_eq_i32(simd_satd16 as i32, scalar_satd16 as i32);
+
+    var src8: [byte: 160] = [];
+    var reference8: [byte: 176] = [];
+    fill_distortion_fixture(&src8[2] as &byte, 13, &reference8[5] as &byte, 15, 8, 8);
+
+    const scalar_satd8: u32 = satd_8x8(&src8[2] as &byte, 13, &reference8[5] as &byte, 15);
+    const simd_satd8: u32 = satd_8x8_u8x16(&src8[2] as &byte, 13, &reference8[5] as &byte, 15);
+    try assert_eq_i32(scalar_satd8 as i32, 7008);
+    try assert_eq_i32(simd_satd8 as i32, scalar_satd8 as i32);
+
+    var src4: [byte: 64] = [];
+    var reference4: [byte: 80] = [];
+    fill_distortion_fixture(&src4[1] as &byte, 7, &reference4[3] as &byte, 9, 4, 4);
+
+    const scalar_satd4: u32 = satd_4x4(&src4[1] as &byte, 7, &reference4[3] as &byte, 9);
+    const simd_satd4: u32 = satd_4x4_u8x16(&src4[1] as &byte, 7, &reference4[3] as &byte, 9);
+    try assert_eq_i32(scalar_satd4 as i32, 2040);
+    try assert_eq_i32(simd_satd4 as i32, scalar_satd4 as i32);
 }
 
 test "SIMD luma sub-pixel horizontal filter matches scalar byte exact" {

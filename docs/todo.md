@@ -355,7 +355,7 @@
 - [x] SIMD SAD 8x8。
 - [x] SIMD SAD 4x4。
 - [x] SIMD SSE/variance。
-- [ ] SIMD SATD/Hadamard cost。
+- [x] SIMD SATD/Hadamard cost。
 - [ ] SIMD forward DCT。
 - [ ] SIMD forward WHT。
 - [ ] SIMD quantize/dequantize。

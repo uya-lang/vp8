@@ -288,6 +288,63 @@ fn variance_from_sum_sse(sum: i32, sse: u32, sample_shift: i32) u32 {
     return sse - correction;
 }
 
+fn satd_4x4_block(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    var tmp: [i32: 16] = [];
+
+    var row: usize = 0;
+    while row < 4 {
+        const src_base: usize = row * src_stride;
+        const reference_base: usize = row * reference_stride;
+        const tmp_base: usize = row * 4;
+
+        const d0: i32 = (src[src_base] as i32) - (reference[reference_base] as i32);
+        const d1: i32 = (src[src_base + 1] as i32) - (reference[reference_base + 1] as i32);
+        const d2: i32 = (src[src_base + 2] as i32) - (reference[reference_base + 2] as i32);
+        const d3: i32 = (src[src_base + 3] as i32) - (reference[reference_base + 3] as i32);
+
+        const a0: i32 = d0 + d3;
+        const a1: i32 = d1 + d2;
+        const a2: i32 = d1 - d2;
+        const a3: i32 = d0 - d3;
+
+        tmp[tmp_base] = a0 + a1;
+        tmp[tmp_base + 1] = a3 + a2;
+        tmp[tmp_base + 2] = a0 - a1;
+        tmp[tmp_base + 3] = a3 - a2;
+        row = row + 1;
+    }
+
+    var total: u32 = 0;
+    var col: usize = 0;
+    while col < 4 {
+        const a0_col: i32 = tmp[col] + tmp[12 + col];
+        const a1_col: i32 = tmp[4 + col] + tmp[8 + col];
+        const a2_col: i32 = tmp[4 + col] - tmp[8 + col];
+        const a3_col: i32 = tmp[col] - tmp[12 + col];
+
+        total = total + (abs_i32(a0_col + a1_col) as u32);
+        total = total + (abs_i32(a3_col + a2_col) as u32);
+        total = total + (abs_i32(a0_col - a1_col) as u32);
+        total = total + (abs_i32(a3_col - a2_col) as u32);
+        col = col + 1;
+    }
+    return (total + 1) >> 1;
+}
+
+fn satd_block_4x4_sum(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize, width: usize, height: usize) u32 {
+    var cost: u32 = 0;
+    var block_y: usize = 0;
+    while block_y < height {
+        var block_x: usize = 0;
+        while block_x < width {
+            cost = cost + satd_4x4_block(&src[(block_y * src_stride) + block_x] as &byte, src_stride, &reference[(block_y * reference_stride) + block_x] as &byte, reference_stride);
+            block_x = block_x + 4;
+        }
+        block_y = block_y + 4;
+    }
+    return cost;
+}
+
 export fn sad_16x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
     var distortion: u32 = 0;
     var row: usize = 0;
@@ -337,6 +394,18 @@ export fn sad_4x4(src: &byte, src_stride: usize, reference: &byte, reference_str
         row = row + 1;
     }
     return distortion;
+}
+
+export fn satd_16x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    return satd_block_4x4_sum(src, src_stride, reference, reference_stride, 16, 16);
+}
+
+export fn satd_8x8(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    return satd_block_4x4_sum(src, src_stride, reference, reference_stride, 8, 8);
+}
+
+export fn satd_4x4(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    return satd_4x4_block(src, src_stride, reference, reference_stride);
 }
 
 export fn sse_16x16(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
