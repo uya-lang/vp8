@@ -272,7 +272,7 @@
 - [x] 实现 per-frame performance stats。
 - [x] 优化 frame buffer reuse。
 - [x] 优化 reference frame border extension。
-- [ ] 优化 coefficient scratch layout。
+- [x] 优化 coefficient scratch layout。
 
 验收标准：
 

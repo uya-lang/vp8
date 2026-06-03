@@ -62,7 +62,8 @@ use vp8.common.scratch.allocate_token_decode_row_scratch;
 use vp8.common.scratch.coeff_scratch_note_bytes_read;
 use vp8.common.scratch.coeff_scratch_note_bytes_written;
 use vp8.common.scratch.token_decode_row_block_coefficients;
-use vp8.common.scratch.token_decode_row_block_summary_ptr;
+use vp8.common.scratch.token_decode_row_block_summary;
+use vp8.common.scratch.token_decode_row_set_block_summary;
 use vp8.common.scratch.token_decode_row_output_bytes;
 use vp8.decoder.row_pipeline.RowReconstructPipeline;
 use vp8.decoder.row_pipeline.RowLoopFilterPipeline;
@@ -449,18 +450,15 @@ fn token_output_v_block_index(block_x: usize, block_y: usize) usize {
 }
 
 fn token_output_store_empty_summary(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !void {
-    const ptr: &byte = try token_decode_row_block_summary_ptr(output, mb_x, block_index);
-    ptr[0] = 0 as byte;
+    try token_decode_row_set_block_summary(output, mb_x, block_index, 0 as byte);
 }
 
 fn token_output_store_summary(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize, summary: &CoefficientBlockSummary) !void {
-    const ptr: &byte = try token_decode_row_block_summary_ptr(output, mb_x, block_index);
-    ptr[0] = try make_macroblock_coeff_summary(summary.has_coeff, summary.dc_only, summary.coefficient_count);
+    try token_decode_row_set_block_summary(output, mb_x, block_index, try make_macroblock_coeff_summary(summary.has_coeff, summary.dc_only, summary.coefficient_count));
 }
 
 fn token_output_summary(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !byte {
-    const ptr: &byte = try token_decode_row_block_summary_ptr(output, mb_x, block_index);
-    return ptr[0];
+    return try token_decode_row_block_summary(output, mb_x, block_index);
 }
 
 fn token_output_has_coeff(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !bool {

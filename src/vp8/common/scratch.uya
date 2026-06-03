@@ -15,6 +15,8 @@ error ErrMbCoeffScratchRingRowNotReady;
 const TOKEN_DECODE_BLOCK_COEFFS: usize = 16;
 const TOKEN_DECODE_ROW_BLOCKS: usize = 4;
 const TOKEN_DECODE_MB_BLOCKS: usize = 25;
+const TOKEN_DECODE_BLOCK_SUMMARY_BITS: usize = 2;
+const TOKEN_DECODE_BLOCK_SUMMARY_MASK: byte = 3 as byte;
 const MB_COEFF_SCRATCH_RING_MAX_DEPTH: usize = 8;
 
 export struct RowScratchArena {
@@ -251,7 +253,8 @@ fn token_decode_row_output_coeff_bytes(mb_cols: usize) !usize {
 
 fn token_decode_row_output_summary_bytes(mb_cols: usize) !usize {
     const block_count: usize = try token_decode_row_output_block_count(mb_cols);
-    return try scratch_checked_mul(block_count, @size_of(byte) as usize);
+    const bit_count: usize = try scratch_checked_mul(block_count, TOKEN_DECODE_BLOCK_SUMMARY_BITS);
+    return (bit_count + 7) / (8 as usize);
 }
 
 export fn token_decode_row_output_bytes(mb_cols: usize) !usize {
@@ -410,9 +413,26 @@ export fn token_decode_row_block_coefficients(output: &TokenDecodeRowOutput, mb_
     return &output.coefficients[index * TOKEN_DECODE_BLOCK_COEFFS] as &i16;
 }
 
-export fn token_decode_row_block_summary_ptr(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !&byte {
+fn token_decode_row_block_summary_bit_offset(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !usize {
     const index: usize = try token_decode_row_output_index(output, mb_x, block_index);
-    return &output.summaries[index] as &byte;
+    return try scratch_checked_mul(index, TOKEN_DECODE_BLOCK_SUMMARY_BITS);
+}
+
+export fn token_decode_row_block_summary(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize) !byte {
+    const bit_offset: usize = try token_decode_row_block_summary_bit_offset(output, mb_x, block_index);
+    const byte_index: usize = bit_offset / (8 as usize);
+    const shift: i32 = (bit_offset % (8 as usize)) as i32;
+    return ((output.summaries[byte_index] >> shift) & TOKEN_DECODE_BLOCK_SUMMARY_MASK) as byte;
+}
+
+export fn token_decode_row_set_block_summary(output: &TokenDecodeRowOutput, mb_x: usize, block_index: usize, summary: byte) !void {
+    const bit_offset: usize = try token_decode_row_block_summary_bit_offset(output, mb_x, block_index);
+    const byte_index: usize = bit_offset / (8 as usize);
+    const shift: i32 = (bit_offset % (8 as usize)) as i32;
+    const mask: byte = (TOKEN_DECODE_BLOCK_SUMMARY_MASK << shift) as byte;
+    const clear_mask: byte = ((0xff as byte) - mask) as byte;
+    const encoded: byte = ((summary & TOKEN_DECODE_BLOCK_SUMMARY_MASK) << shift) as byte;
+    output.summaries[byte_index] = (output.summaries[byte_index] & clear_mask) | encoded;
 }
 
 export fn coeff_scratch_note_bytes_read(arena: &RowScratchArena, byte_count: usize) !void {

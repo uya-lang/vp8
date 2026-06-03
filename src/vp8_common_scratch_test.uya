@@ -21,7 +21,8 @@ use vp8.common.scratch.mb_coeff_scratch_ring_release_reconstructed_row;
 use vp8.common.scratch.row_scratch_alloc_bytes;
 use vp8.common.scratch.row_scratch_reset;
 use vp8.common.scratch.token_decode_row_block_coefficients;
-use vp8.common.scratch.token_decode_row_block_summary_ptr;
+use vp8.common.scratch.token_decode_row_block_summary;
+use vp8.common.scratch.token_decode_row_set_block_summary;
 use vp8.common.scratch.token_decode_row_output_bytes;
 use vp8.common.scratch.token_decode_row_scratch_bytes;
 
@@ -108,21 +109,25 @@ test "TokenDecodeRowOutput allocates row-local macroblock coefficient output" {
     const bytes: usize = try token_decode_row_output_bytes(2);
 
     try assert_eq_i32(output.mb_cols as i32, 2);
+    try assert_eq_i32(bytes as i32, 1613);
     try assert_i16_aligned(output.coefficients, 16);
     try expect(output.summaries != null);
     try assert_eq_i32(arena.high_water as i32, bytes as i32);
 
     const first_mb_y2: &i16 = try token_decode_row_block_coefficients(&output, 0, 0);
     const second_mb_y2: &i16 = try token_decode_row_block_coefficients(&output, 1, 0);
-    const summary: &byte = try token_decode_row_block_summary_ptr(&output, 1, 24);
 
     first_mb_y2[0] = 5 as i16;
     second_mb_y2[0] = 9 as i16;
-    summary[0] = 7 as byte;
+    try token_decode_row_set_block_summary(&output, 0, 0, 1 as byte);
+    try token_decode_row_set_block_summary(&output, 0, 1, 2 as byte);
+    try token_decode_row_set_block_summary(&output, 1, 24, 3 as byte);
 
     try assert_eq_i32(first_mb_y2[0] as i32, 5);
     try assert_eq_i32(second_mb_y2[0] as i32, 9);
-    try assert_eq_i32(summary[0] as i32, 7);
+    try assert_eq_i32((try token_decode_row_block_summary(&output, 0, 0)) as i32, 1);
+    try assert_eq_i32((try token_decode_row_block_summary(&output, 0, 1)) as i32, 2);
+    try assert_eq_i32((try token_decode_row_block_summary(&output, 1, 24)) as i32, 3);
 }
 
 test "RowScratchArena tracks coefficient scratch read and write bytes" {
