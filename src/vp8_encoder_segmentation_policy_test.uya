@@ -1,0 +1,163 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8Segmentation;
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mb_info.MacroblockInfoArrays;
+use vp8.common.mb_info.allocate_macroblock_info_arrays;
+use vp8.common.mb_info.free_macroblock_info_arrays;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.segmentation_policy.ENCODER_SEGMENT_DEFAULT;
+use vp8.encoder.segmentation_policy.ENCODER_SEGMENT_FLAT;
+use vp8.encoder.segmentation_policy.ENCODER_SEGMENT_NOISY;
+use vp8.encoder.segmentation_policy.EncoderSegmentationDecision;
+use vp8.encoder.segmentation_policy.EncoderSegmentationPolicy;
+use vp8.encoder.segmentation_policy.decide_basic_segmentation;
+use vp8.encoder.segmentation_policy.make_basic_segmentation_policy;
+
+fn dummy_segmentation_decision() EncoderSegmentationDecision {
+    return EncoderSegmentationDecision{
+        segmentation: Vp8Segmentation{
+            enabled: false,
+            update_map: false,
+            update_data: false,
+            absolute_delta: false,
+            quantizer_delta: [ 0, 0, 0, 0 ],
+            loop_filter_delta: [ 0, 0, 0, 0 ],
+            segment_prob: [ 255, 255, 255 ]
+        },
+        default_macroblock_count: 0,
+        flat_macroblock_count: 0,
+        noisy_macroblock_count: 0
+    };
+}
+
+fn fill_bytes(data: &byte, len: usize, value: byte) void {
+    var index: usize = 0;
+    while index < len {
+        data[index] = value;
+        index = index + 1;
+    }
+}
+
+fn fill_luma_macroblock_range(data: &byte, frame_width: usize, mb_x: usize, mb_y: usize, visible_width: usize, visible_height: usize, low: byte, high: byte) void {
+    var row: usize = 0;
+    while row < visible_height {
+        var col: usize = 0;
+        while col < visible_width {
+            const offset: usize = ((mb_y * (16 as usize) + row) * frame_width) + (mb_x * (16 as usize)) + col;
+            if ((row + col) % (2 as usize)) == 0 {
+                data[offset] = low;
+            } else {
+                data[offset] = high;
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+test "basic segmentation disabled clears macroblock segment map" {
+    var data: [byte: 768] = [];
+    fill_bytes(&data[0] as &byte, 768, 91 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&data[0] as &byte, 768, 32, 16);
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(32, 16);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+    info.segment_id[0] = ENCODER_SEGMENT_NOISY;
+    info.segment_id[1] = ENCODER_SEGMENT_FLAT;
+
+    const policy: EncoderSegmentationPolicy = try make_basic_segmentation_policy(false);
+    const decision: EncoderSegmentationDecision = try decide_basic_segmentation(&policy, &frame, &info);
+
+    try assert_eq_i32(decision.segmentation.enabled as i32, false as i32);
+    try assert_eq_i32(decision.segmentation.update_map as i32, false as i32);
+    try assert_eq_i32(decision.segmentation.update_data as i32, false as i32);
+    try assert_eq_i32(decision.default_macroblock_count as i32, 2);
+    try assert_eq_i32(decision.flat_macroblock_count as i32, 0);
+    try assert_eq_i32(decision.noisy_macroblock_count as i32, 0);
+    try assert_eq_i32(info.segment_id[0] as i32, ENCODER_SEGMENT_DEFAULT as i32);
+    try assert_eq_i32(info.segment_id[1] as i32, ENCODER_SEGMENT_DEFAULT as i32);
+}
+
+test "basic segmentation classifies flat default and noisy macroblocks" {
+    var data: [byte: 1152] = [];
+    fill_bytes(&data[0] as &byte, 1152, 128 as byte);
+    fill_luma_macroblock_range(&data[0] as &byte, 48, 0, 0, 16, 16, 40 as byte, 40 as byte);
+    fill_luma_macroblock_range(&data[0] as &byte, 48, 1, 0, 16, 16, 50 as byte, 65 as byte);
+    fill_luma_macroblock_range(&data[0] as &byte, 48, 2, 0, 16, 16, 0 as byte, 255 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&data[0] as &byte, 1152, 48, 16);
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(48, 16);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+
+    var policy: EncoderSegmentationPolicy = try make_basic_segmentation_policy(true);
+    policy.flat_luma_range_threshold = 4 as u16;
+    policy.noisy_luma_range_threshold = 64 as u16;
+    policy.flat_quantizer_delta = -6;
+    policy.noisy_quantizer_delta = 9;
+    policy.flat_loop_filter_delta = -2;
+    policy.noisy_loop_filter_delta = 4;
+    const decision: EncoderSegmentationDecision = try decide_basic_segmentation(&policy, &frame, &info);
+
+    try assert_eq_i32(decision.segmentation.enabled as i32, true as i32);
+    try assert_eq_i32(decision.segmentation.update_map as i32, true as i32);
+    try assert_eq_i32(decision.segmentation.update_data as i32, true as i32);
+    try assert_eq_i32(decision.segmentation.absolute_delta as i32, false as i32);
+    try assert_eq_i32(decision.segmentation.quantizer_delta[1] as i32, -6);
+    try assert_eq_i32(decision.segmentation.quantizer_delta[2] as i32, 9);
+    try assert_eq_i32(decision.segmentation.loop_filter_delta[1] as i32, -2);
+    try assert_eq_i32(decision.segmentation.loop_filter_delta[2] as i32, 4);
+    try assert_eq_i32(decision.segmentation.segment_prob[0] as i32, 128);
+    try assert_eq_i32(decision.default_macroblock_count as i32, 1);
+    try assert_eq_i32(decision.flat_macroblock_count as i32, 1);
+    try assert_eq_i32(decision.noisy_macroblock_count as i32, 1);
+    try assert_eq_i32(info.segment_id[0] as i32, ENCODER_SEGMENT_FLAT as i32);
+    try assert_eq_i32(info.segment_id[1] as i32, ENCODER_SEGMENT_DEFAULT as i32);
+    try assert_eq_i32(info.segment_id[2] as i32, ENCODER_SEGMENT_NOISY as i32);
+}
+
+test "basic segmentation scans only visible edge pixels on cropped macroblocks" {
+    var data: [byte: 451] = [];
+    fill_bytes(&data[0] as &byte, 451, 77 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&data[0] as &byte, 451, 17, 17);
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(17, 17);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+
+    var policy: EncoderSegmentationPolicy = try make_basic_segmentation_policy(true);
+    policy.flat_luma_range_threshold = 0 as u16;
+    const decision: EncoderSegmentationDecision = try decide_basic_segmentation(&policy, &frame, &info);
+
+    try assert_eq_i32(decision.flat_macroblock_count as i32, 4);
+    try assert_eq_i32(info.segment_id[0] as i32, ENCODER_SEGMENT_FLAT as i32);
+    try assert_eq_i32(info.segment_id[1] as i32, ENCODER_SEGMENT_FLAT as i32);
+    try assert_eq_i32(info.segment_id[2] as i32, ENCODER_SEGMENT_FLAT as i32);
+    try assert_eq_i32(info.segment_id[3] as i32, ENCODER_SEGMENT_FLAT as i32);
+}
+
+test "basic segmentation rejects invalid inputs and thresholds" {
+    var data: [byte: 768] = [];
+    const frame: YuvFrameView = try make_i420_frame_view(&data[0] as &byte, 768, 32, 16);
+    var grid: MacroblockGrid = try macroblock_grid_for_frame(32, 16);
+    var info: MacroblockInfoArrays = try allocate_macroblock_info_arrays(&grid);
+    defer free_macroblock_info_arrays(&info);
+    var policy: EncoderSegmentationPolicy = try make_basic_segmentation_policy(true);
+
+    var failed: i32 = 0;
+    _ = decide_basic_segmentation(null as &EncoderSegmentationPolicy, &frame, &info) catch {
+        failed = 1;
+        dummy_segmentation_decision();
+    };
+    try assert_eq_i32(failed, 1);
+
+    policy.flat_luma_range_threshold = 80 as u16;
+    policy.noisy_luma_range_threshold = 20 as u16;
+    failed = 0;
+    _ = decide_basic_segmentation(&policy, &frame, &info) catch {
+        failed = 1;
+        dummy_segmentation_decision();
+    };
+    try assert_eq_i32(failed, 1);
+}

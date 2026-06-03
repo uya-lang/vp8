@@ -1,0 +1,187 @@
+use vp8.bitstream.header.Vp8Segmentation;
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.mb_info.MacroblockInfoArrays;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.validate_yuv_frame_view;
+
+error ErrEncoderSegmentationPolicyInvalidInput;
+
+export const ENCODER_SEGMENT_DEFAULT: byte = 0 as byte;
+export const ENCODER_SEGMENT_FLAT: byte = 1 as byte;
+export const ENCODER_SEGMENT_NOISY: byte = 2 as byte;
+
+const ENCODER_SEGMENT_PROB_NEUTRAL: byte = 128 as byte;
+
+export struct EncoderSegmentationPolicy {
+    enabled: bool,
+    flat_luma_range_threshold: u16,
+    noisy_luma_range_threshold: u16,
+    flat_quantizer_delta: i16,
+    noisy_quantizer_delta: i16,
+    flat_loop_filter_delta: i8,
+    noisy_loop_filter_delta: i8
+}
+
+export struct EncoderSegmentationDecision {
+    segmentation: Vp8Segmentation,
+    default_macroblock_count: usize,
+    flat_macroblock_count: usize,
+    noisy_macroblock_count: usize
+}
+
+fn encoder_default_segmentation_header() Vp8Segmentation {
+    return Vp8Segmentation{
+        enabled: false,
+        update_map: false,
+        update_data: false,
+        absolute_delta: false,
+        quantizer_delta: [ 0, 0, 0, 0 ],
+        loop_filter_delta: [ 0, 0, 0, 0 ],
+        segment_prob: [ 255, 255, 255 ]
+    };
+}
+
+fn encoder_segmentation_make_enabled_header(policy: &EncoderSegmentationPolicy) Vp8Segmentation {
+    return Vp8Segmentation{
+        enabled: true,
+        update_map: true,
+        update_data: true,
+        absolute_delta: false,
+        quantizer_delta: [ 0, policy.flat_quantizer_delta, policy.noisy_quantizer_delta, 0 ],
+        loop_filter_delta: [ 0, policy.flat_loop_filter_delta, policy.noisy_loop_filter_delta, 0 ],
+        segment_prob: [ ENCODER_SEGMENT_PROB_NEUTRAL, ENCODER_SEGMENT_PROB_NEUTRAL, ENCODER_SEGMENT_PROB_NEUTRAL ]
+    };
+}
+
+fn encoder_segmentation_empty_decision() EncoderSegmentationDecision {
+    return EncoderSegmentationDecision{
+        segmentation: encoder_default_segmentation_header(),
+        default_macroblock_count: 0,
+        flat_macroblock_count: 0,
+        noisy_macroblock_count: 0
+    };
+}
+
+export fn make_basic_segmentation_policy(enabled: bool) !EncoderSegmentationPolicy {
+    return EncoderSegmentationPolicy{
+        enabled: enabled,
+        flat_luma_range_threshold: 4 as u16,
+        noisy_luma_range_threshold: 64 as u16,
+        flat_quantizer_delta: -4,
+        noisy_quantizer_delta: 6,
+        flat_loop_filter_delta: -1,
+        noisy_loop_filter_delta: 3
+    };
+}
+
+fn encoder_segmentation_validate_inputs(policy: &EncoderSegmentationPolicy, frame: &YuvFrameView, info: &MacroblockInfoArrays) !MacroblockGrid {
+    if policy == null || frame == null || info == null {
+        return error.ErrEncoderSegmentationPolicyInvalidInput;
+    }
+    if policy.flat_luma_range_threshold > policy.noisy_luma_range_threshold {
+        return error.ErrEncoderSegmentationPolicyInvalidInput;
+    }
+
+    try validate_yuv_frame_view(frame);
+    const grid: MacroblockGrid = try macroblock_grid_for_frame(frame.width, frame.height);
+    if info.mb_cols != grid.mb_cols || info.mb_rows != grid.mb_rows || info.mb_count != grid.mb_count {
+        return error.ErrEncoderSegmentationPolicyInvalidInput;
+    }
+    if info.segment_id == null {
+        return error.ErrEncoderSegmentationPolicyInvalidInput;
+    }
+    return grid;
+}
+
+fn encoder_segmentation_visible_extent(frame_size: usize, origin: usize) usize {
+    const remaining: usize = frame_size - origin;
+    if remaining < (16 as usize) {
+        return remaining;
+    }
+    return 16 as usize;
+}
+
+fn encoder_segmentation_luma_range(frame: &YuvFrameView, mb_x: usize, mb_y: usize) u16 {
+    const start_x: usize = mb_x * (16 as usize);
+    const start_y: usize = mb_y * (16 as usize);
+    const width: usize = encoder_segmentation_visible_extent(frame.width, start_x);
+    const height: usize = encoder_segmentation_visible_extent(frame.height, start_y);
+    var min_value: byte = 255 as byte;
+    var max_value: byte = 0 as byte;
+
+    var row: usize = 0;
+    while row < height {
+        const row_offset: usize = (start_y + row) * frame.y.stride;
+        var col: usize = 0;
+        while col < width {
+            const value: byte = frame.y.data[row_offset + start_x + col];
+            if value < min_value {
+                min_value = value;
+            }
+            if value > max_value {
+                max_value = value;
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    return (max_value as u16) - (min_value as u16);
+}
+
+fn encoder_segmentation_classify(policy: &EncoderSegmentationPolicy, luma_range: u16) byte {
+    if luma_range <= policy.flat_luma_range_threshold {
+        return ENCODER_SEGMENT_FLAT;
+    }
+    if luma_range >= policy.noisy_luma_range_threshold {
+        return ENCODER_SEGMENT_NOISY;
+    }
+    return ENCODER_SEGMENT_DEFAULT;
+}
+
+fn encoder_segmentation_record(decision: &EncoderSegmentationDecision, segment_id: byte) void {
+    if segment_id == ENCODER_SEGMENT_FLAT {
+        decision.flat_macroblock_count = decision.flat_macroblock_count + 1;
+        return;
+    }
+    if segment_id == ENCODER_SEGMENT_NOISY {
+        decision.noisy_macroblock_count = decision.noisy_macroblock_count + 1;
+        return;
+    }
+    decision.default_macroblock_count = decision.default_macroblock_count + 1;
+}
+
+export fn decide_basic_segmentation(policy: &EncoderSegmentationPolicy, frame: &YuvFrameView, info: &MacroblockInfoArrays) !EncoderSegmentationDecision {
+    const grid: MacroblockGrid = try encoder_segmentation_validate_inputs(policy, frame, info);
+    var decision: EncoderSegmentationDecision = encoder_segmentation_empty_decision();
+
+    if !policy.enabled {
+        var clear_index: usize = 0;
+        while clear_index < grid.mb_count {
+            info.segment_id[clear_index] = ENCODER_SEGMENT_DEFAULT;
+            clear_index = clear_index + 1;
+        }
+        decision.default_macroblock_count = grid.mb_count;
+        return decision;
+    }
+
+    var mb_y: usize = 0;
+    while mb_y < grid.mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < grid.mb_cols {
+            const index: usize = (mb_y * grid.mb_cols) + mb_x;
+            const luma_range: u16 = encoder_segmentation_luma_range(frame, mb_x, mb_y);
+            const segment_id: byte = encoder_segmentation_classify(policy, luma_range);
+            info.segment_id[index] = segment_id;
+            encoder_segmentation_record(&decision, segment_id);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+
+    if decision.flat_macroblock_count != 0 || decision.noisy_macroblock_count != 0 {
+        decision.segmentation = encoder_segmentation_make_enabled_header(policy);
+    }
+    return decision;
+}
