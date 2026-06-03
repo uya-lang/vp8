@@ -25,6 +25,8 @@ MALFORMED_IVF_DIR := $(BUILD_DIR)/malformed-ivf
 MALFORMED_IVF_SCRIPT := tests/malformed_ivf.py
 MALFORMED_VP8_DIR := $(BUILD_DIR)/malformed-vp8
 MALFORMED_VP8_SCRIPT := tests/malformed_vp8.py
+MULTITHREAD_MALFORMED_DIR := $(BUILD_DIR)/multithread-malformed
+MULTITHREAD_MALFORMED_SCRIPT := tests/multithread_malformed.py
 FUZZ_SMOKE_DIR := $(BUILD_DIR)/fuzz-smoke
 FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
@@ -39,7 +41,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_home/winger/uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-smoke clean require-uya
 
 all: build
 
@@ -90,6 +92,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2
 	$(MAKE) test-malformed-ivf
 	$(MAKE) test-malformed-vp8
+	$(MAKE) test-multithread-malformed
 	$(MAKE) test-fuzz-smoke
 	$(MAKE) test-scalar-vs-simd
 	$(MAKE) test-single-vs-multithread
@@ -139,6 +142,9 @@ test-malformed-ivf: build
 
 test-malformed-vp8: build
 	python3 $(MALFORMED_VP8_SCRIPT) $(BIN) $(MALFORMED_VP8_DIR)
+
+test-multithread-malformed: build
+	python3 $(MULTITHREAD_MALFORMED_SCRIPT) $(BIN) $(MULTITHREAD_MALFORMED_DIR)
 
 test-fuzz-smoke: build
 	python3 $(FUZZ_SMOKE_SCRIPT) $(BIN) $(FUZZ_SMOKE_DIR)

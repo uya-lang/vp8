@@ -32,6 +32,8 @@ controlled errors instead of crashing.
 `make test-malformed-vp8` wraps malformed VP8 payloads in valid IVF containers,
 checks `info` still succeeds, and checks `decode`/`decode-frame` return
 controlled errors instead of crashing.
+`make test-multithread-malformed` runs malformed IVF and VP8 cases through
+`--threads 4` with per-command timeouts so deadlocks fail the gate.
 `make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
 containers with random VP8 payloads, accepting only success or controlled error
 exits.
