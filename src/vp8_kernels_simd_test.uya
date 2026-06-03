@@ -7,6 +7,9 @@ use vp8.common.plane.make_plane_view;
 use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
+use vp8.encoder.mode_search.intra4x4_mode_sad;
+use vp8.encoder.mode_search.intra16x16_mode_sad;
+use vp8.encoder.mode_search.uv_mode_sad;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.inverse_transform_dc_only_4x4;
@@ -52,6 +55,8 @@ use vp8.kernels.scalar.variance_16x16;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
 use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
 use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
+use vp8.kernels.simd.intra4x4_predictor_sad_u8x16;
+use vp8.kernels.simd.intra16x16_predictor_sad_u8x16;
 use vp8.kernels.simd.load_i16x8;
 use vp8.kernels.simd.load_i32x4;
 use vp8.kernels.simd.load_u8x16;
@@ -108,6 +113,10 @@ use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
 use vp8.kernels.simd.token_scan_last_nonzero_4x4_i16x16;
+use vp8.kernels.simd.uv8x8_predictor_sad_u8x16;
+use vp8.mode.parse.VP8_B_MODE_VR;
+use vp8.mode.parse.VP8_UV_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_TM;
 use vp8.token.parse.CoefficientBlockSummary;
 
 type TestU8x16 = @vector(u8, 16);
@@ -883,6 +892,61 @@ test "SIMD SATD kernels match scalar Hadamard cost across block sizes" {
     const simd_satd4: u32 = satd_4x4_u8x16(&src4[1] as &byte, 7, &reference4[3] as &byte, 9);
     try assert_eq_i32(scalar_satd4 as i32, 2040);
     try assert_eq_i32(simd_satd4 as i32, scalar_satd4 as i32);
+}
+
+test "SIMD intra predictor SAD kernels match scalar mode costs" {
+    var src4: [byte: 40] = [];
+    var above8: [byte: 8] = [ 41, 53, 67, 83, 101, 119, 137, 151 ];
+    var left4: [byte: 4] = [ 203, 177, 129, 91 ];
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            src4[1 + (row * 7) + col] = (((row * 31) + (col * 17) + 19) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar4: u32 = try intra4x4_mode_sad(&src4[1] as &byte, 7, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_VR);
+    const simd4: u32 = try intra4x4_predictor_sad_u8x16(&src4[1] as &byte, 7, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_VR);
+    try assert_eq_i32(simd4 as i32, scalar4 as i32);
+
+    var src16: [byte: 360] = [];
+    var above16: [byte: 16] = [];
+    var left16: [byte: 16] = [];
+    row = 0;
+    while row < 16 {
+        above16[row] = (((row * 9) + 17) % (256 as usize)) as byte;
+        left16[row] = (((row * 11) + 29) % (256 as usize)) as byte;
+        var col16: usize = 0;
+        while col16 < 16 {
+            src16[3 + (row * 21) + col16] = (((row * 13) + (col16 * 23) + 5) % (256 as usize)) as byte;
+            col16 = col16 + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar16: u32 = try intra16x16_mode_sad(&src16[3] as &byte, 21, &above16[0] as &byte, true, &left16[0] as &byte, true, 63 as byte, VP8_Y_MODE_TM);
+    const simd16: u32 = try intra16x16_predictor_sad_u8x16(&src16[3] as &byte, 21, &above16[0] as &byte, true, &left16[0] as &byte, true, 63 as byte, VP8_Y_MODE_TM);
+    try assert_eq_i32(simd16 as i32, scalar16 as i32);
+
+    var src8: [byte: 120] = [];
+    var above_uv: [byte: 8] = [ 17, 34, 51, 68, 85, 102, 119, 136 ];
+    var left_uv: [byte: 8] = [ 201, 183, 165, 147, 129, 111, 93, 75 ];
+    row = 0;
+    while row < 8 {
+        var col8: usize = 0;
+        while col8 < 8 {
+            src8[2 + (row * 13) + col8] = (((row * 29) + (col8 * 7) + 33) % (256 as usize)) as byte;
+            col8 = col8 + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar_uv_pair: u32 = try uv_mode_sad(&src8[2] as &byte, 13, &src8[2] as &byte, 13, &above_uv[0] as &byte, &above_uv[0] as &byte, true, &left_uv[0] as &byte, &left_uv[0] as &byte, true, 99 as byte, 99 as byte, VP8_UV_MODE_TM);
+    const simd_uv: u32 = try uv8x8_predictor_sad_u8x16(&src8[2] as &byte, 13, &above_uv[0] as &byte, true, &left_uv[0] as &byte, true, 99 as byte, VP8_UV_MODE_TM);
+    try assert_eq_i32((simd_uv * 2) as i32, scalar_uv_pair as i32);
 }
 
 test "SIMD forward DCT matches scalar golden and strided input" {

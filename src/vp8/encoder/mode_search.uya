@@ -1,5 +1,10 @@
 use vp8.encoder.mv_cost.prob_bit_cost_q8;
 use vp8.encoder.rd_cost.encoder_rd_score_q8;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.kernel_table_intra4x4_predictor_sad;
+use vp8.kernels.dispatch.kernel_table_intra16x16_predictor_sad;
+use vp8.kernels.dispatch.kernel_table_uv8x8_predictor_sad;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.kernels.scalar.clip_i32_to_u8;
 use vp8.kernels.scalar.predict_y4x4_dc;
 use vp8.kernels.scalar.predict_y4x4_down_left;
@@ -266,6 +271,7 @@ fn update_best_intra4x4_mode(best: &Intra4x4ModeSearchResult, mode: byte, distor
 }
 
 fn consider_intra4x4_mode(
+    table: &KernelFunctionTable,
     best: &Intra4x4ModeSearchResult,
     src: &byte,
     src_stride: usize,
@@ -279,12 +285,13 @@ fn consider_intra4x4_mode(
     lambda_q8: u32,
     mode: byte
 ) !void {
-    const distortion: u32 = try intra4x4_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, mode);
+    const distortion: u32 = try kernel_table_intra4x4_predictor_sad(table, src, src_stride, above, has_above, left, has_left, above_left, mode);
     const rate_cost_q8: u32 = try keyframe_b_mode_cost_q8(above_mode, left_mode, mode);
     try update_best_intra4x4_mode(best, mode, distortion, rate_cost_q8, lambda_q8);
 }
 
 fn maybe_consider_limited_intra4x4_mode(
+    table: &KernelFunctionTable,
     best: &Intra4x4ModeSearchResult,
     src: &byte,
     src_stride: usize,
@@ -302,11 +309,12 @@ fn maybe_consider_limited_intra4x4_mode(
     if best.evaluated_modes >= (mode_limit as u32) {
         return;
     }
-    try consider_intra4x4_mode(best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, mode);
+    try consider_intra4x4_mode(table, best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, mode);
     best.evaluated_modes = best.evaluated_modes + 1;
 }
 
-export fn search_intra4x4_mode_limited(
+export fn search_intra4x4_mode_limited_with_kernel_table(
+    table: &KernelFunctionTable,
     src: &byte,
     src_stride: usize,
     above: &byte,
@@ -324,7 +332,7 @@ export fn search_intra4x4_mode_limited(
         return error.ErrIntra4x4ModeSearchInvalidMode;
     }
 
-    const dc_distortion: u32 = try intra4x4_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_B_MODE_DC);
+    const dc_distortion: u32 = try kernel_table_intra4x4_predictor_sad(table, src, src_stride, above, has_above, left, has_left, above_left, VP8_B_MODE_DC);
     const dc_rate_cost_q8: u32 = try keyframe_b_mode_cost_q8(above_mode, left_mode, VP8_B_MODE_DC);
     var best: Intra4x4ModeSearchResult = Intra4x4ModeSearchResult{
         mode: VP8_B_MODE_DC,
@@ -335,32 +343,49 @@ export fn search_intra4x4_mode_limited(
     };
 
     if has_above && has_left {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_TM, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_TM, mode_limit);
     }
     if has_above {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VE, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VE, mode_limit);
     }
     if has_left {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HE, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HE, mode_limit);
     }
     if has_above {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_LD, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_LD, mode_limit);
     }
     if has_above && has_left {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_RD, mode_limit);
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VR, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_RD, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VR, mode_limit);
     }
     if has_above {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VL, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_VL, mode_limit);
     }
     if has_above && has_left {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HD, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HD, mode_limit);
     }
     if has_left {
-        try maybe_consider_limited_intra4x4_mode(&best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HU, mode_limit);
+        try maybe_consider_limited_intra4x4_mode(table, &best, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, VP8_B_MODE_HU, mode_limit);
     }
 
     return best;
+}
+
+export fn search_intra4x4_mode_limited(
+    src: &byte,
+    src_stride: usize,
+    above: &byte,
+    has_above: bool,
+    left: &byte,
+    has_left: bool,
+    above_left: byte,
+    above_mode: byte,
+    left_mode: byte,
+    lambda_q8: u32,
+    mode_limit: u8
+) !Intra4x4ModeSearchResult {
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    return try search_intra4x4_mode_limited_with_kernel_table(&scalar_table, src, src_stride, above, has_above, left, has_left, above_left, above_mode, left_mode, lambda_q8, mode_limit);
 }
 
 export fn search_intra4x4_mode(
@@ -502,25 +527,30 @@ fn update_best_intra16x16_mode(best: &Intra16x16ModeSearchResult, mode: byte, di
     }
 }
 
-export fn search_intra16x16_mode(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte) !Intra16x16ModeSearchResult {
+export fn search_intra16x16_mode_with_kernel_table(table: &KernelFunctionTable, src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte) !Intra16x16ModeSearchResult {
     try validate_intra16x16_search_input(src, src_stride, above, has_above, left, has_left);
 
     var best: Intra16x16ModeSearchResult = Intra16x16ModeSearchResult{
         mode: VP8_Y_MODE_DC,
-        distortion: try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_DC)
+        distortion: try kernel_table_intra16x16_predictor_sad(table, src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_DC)
     };
 
     if has_above {
-        update_best_intra16x16_mode(&best, VP8_Y_MODE_V, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_V));
+        update_best_intra16x16_mode(&best, VP8_Y_MODE_V, try kernel_table_intra16x16_predictor_sad(table, src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_V));
     }
     if has_left {
-        update_best_intra16x16_mode(&best, VP8_Y_MODE_H, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_H));
+        update_best_intra16x16_mode(&best, VP8_Y_MODE_H, try kernel_table_intra16x16_predictor_sad(table, src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_H));
     }
     if has_above && has_left {
-        update_best_intra16x16_mode(&best, VP8_Y_MODE_TM, try intra16x16_mode_sad(src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_TM));
+        update_best_intra16x16_mode(&best, VP8_Y_MODE_TM, try kernel_table_intra16x16_predictor_sad(table, src, src_stride, above, has_above, left, has_left, above_left, VP8_Y_MODE_TM));
     }
 
     return best;
+}
+
+export fn search_intra16x16_mode(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte) !Intra16x16ModeSearchResult {
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    return try search_intra16x16_mode_with_kernel_table(&scalar_table, src, src_stride, above, has_above, left, has_left, above_left);
 }
 
 fn validate_uv_search_input(
@@ -691,7 +721,29 @@ fn update_best_uv_mode(best: &UvModeSearchResult, mode: byte, distortion: u32) v
     }
 }
 
-export fn search_uv_mode(
+fn uv_mode_sad_with_kernel_table(
+    table: &KernelFunctionTable,
+    u_src: &byte,
+    u_stride: usize,
+    v_src: &byte,
+    v_stride: usize,
+    u_above: &byte,
+    v_above: &byte,
+    has_above: bool,
+    u_left: &byte,
+    v_left: &byte,
+    has_left: bool,
+    u_above_left: byte,
+    v_above_left: byte,
+    mode: byte
+) !u32 {
+    try validate_uv_search_input(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left);
+    return (try kernel_table_uv8x8_predictor_sad(table, u_src, u_stride, u_above, has_above, u_left, has_left, u_above_left, mode)) +
+        (try kernel_table_uv8x8_predictor_sad(table, v_src, v_stride, v_above, has_above, v_left, has_left, v_above_left, mode));
+}
+
+export fn search_uv_mode_with_kernel_table(
+    table: &KernelFunctionTable,
     u_src: &byte,
     u_stride: usize,
     v_src: &byte,
@@ -709,18 +761,36 @@ export fn search_uv_mode(
 
     var best: UvModeSearchResult = UvModeSearchResult{
         mode: VP8_UV_MODE_DC,
-        distortion: try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_DC)
+        distortion: try uv_mode_sad_with_kernel_table(table, u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_DC)
     };
 
     if has_above {
-        update_best_uv_mode(&best, VP8_UV_MODE_V, try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_V));
+        update_best_uv_mode(&best, VP8_UV_MODE_V, try uv_mode_sad_with_kernel_table(table, u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_V));
     }
     if has_left {
-        update_best_uv_mode(&best, VP8_UV_MODE_H, try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_H));
+        update_best_uv_mode(&best, VP8_UV_MODE_H, try uv_mode_sad_with_kernel_table(table, u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_H));
     }
     if has_above && has_left {
-        update_best_uv_mode(&best, VP8_UV_MODE_TM, try uv_mode_sad(u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_TM));
+        update_best_uv_mode(&best, VP8_UV_MODE_TM, try uv_mode_sad_with_kernel_table(table, u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left, VP8_UV_MODE_TM));
     }
 
     return best;
+}
+
+export fn search_uv_mode(
+    u_src: &byte,
+    u_stride: usize,
+    v_src: &byte,
+    v_stride: usize,
+    u_above: &byte,
+    v_above: &byte,
+    has_above: bool,
+    u_left: &byte,
+    v_left: &byte,
+    has_left: bool,
+    u_above_left: byte,
+    v_above_left: byte
+) !UvModeSearchResult {
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    return try search_uv_mode_with_kernel_table(&scalar_table, u_src, u_stride, v_src, v_stride, u_above, v_above, has_above, u_left, v_left, has_left, u_above_left, v_above_left);
 }

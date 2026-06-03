@@ -1,6 +1,26 @@
 use vp8.encoder.quant.quantize_block_4x4;
+use vp8.mode.parse.VP8_B_MODE_DC;
+use vp8.mode.parse.VP8_B_MODE_HD;
+use vp8.mode.parse.VP8_B_MODE_HE;
+use vp8.mode.parse.VP8_B_MODE_HU;
+use vp8.mode.parse.VP8_B_MODE_LD;
+use vp8.mode.parse.VP8_B_MODE_RD;
+use vp8.mode.parse.VP8_B_MODE_TM;
+use vp8.mode.parse.VP8_B_MODE_VE;
+use vp8.mode.parse.VP8_B_MODE_VL;
+use vp8.mode.parse.VP8_B_MODE_VR;
+use vp8.mode.parse.VP8_UV_MODE_DC;
+use vp8.mode.parse.VP8_UV_MODE_H;
+use vp8.mode.parse.VP8_UV_MODE_TM;
+use vp8.mode.parse.VP8_UV_MODE_V;
+use vp8.mode.parse.VP8_Y_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_H;
+use vp8.mode.parse.VP8_Y_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_V;
 use vp8.token.parse.CoefficientBlockSummary;
 use vp8.token.parse.coefficient_scan_index;
+
+error ErrSimdKernelInvalidIntraPredictorMode;
 
 export type U8x16 = @vector(u8, 16);
 export type U8Mask16 = @mask(16);
@@ -1591,6 +1611,99 @@ export fn predict_uv8x8_true_motion_u8x16(dst: &byte, dst_stride: usize, above: 
         write_8x8_pair_u8x16(&dst[first_row * dst_stride] as &byte, dst_stride, &values[0] as &byte);
         pair = pair + 1;
     }
+}
+
+export fn intra4x4_predictor_sad_u8x16(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    var predicted: [byte: 16] = [];
+
+    if mode == VP8_B_MODE_DC {
+        predict_y4x4_dc_u8x16(&predicted[0] as &byte, 4, above, has_above, left, has_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_TM && has_above && has_left {
+        predict_y4x4_true_motion_u8x16(&predicted[0] as &byte, 4, above, left, above_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_VE && has_above {
+        predict_y4x4_vertical_edge_u8x16(&predicted[0] as &byte, 4, above, above_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_HE && has_left {
+        predict_y4x4_horizontal_edge_u8x16(&predicted[0] as &byte, 4, left, above_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_LD && has_above {
+        predict_y4x4_down_left_u8x16(&predicted[0] as &byte, 4, above);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_RD && has_above && has_left {
+        predict_y4x4_down_right_u8x16(&predicted[0] as &byte, 4, above, left, above_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_VR && has_above && has_left {
+        predict_y4x4_vertical_right_u8x16(&predicted[0] as &byte, 4, above, left, above_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_VL && has_above {
+        predict_y4x4_vertical_left_u8x16(&predicted[0] as &byte, 4, above);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_HD && has_above && has_left {
+        predict_y4x4_horizontal_down_u8x16(&predicted[0] as &byte, 4, above, left, above_left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+    if mode == VP8_B_MODE_HU && has_left {
+        predict_y4x4_horizontal_up_u8x16(&predicted[0] as &byte, 4, left);
+        return sad_4x4_u8x16(src, src_stride, &predicted[0] as &byte, 4);
+    }
+
+    return error.ErrSimdKernelInvalidIntraPredictorMode;
+}
+
+export fn intra16x16_predictor_sad_u8x16(src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    var predicted: [byte: 256] = [];
+
+    if mode == VP8_Y_MODE_DC {
+        predict_y16x16_dc_u8x16(&predicted[0] as &byte, 16, above, has_above, left, has_left);
+        return sad_16x16_u8x16(src, src_stride, &predicted[0] as &byte, 16);
+    }
+    if mode == VP8_Y_MODE_V && has_above {
+        predict_y16x16_vertical_u8x16(&predicted[0] as &byte, 16, above);
+        return sad_16x16_u8x16(src, src_stride, &predicted[0] as &byte, 16);
+    }
+    if mode == VP8_Y_MODE_H && has_left {
+        predict_y16x16_horizontal_u8x16(&predicted[0] as &byte, 16, left);
+        return sad_16x16_u8x16(src, src_stride, &predicted[0] as &byte, 16);
+    }
+    if mode == VP8_Y_MODE_TM && has_above && has_left {
+        predict_y16x16_true_motion_u8x16(&predicted[0] as &byte, 16, above, left, above_left);
+        return sad_16x16_u8x16(src, src_stride, &predicted[0] as &byte, 16);
+    }
+
+    return error.ErrSimdKernelInvalidIntraPredictorMode;
+}
+
+export fn uv8x8_predictor_sad_u8x16(src: &byte, stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    var predicted: [byte: 64] = [];
+
+    if mode == VP8_UV_MODE_DC {
+        predict_uv8x8_dc_u8x16(&predicted[0] as &byte, 8, above, has_above, left, has_left);
+        return sad_8x8_u8x16(src, stride, &predicted[0] as &byte, 8);
+    }
+    if mode == VP8_UV_MODE_V && has_above {
+        predict_uv8x8_vertical_u8x16(&predicted[0] as &byte, 8, above);
+        return sad_8x8_u8x16(src, stride, &predicted[0] as &byte, 8);
+    }
+    if mode == VP8_UV_MODE_H && has_left {
+        predict_uv8x8_horizontal_u8x16(&predicted[0] as &byte, 8, left);
+        return sad_8x8_u8x16(src, stride, &predicted[0] as &byte, 8);
+    }
+    if mode == VP8_UV_MODE_TM && has_above && has_left {
+        predict_uv8x8_true_motion_u8x16(&predicted[0] as &byte, 8, above, left, above_left);
+        return sad_8x8_u8x16(src, stride, &predicted[0] as &byte, 8);
+    }
+
+    return error.ErrSimdKernelInvalidIntraPredictorMode;
 }
 
 export fn add_residual_4x4_clamped_u8x16(dst: &byte, dst_stride: usize, residual: &i16) void {

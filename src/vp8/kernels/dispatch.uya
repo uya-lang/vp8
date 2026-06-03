@@ -7,6 +7,8 @@ use vp8.encoder.quant.quantize_block_4x4;
 use vp8.encoder.quant.scan_quantized_block_last_nonzero_4x4;
 use vp8.kernels.scalar.add_residual_4x4_clamped;
 use vp8.kernels.scalar.dequant_block_4x4;
+use vp8.kernels.scalar.intra4x4_predictor_sad;
+use vp8.kernels.scalar.intra16x16_predictor_sad;
 use vp8.kernels.scalar.predict_inter_copy;
 use vp8.kernels.scalar.predict_luma_subpixel;
 use vp8.kernels.scalar.sad_4x4;
@@ -18,6 +20,7 @@ use vp8.kernels.scalar.satd_16x16;
 use vp8.kernels.scalar.sse_4x4;
 use vp8.kernels.scalar.sse_8x8;
 use vp8.kernels.scalar.sse_16x16;
+use vp8.kernels.scalar.uv8x8_predictor_sad;
 use vp8.kernels.scalar.variance_4x4;
 use vp8.kernels.scalar.variance_8x8;
 use vp8.kernels.scalar.variance_16x16;
@@ -27,6 +30,8 @@ use vp8.kernels.simd.sad_16x16_u8x16;
 use vp8.kernels.simd.dequant_block_4x4_i16x16;
 use vp8.kernels.simd.forward_dct_4x4_i32x4;
 use vp8.kernels.simd.forward_walsh_hadamard_y2_4x4_i32x4;
+use vp8.kernels.simd.intra4x4_predictor_sad_u8x16;
+use vp8.kernels.simd.intra16x16_predictor_sad_u8x16;
 use vp8.kernels.simd.quantize_block_4x4_i16x16;
 use vp8.kernels.simd.predict_luma_subpixel_u8x16;
 use vp8.kernels.simd.satd_4x4_u8x16;
@@ -36,6 +41,7 @@ use vp8.kernels.simd.sse_4x4_u8x16;
 use vp8.kernels.simd.sse_8x8_u8x16;
 use vp8.kernels.simd.sse_16x16_u8x16;
 use vp8.kernels.simd.token_scan_last_nonzero_4x4_i16x16;
+use vp8.kernels.simd.uv8x8_predictor_sad_u8x16;
 use vp8.kernels.simd.variance_4x4_u8x16;
 use vp8.kernels.simd.variance_8x8_u8x16;
 use vp8.kernels.simd.variance_16x16_u8x16;
@@ -54,6 +60,9 @@ export struct KernelFunctionTable {
     dequant_block_4x4_fn: &void,
     token_scan_last_nonzero_4x4_fn: &void,
     predict_luma_subpixel_16x16_fn: &void,
+    intra4x4_predictor_sad_fn: &void,
+    intra16x16_predictor_sad_fn: &void,
+    uv8x8_predictor_sad_fn: &void,
     sad_16x16_fn: &void,
     sad_8x8_fn: &void,
     sad_4x4_fn: &void,
@@ -79,6 +88,9 @@ export fn make_scalar_kernel_table() KernelFunctionTable {
         dequant_block_4x4_fn: &dequant_block_4x4,
         token_scan_last_nonzero_4x4_fn: &scan_quantized_block_last_nonzero_4x4,
         predict_luma_subpixel_16x16_fn: &predict_luma_subpixel,
+        intra4x4_predictor_sad_fn: &intra4x4_predictor_sad,
+        intra16x16_predictor_sad_fn: &intra16x16_predictor_sad,
+        uv8x8_predictor_sad_fn: &uv8x8_predictor_sad,
         sad_16x16_fn: &sad_16x16,
         sad_8x8_fn: &sad_8x8,
         sad_4x4_fn: &sad_4x4,
@@ -111,6 +123,9 @@ export fn make_forced_simd_kernel_table(capabilities: &SimdCapabilities) KernelF
             dequant_block_4x4_fn: &dequant_block_4x4_i16x16,
             token_scan_last_nonzero_4x4_fn: &token_scan_last_nonzero_4x4_i16x16,
             predict_luma_subpixel_16x16_fn: &predict_luma_subpixel_u8x16,
+            intra4x4_predictor_sad_fn: &intra4x4_predictor_sad_u8x16,
+            intra16x16_predictor_sad_fn: &intra16x16_predictor_sad_u8x16,
+            uv8x8_predictor_sad_fn: &uv8x8_predictor_sad_u8x16,
             sad_16x16_fn: &sad_16x16_u8x16,
             sad_8x8_fn: &sad_8x8_u8x16,
             sad_4x4_fn: &sad_4x4_u8x16,
@@ -208,6 +223,36 @@ export fn kernel_table_predict_luma_subpixel_16x16(table: &KernelFunctionTable, 
     if table.predict_luma_subpixel_16x16_fn == (&predict_luma_subpixel_u8x16 as &void) {
         predict_luma_subpixel_u8x16(dst, dst_stride, src_window, src_stride, 16, 16, xoffset, yoffset);
         return;
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_intra4x4_predictor_sad(table: &KernelFunctionTable, src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    if table.intra4x4_predictor_sad_fn == (&intra4x4_predictor_sad as &void) {
+        return try intra4x4_predictor_sad(src, src_stride, above, has_above, left, has_left, above_left, mode);
+    }
+    if table.intra4x4_predictor_sad_fn == (&intra4x4_predictor_sad_u8x16 as &void) {
+        return try intra4x4_predictor_sad_u8x16(src, src_stride, above, has_above, left, has_left, above_left, mode);
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_intra16x16_predictor_sad(table: &KernelFunctionTable, src: &byte, src_stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    if table.intra16x16_predictor_sad_fn == (&intra16x16_predictor_sad as &void) {
+        return try intra16x16_predictor_sad(src, src_stride, above, has_above, left, has_left, above_left, mode);
+    }
+    if table.intra16x16_predictor_sad_fn == (&intra16x16_predictor_sad_u8x16 as &void) {
+        return try intra16x16_predictor_sad_u8x16(src, src_stride, above, has_above, left, has_left, above_left, mode);
+    }
+    return error.ErrKernelFunctionTableInvalidEntry;
+}
+
+export fn kernel_table_uv8x8_predictor_sad(table: &KernelFunctionTable, src: &byte, stride: usize, above: &byte, has_above: bool, left: &byte, has_left: bool, above_left: byte, mode: byte) !u32 {
+    if table.uv8x8_predictor_sad_fn == (&uv8x8_predictor_sad as &void) {
+        return try uv8x8_predictor_sad(src, stride, above, has_above, left, has_left, above_left, mode);
+    }
+    if table.uv8x8_predictor_sad_fn == (&uv8x8_predictor_sad_u8x16 as &void) {
+        return try uv8x8_predictor_sad_u8x16(src, stride, above, has_above, left, has_left, above_left, mode);
     }
     return error.ErrKernelFunctionTableInvalidEntry;
 }

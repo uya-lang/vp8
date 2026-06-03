@@ -361,7 +361,7 @@
 - [x] SIMD quantize/dequantize。
 - [x] SIMD token scan helper。
 - [x] SIMD sub-pixel predictor for motion search。
-- [ ] SIMD intra predictor cost。
+- [x] SIMD intra predictor cost。
 - [ ] Encoder benchmark 标量/SIMD 对照。
 
 验收标准：

@@ -1,5 +1,10 @@
 use std.testing.assert_eq_i32;
 
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.simd_detect_capabilities;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_forced_simd_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.encoder.mode_search.Intra4x4ModeSearchResult;
 use vp8.encoder.mode_search.Intra16x16ModeSearchResult;
 use vp8.encoder.mode_search.UvModeSearchResult;
@@ -7,11 +12,15 @@ use vp8.encoder.mode_search.keyframe_b_mode_cost_q8;
 use vp8.encoder.mode_search.predict_intra4x4_mode;
 use vp8.encoder.mode_search.search_intra4x4_mode;
 use vp8.encoder.mode_search.search_intra4x4_mode_limited;
+use vp8.encoder.mode_search.search_intra4x4_mode_limited_with_kernel_table;
 use vp8.encoder.mode_search.search_intra16x16_mode;
+use vp8.encoder.mode_search.search_intra16x16_mode_with_kernel_table;
 use vp8.encoder.mode_search.search_uv_mode;
+use vp8.encoder.mode_search.search_uv_mode_with_kernel_table;
 use vp8.mode.parse.VP8_B_MODE_DC;
 use vp8.mode.parse.VP8_B_MODE_HU;
 use vp8.mode.parse.VP8_B_MODE_VE;
+use vp8.mode.parse.VP8_B_MODE_VR;
 use vp8.mode.parse.VP8_UV_MODE_DC;
 use vp8.mode.parse.VP8_UV_MODE_H;
 use vp8.mode.parse.VP8_UV_MODE_TM;
@@ -136,6 +145,92 @@ test "intra4x4 mode search limit exposes preset work difference" {
     try assert_eq_i32(refined.mode as i32, VP8_B_MODE_VE as i32);
     try assert_eq_i32(refined.evaluated_modes as i32, 3);
     try assert_eq_i32(refined.distortion < dc_only.distortion, true as i32);
+}
+
+test "intra mode search can use forced SIMD predictor cost kernels" {
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+    const simd_table: KernelFunctionTable = make_forced_simd_kernel_table(&capabilities);
+
+    var src4: [byte: 16] = [];
+    var above8: [byte: 8] = [ 41, 53, 67, 83, 101, 119, 137, 151 ];
+    var left4: [byte: 4] = [ 203, 177, 129, 91 ];
+    try predict_intra4x4_mode(&src4[0] as &byte, 4, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_VR);
+
+    const scalar4: Intra4x4ModeSearchResult = try search_intra4x4_mode_limited_with_kernel_table(&scalar_table, &src4[0] as &byte, 4, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_DC, VP8_B_MODE_DC, 256 as u32, 10 as u8);
+    const simd4: Intra4x4ModeSearchResult = try search_intra4x4_mode_limited_with_kernel_table(&simd_table, &src4[0] as &byte, 4, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_DC, VP8_B_MODE_DC, 256 as u32, 10 as u8);
+    try assert_eq_i32(simd4.mode as i32, scalar4.mode as i32);
+    try assert_eq_i32(simd4.distortion as i32, scalar4.distortion as i32);
+    try assert_eq_i32(simd4.rate_cost_q8 as i32, scalar4.rate_cost_q8 as i32);
+    try assert_eq_i32(simd4.rd_score_q8 as i32, scalar4.rd_score_q8 as i32);
+    try assert_eq_i32(simd4.evaluated_modes as i32, scalar4.evaluated_modes as i32);
+
+    var src16: [byte: 256] = [];
+    var above16: [byte: 16] = [];
+    var left16: [byte: 16] = [];
+    var index: usize = 0;
+    while index < 16 {
+        above16[index] = (100 + (index as i32)) as byte;
+        left16[index] = (70 + (index as i32)) as byte;
+        index = index + 1;
+    }
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            src16[(row * 16) + col] = ((left16[row] as i32) + (above16[col] as i32) - (100 as i32)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar16: Intra16x16ModeSearchResult = try search_intra16x16_mode_with_kernel_table(&scalar_table, &src16[0] as &byte, 16, &above16[0] as &byte, true, &left16[0] as &byte, true, 100 as byte);
+    const simd16: Intra16x16ModeSearchResult = try search_intra16x16_mode_with_kernel_table(&simd_table, &src16[0] as &byte, 16, &above16[0] as &byte, true, &left16[0] as &byte, true, 100 as byte);
+    try assert_eq_i32(simd16.mode as i32, scalar16.mode as i32);
+    try assert_eq_i32(simd16.distortion as i32, scalar16.distortion as i32);
+
+    var u_src: [byte: 64] = [];
+    var v_src: [byte: 64] = [];
+    var u_above: [byte: 8] = [];
+    var v_above: [byte: 8] = [];
+    var u_left: [byte: 8] = [];
+    var v_left: [byte: 8] = [];
+    index = 0;
+    while index < 8 {
+        u_above[index] = (100 + (index as i32)) as byte;
+        v_above[index] = (90 + ((index as i32) * 2)) as byte;
+        u_left[index] = (60 + (index as i32)) as byte;
+        v_left[index] = (40 + ((index as i32) * 3)) as byte;
+        index = index + 1;
+    }
+    row = 0;
+    while row < 8 {
+        var col8: usize = 0;
+        while col8 < 8 {
+            u_src[(row * 8) + col8] = ((u_left[row] as i32) + (u_above[col8] as i32) - (100 as i32)) as byte;
+            v_src[(row * 8) + col8] = ((v_left[row] as i32) + (v_above[col8] as i32) - (90 as i32)) as byte;
+            col8 = col8 + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar_uv: UvModeSearchResult = try search_uv_mode_with_kernel_table(&scalar_table, &u_src[0] as &byte, 8, &v_src[0] as &byte, 8, &u_above[0] as &byte, &v_above[0] as &byte, true, &u_left[0] as &byte, &v_left[0] as &byte, true, 100 as byte, 90 as byte);
+    const simd_uv: UvModeSearchResult = try search_uv_mode_with_kernel_table(&simd_table, &u_src[0] as &byte, 8, &v_src[0] as &byte, 8, &u_above[0] as &byte, &v_above[0] as &byte, true, &u_left[0] as &byte, &v_left[0] as &byte, true, 100 as byte, 90 as byte);
+    try assert_eq_i32(simd_uv.mode as i32, scalar_uv.mode as i32);
+    try assert_eq_i32(simd_uv.distortion as i32, scalar_uv.distortion as i32);
+}
+
+test "intra mode search rejects missing kernel table predictor cost entry" {
+    var table: KernelFunctionTable = make_scalar_kernel_table();
+    table.intra4x4_predictor_sad_fn = null as &void;
+
+    var src: [byte: 16] = [];
+    var failed: i32 = 0;
+    _ = search_intra4x4_mode_limited_with_kernel_table(&table, &src[0] as &byte, 4, null as &byte, false, null as &byte, false, 128 as byte, VP8_B_MODE_DC, VP8_B_MODE_DC, 256 as u32, 1 as u8) catch {
+        failed = 1;
+        dummy_intra4x4_result();
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "intra4x4 mode search rejects invalid geometry" {

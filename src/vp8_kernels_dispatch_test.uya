@@ -4,11 +4,16 @@ use std.testing.expect;
 use vp8.common.cpu.SimdLevel;
 use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.simd_detect_capabilities;
+use vp8.encoder.mode_search.intra4x4_mode_sad;
+use vp8.encoder.mode_search.intra16x16_mode_sad;
+use vp8.encoder.mode_search.uv_mode_sad;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.kernel_table_add_residual_4x4_clamped;
 use vp8.kernels.dispatch.kernel_table_dequant_block_4x4;
 use vp8.kernels.dispatch.kernel_table_forward_dct_4x4;
 use vp8.kernels.dispatch.kernel_table_forward_walsh_hadamard_y2_4x4;
+use vp8.kernels.dispatch.kernel_table_intra4x4_predictor_sad;
+use vp8.kernels.dispatch.kernel_table_intra16x16_predictor_sad;
 use vp8.kernels.dispatch.kernel_table_predict_inter_copy;
 use vp8.kernels.dispatch.kernel_table_predict_luma_subpixel_16x16;
 use vp8.kernels.dispatch.kernel_table_quantize_block_4x4;
@@ -29,6 +34,10 @@ use vp8.kernels.dispatch.make_default_kernel_table;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.kernels.scalar.predict_luma_subpixel;
+use vp8.kernels.dispatch.kernel_table_uv8x8_predictor_sad;
+use vp8.mode.parse.VP8_B_MODE_VR;
+use vp8.mode.parse.VP8_UV_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_TM;
 use vp8.token.parse.CoefficientBlockSummary;
 
 fn assert_copy_result(dst: &byte, stride: usize) !void {
@@ -119,6 +128,61 @@ fn fill_luma_subpixel_fixture(src: &byte, stride: usize, height: usize) void {
     }
 }
 
+fn assert_intra_predictor_cost_entries_match_scalar(table: &KernelFunctionTable) !void {
+    var src4: [byte: 40] = [];
+    var above8: [byte: 8] = [ 41, 53, 67, 83, 101, 119, 137, 151 ];
+    var left4: [byte: 4] = [ 203, 177, 129, 91 ];
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            src4[1 + (row * 7) + col] = (((row * 31) + (col * 17) + 19) % (256 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar4: u32 = try intra4x4_mode_sad(&src4[1] as &byte, 7, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_VR);
+    const table4: u32 = try kernel_table_intra4x4_predictor_sad(table, &src4[1] as &byte, 7, &above8[0] as &byte, true, &left4[0] as &byte, true, 77 as byte, VP8_B_MODE_VR);
+    try assert_eq_i32(table4 as i32, scalar4 as i32);
+
+    var src16: [byte: 360] = [];
+    var above16: [byte: 16] = [];
+    var left16: [byte: 16] = [];
+    row = 0;
+    while row < 16 {
+        above16[row] = (((row * 9) + 17) % (256 as usize)) as byte;
+        left16[row] = (((row * 11) + 29) % (256 as usize)) as byte;
+        var col16: usize = 0;
+        while col16 < 16 {
+            src16[3 + (row * 21) + col16] = (((row * 13) + (col16 * 23) + 5) % (256 as usize)) as byte;
+            col16 = col16 + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar16: u32 = try intra16x16_mode_sad(&src16[3] as &byte, 21, &above16[0] as &byte, true, &left16[0] as &byte, true, 63 as byte, VP8_Y_MODE_TM);
+    const table16: u32 = try kernel_table_intra16x16_predictor_sad(table, &src16[3] as &byte, 21, &above16[0] as &byte, true, &left16[0] as &byte, true, 63 as byte, VP8_Y_MODE_TM);
+    try assert_eq_i32(table16 as i32, scalar16 as i32);
+
+    var src8: [byte: 120] = [];
+    var above_uv: [byte: 8] = [ 17, 34, 51, 68, 85, 102, 119, 136 ];
+    var left_uv: [byte: 8] = [ 201, 183, 165, 147, 129, 111, 93, 75 ];
+    row = 0;
+    while row < 8 {
+        var col8: usize = 0;
+        while col8 < 8 {
+            src8[2 + (row * 13) + col8] = (((row * 29) + (col8 * 7) + 33) % (256 as usize)) as byte;
+            col8 = col8 + 1;
+        }
+        row = row + 1;
+    }
+
+    const scalar_uv_pair: u32 = try uv_mode_sad(&src8[2] as &byte, 13, &src8[2] as &byte, 13, &above_uv[0] as &byte, &above_uv[0] as &byte, true, &left_uv[0] as &byte, &left_uv[0] as &byte, true, 99 as byte, 99 as byte, VP8_UV_MODE_TM);
+    const table_uv: u32 = try kernel_table_uv8x8_predictor_sad(table, &src8[2] as &byte, 13, &above_uv[0] as &byte, true, &left_uv[0] as &byte, true, 99 as byte, VP8_UV_MODE_TM);
+    try assert_eq_i32((table_uv * 2) as i32, scalar_uv_pair as i32);
+}
+
 test "kernel table exposes scalar function pointers" {
     const table: KernelFunctionTable = make_scalar_kernel_table();
 
@@ -131,6 +195,9 @@ test "kernel table exposes scalar function pointers" {
     try expect(table.dequant_block_4x4_fn != null);
     try expect(table.token_scan_last_nonzero_4x4_fn != null);
     try expect(table.predict_luma_subpixel_16x16_fn != null);
+    try expect(table.intra4x4_predictor_sad_fn != null);
+    try expect(table.intra16x16_predictor_sad_fn != null);
+    try expect(table.uv8x8_predictor_sad_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -162,6 +229,7 @@ test "kernel table exposes scalar function pointers" {
     predict_luma_subpixel(&subpixel_expected[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 16, 16, 3 as u8, 5 as u8);
     try kernel_table_predict_luma_subpixel_16x16(&table, &subpixel_actual[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 3 as u8, 5 as u8);
     try assert_byte_buffer_eq(&subpixel_actual[0] as &byte, &subpixel_expected[0] as &byte, 400);
+    try assert_intra_predictor_cost_entries_match_scalar(&table);
 
     var dct_input: [i16: 24] = [
         4, 4, 4, 4, 99, 99,
@@ -319,6 +387,9 @@ test "default kernel table remains scalar until SIMD kernels are registered" {
     try expect(table.dequant_block_4x4_fn != null);
     try expect(table.token_scan_last_nonzero_4x4_fn != null);
     try expect(table.predict_luma_subpixel_16x16_fn != null);
+    try expect(table.intra4x4_predictor_sad_fn != null);
+    try expect(table.intra16x16_predictor_sad_fn != null);
+    try expect(table.uv8x8_predictor_sad_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -346,6 +417,9 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     try expect(table.dequant_block_4x4_fn != null);
     try expect(table.token_scan_last_nonzero_4x4_fn != null);
     try expect(table.predict_luma_subpixel_16x16_fn != null);
+    try expect(table.intra4x4_predictor_sad_fn != null);
+    try expect(table.intra16x16_predictor_sad_fn != null);
+    try expect(table.uv8x8_predictor_sad_fn != null);
     try expect(table.sad_16x16_fn != null);
     try expect(table.sad_8x8_fn != null);
     try expect(table.sad_4x4_fn != null);
@@ -438,6 +512,7 @@ test "forced SIMD kernel table registers portable distortion and transform kerne
     predict_luma_subpixel(&subpixel_expected[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 16, 16, 3 as u8, 5 as u8);
     try kernel_table_predict_luma_subpixel_16x16(&table, &subpixel_actual[3] as &byte, 20, &subpixel_src[0] as &byte, 24, 3 as u8, 5 as u8);
     try assert_byte_buffer_eq(&subpixel_actual[0] as &byte, &subpixel_expected[0] as &byte, 400);
+    try assert_intra_predictor_cost_entries_match_scalar(&table);
 
     var src: [byte: 400] = [];
     var reference: [byte: 448] = [];
@@ -562,6 +637,39 @@ test "kernel table wrappers reject unknown entries" {
 
     kernel_table_predict_luma_subpixel_16x16(&table, &dst[0] as &byte, 2, &src[0] as &byte, 2, 3 as u8, 5 as u8) catch {
         failed = 1;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.intra4x4_predictor_sad_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_intra4x4_predictor_sad(&table, &src[0] as &byte, 2, &src[0] as &byte, false, &src[0] as &byte, false, 0 as byte, VP8_B_MODE_VR) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.intra16x16_predictor_sad_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_intra16x16_predictor_sad(&table, &src[0] as &byte, 16, &src[0] as &byte, false, &src[0] as &byte, false, 0 as byte, VP8_Y_MODE_TM) catch {
+        failed = 1;
+        0 as u32;
+    };
+
+    try assert_eq_i32(failed, 1);
+
+    table = make_scalar_kernel_table();
+    table.uv8x8_predictor_sad_fn = null as &void;
+    failed = 0;
+
+    _ = kernel_table_uv8x8_predictor_sad(&table, &src[0] as &byte, 8, &src[0] as &byte, false, &src[0] as &byte, false, 0 as byte, VP8_UV_MODE_TM) catch {
+        failed = 1;
+        0 as u32;
     };
 
     try assert_eq_i32(failed, 1);
