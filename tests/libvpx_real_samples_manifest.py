@@ -23,22 +23,25 @@ def sample_by_name(manifest: dict[str, object], name: str) -> dict[str, object]:
     raise AssertionError(f"missing sample: {name}")
 
 
-def assert_qcif_sample(
+def assert_real_sample(
     manifest: dict[str, object],
     *,
     name: str,
+    width: int,
+    height: int,
     sha256: str,
+    size_group: str,
     group: str,
 ) -> None:
     sample = sample_by_name(manifest, name)
     assert sample["url"] == f"https://media.xiph.org/video/derf/y4m/{name}.y4m"
-    assert sample["width"] == 176
-    assert sample["height"] == 144
+    assert sample["width"] == width
+    assert sample["height"] == height
     assert sample["frames"] == 60
     assert sample["fps"] == "30000/1001"
     assert sample["sha256"] == sha256
     assert SHA256_RE.match(sample["sha256"])
-    assert {"real", "qcif", group}.issubset(set(sample["groups"]))
+    assert {"real", size_group, group}.issubset(set(sample["groups"]))
 
 
 def main() -> int:
@@ -47,23 +50,41 @@ def main() -> int:
     assert manifest["source"] == "Xiph Derf"
     assert isinstance(manifest["samples"], list)
 
-    assert_qcif_sample(
+    assert_real_sample(
         manifest,
         name="akiyo_qcif",
+        width=176,
+        height=144,
         sha256="df88d83cbf6d99f3ec41f2c1fd2e67665d2a71ff8caa08f8b6bc46bf4567ea2e",
+        size_group="qcif",
         group="low-motion",
     )
-    assert_qcif_sample(
+    assert_real_sample(
         manifest,
         name="foreman_qcif",
+        width=176,
+        height=144,
         sha256="9b37e95ae2d06b3b173d6130965f450009216084bae12b2025248814baf057af",
+        size_group="qcif",
         group="motion",
     )
-    assert_qcif_sample(
+    assert_real_sample(
         manifest,
         name="coastguard_qcif",
+        width=176,
+        height=144,
         sha256="94b615bcb5f89edc601b0e570a599ef584e066e647647b9b5d8b70fb8ebb0146",
+        size_group="qcif",
         group="pan",
+    )
+    assert_real_sample(
+        manifest,
+        name="mobile_cif",
+        width=352,
+        height=288,
+        sha256="8b32924ea00ef3bd52f7ddafd3ceb55d2bb331610b59957c5c3cc9628f9e0d90",
+        size_group="cif",
+        group="texture",
     )
     return 0
 

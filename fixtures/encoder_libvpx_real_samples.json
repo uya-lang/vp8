@@ -37,6 +37,16 @@
       "fps": "30000/1001",
       "sha256": "94b615bcb5f89edc601b0e570a599ef584e066e647647b9b5d8b70fb8ebb0146",
       "groups": ["real", "qcif", "pan"]
+    },
+    {
+      "name": "mobile_cif",
+      "url": "https://media.xiph.org/video/derf/y4m/mobile_cif.y4m",
+      "width": 352,
+      "height": 288,
+      "frames": 60,
+      "fps": "30000/1001",
+      "sha256": "8b32924ea00ef3bd52f7ddafd3ceb55d2bb331610b59957c5c3cc9628f9e0d90",
+      "groups": ["real", "cif", "texture"]
     }
   ]
 }
