@@ -6,6 +6,7 @@
 - 生成 C 快照：`build/simd-codegen/vp8_kernels_simd_test.c`
 - 生成汇编快照：`build/simd-codegen/vp8_kernels_simd_test.s`
 - 复现命令：`make check-simd-codegen`
+- 检查模板：`docs/simd_codegen_template.md`
 
 ## C lowering 结论
 

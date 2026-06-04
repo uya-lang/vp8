@@ -389,6 +389,7 @@ def write_report(
 - 生成 C 快照：`{generated_c.as_posix()}`
 - 生成汇编快照：`{generated_asm.as_posix()}`
 - 复现命令：`make check-simd-codegen`
+- 检查模板：`docs/simd_codegen_template.md`
 
 ## C lowering 结论
 

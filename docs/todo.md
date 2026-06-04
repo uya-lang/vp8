@@ -419,7 +419,7 @@
 - [x] 设计 `transpose_4x4_i16`。
 - [x] 设计 `filter6_u8x16`。
 - [x] 设计 `loopfilter_edge_u8x16`。
-- [ ] 建立 SIMD 生成 C/汇编检查模板。
+- [x] 建立 SIMD 生成 C/汇编检查模板。
 - [ ] 建立 SIMD 默认启用 benchmark 阈值表。
 - [ ] 向 UYA 编译器反馈/实现 vector shuffle 需求。
 - [ ] 向 UYA 编译器反馈/实现 vector widening/narrowing 需求。
