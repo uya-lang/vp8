@@ -89,6 +89,12 @@ minimum speedups are:
 | compute | 1.25 | 5 | 1 |
 | end_to_end_decoder | 0.95 | 5 | 1 |
 
+The table also reserves disabled benchmark targets for the current SIMD helper
+backlog: unaligned load/store, widening, saturated narrowing, absdiff, SAD,
+4x4 transpose, six-tap filtering, and simple loop-filter edge updates. These
+entries are not default-dispatch approval; they define the measurement units and
+minimum evidence needed before any helper-backed dispatcher path can be enabled.
+
 This smoke run uses fewer repeats and smaller synthetic samples than the
 threshold table requires for default dispatch. The motion-search hotspot clears
 its smoke threshold by a wide margin, but the decode and encode smoke results

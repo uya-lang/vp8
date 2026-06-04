@@ -62,6 +62,7 @@ def validate_kernel(index: int, kernel: Any, class_names: set[str], names: set[s
     class_name = kernel.get("class")
     require(isinstance(class_name, str) and class_name in class_names, f"kernels[{index}].class must reference a kernel class")
     require(isinstance(kernel.get("phase"), str) and kernel["phase"], f"kernels[{index}].phase must be a non-empty string")
+    require(isinstance(kernel.get("bench_unit"), str) and kernel["bench_unit"], f"kernels[{index}].bench_unit must be a non-empty string")
     require(
         kernel.get("default_policy") == "disabled_until_threshold_passes",
         f"kernels[{index}].default_policy must be disabled_until_threshold_passes",

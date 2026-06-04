@@ -137,6 +137,62 @@
       "class": "compute",
       "bench_unit": "ns/edge",
       "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "unaligned_u8x16_load_store",
+      "phase": "SIMD Backlog",
+      "class": "memory",
+      "bench_unit": "ns/vector",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "widen_u8x16_to_i16x8_pair",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/vector",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "narrow_i16x16_to_u8x16_sat",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/vector",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "absdiff_u8x16",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/vector",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "sad_u8x16",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/vector",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "transpose_4x4_i16",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/block",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "filter6_u8x16",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/16px",
+      "default_policy": "disabled_until_threshold_passes"
+    },
+    {
+      "name": "loopfilter_edge_u8x16",
+      "phase": "SIMD Backlog",
+      "class": "compute",
+      "bench_unit": "ns/16-lane-edge",
+      "default_policy": "disabled_until_threshold_passes"
     }
   ]
 }
