@@ -34,6 +34,8 @@ checks `info` still succeeds, and checks `decode`/`decode-frame` return
 controlled errors instead of crashing.
 `make test-multithread-malformed` runs malformed IVF and VP8 cases through
 `--threads 4` with per-command timeouts so deadlocks fail the gate.
+`make test-fuzz-minimized` materializes the minimized deterministic fuzz
+representatives from `fixtures/fuzz_minimized/manifest.json`.
 `make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
 containers with random VP8 payloads, accepting only success or controlled error
 exits.

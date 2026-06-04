@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "description": "Minimized deterministic fuzz corpus representatives derived from tests/fuzz_smoke.py outcome classes. Binary cases are emitted under build/fuzz-minimized and are intentionally not tracked.",
+  "source": {
+    "script": "tests/fuzz_smoke.py",
+    "seed": 5656632,
+    "raw_ivf_cases": 32,
+    "random_payload_cases": 32,
+    "observed_command_classes": 3
+  },
+  "cases": [
+    {
+      "name": "raw-invalid-header-min",
+      "kind": "raw-bytes",
+      "data_hex": "00",
+      "commands": [
+        {
+          "action": "info",
+          "expected_exit": 2,
+          "expected_output": "error: invalid IVF header"
+        }
+      ]
+    },
+    {
+      "name": "valid-ivf-empty-payload-min",
+      "kind": "ivf-payload",
+      "payload_hex": "",
+      "commands": [
+        {
+          "action": "info",
+          "expected_exit": 0,
+          "expected_output": "ivf.payloads=1"
+        },
+        {
+          "action": "decode",
+          "expected_exit": 2,
+          "expected_output": "error: failed to decode VP8 frame"
+        }
+      ]
+    }
+  ]
+}

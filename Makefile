@@ -34,6 +34,8 @@ MALFORMED_VP8_DIR := $(BUILD_DIR)/malformed-vp8
 MALFORMED_VP8_SCRIPT := tests/malformed_vp8.py
 MULTITHREAD_MALFORMED_DIR := $(BUILD_DIR)/multithread-malformed
 MULTITHREAD_MALFORMED_SCRIPT := tests/multithread_malformed.py
+FUZZ_MINIMIZED_DIR := $(BUILD_DIR)/fuzz-minimized
+FUZZ_MINIMIZED_SCRIPT := tests/fuzz_minimized.py
 FUZZ_SMOKE_DIR := $(BUILD_DIR)/fuzz-smoke
 FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 WEBM_SUBSET_DIR := $(BUILD_DIR)/webm-subset
@@ -60,7 +62,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-cli-doc test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-cli-doc test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -171,6 +173,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(MAKE) test-malformed-ivf
 	$(MAKE) test-malformed-vp8
 	$(MAKE) test-multithread-malformed
+	$(MAKE) test-fuzz-minimized
 	$(MAKE) test-fuzz-smoke
 	$(MAKE) test-webm-subset-decode
 	$(MAKE) test-scalar-vs-simd
@@ -230,6 +233,9 @@ test-malformed-vp8: build
 
 test-multithread-malformed: build
 	python3 $(MULTITHREAD_MALFORMED_SCRIPT) $(BIN) $(MULTITHREAD_MALFORMED_DIR)
+
+test-fuzz-minimized: build
+	python3 $(FUZZ_MINIMIZED_SCRIPT) $(BIN) $(FUZZ_MINIMIZED_DIR)
 
 test-fuzz-smoke: build
 	python3 $(FUZZ_SMOKE_SCRIPT) $(BIN) $(FUZZ_SMOKE_DIR)

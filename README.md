@@ -94,6 +94,8 @@ group.
 `fixtures/malformed_ivf/manifest.json` and checks `info`/`decode` error exits.
 `make test-malformed-vp8` wraps malformed VP8 payloads in valid IVF containers
 and checks `decode`/`decode-frame` error exits while `info` still succeeds.
+`make test-fuzz-minimized` runs the compact representative fuzz corpus in
+`fixtures/fuzz_minimized/manifest.json`.
 `make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
 containers with random VP8 payloads, accepting only success or controlled error
 exits.

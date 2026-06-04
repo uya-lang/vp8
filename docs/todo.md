@@ -395,7 +395,7 @@
 - [x] Kernel benchmark 报告。
 - [x] Decoder conformance 报告。
 - [x] Encoder quality 报告。
-- [ ] Fuzz corpus 最小化。
+- [x] Fuzz corpus 最小化。
 - [ ] CI: build/test/bench smoke。
 - [ ] CI: scalar-only。
 - [ ] CI: SIMD enabled。
