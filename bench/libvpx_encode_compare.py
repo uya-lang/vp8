@@ -21,7 +21,8 @@ from typing import Mapping
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DEPS_DIR = REPO_ROOT / "build" / "deps"
-DEFAULT_VPX_TOOLS_DIR = DEFAULT_DEPS_DIR / "vpx-tools-root" / "usr" / "bin"
+DEFAULT_VPX_TOOLS_ROOT = DEFAULT_DEPS_DIR / "vpx-tools-root"
+DEFAULT_VPX_TOOLS_DIR = DEFAULT_VPX_TOOLS_ROOT / "usr" / "bin"
 LIBVPX_PRESET = "vpxenc --best"
 
 REQUIRED_RESULT_FIELDS = (
@@ -159,6 +160,66 @@ def fetch_vpx_tools(
     }
 
 
+def latest_vpx_tools_deb(deps_dir: Path) -> Path | None:
+    debs = sorted(deps_dir.glob("vpx-tools_*.deb"))
+    if not debs:
+        return None
+    return debs[-1]
+
+
+def extract_vpx_tools(
+    *,
+    deps_dir: Path = DEFAULT_DEPS_DIR,
+    extract_root: Path = DEFAULT_VPX_TOOLS_ROOT,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    deb = latest_vpx_tools_deb(deps_dir)
+    if deb is None:
+        return {
+            "ok": False,
+            "command": [],
+            "deps_dir": str(deps_dir),
+            "extract_root": str(extract_root),
+            "vpxenc": str(extract_root / "usr" / "bin" / "vpxenc"),
+            "vpxdec": str(extract_root / "usr" / "bin" / "vpxdec"),
+            "returncode": None,
+            "stdout": "",
+            "stderr": "no vpx-tools .deb found",
+        }
+
+    deps_dir.mkdir(parents=True, exist_ok=True)
+    extract_root.mkdir(parents=True, exist_ok=True)
+    command = ["dpkg-deb", "-x", str(deb), str(extract_root)]
+    try:
+        completed = runner(command, deps_dir)
+    except OSError as exc:
+        return {
+            "ok": False,
+            "command": command,
+            "deps_dir": str(deps_dir),
+            "extract_root": str(extract_root),
+            "vpxenc": str(extract_root / "usr" / "bin" / "vpxenc"),
+            "vpxdec": str(extract_root / "usr" / "bin" / "vpxdec"),
+            "returncode": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+    vpxenc = extract_root / "usr" / "bin" / "vpxenc"
+    vpxdec = extract_root / "usr" / "bin" / "vpxdec"
+    return {
+        "ok": completed.returncode == 0 and is_executable_file(vpxenc) and is_executable_file(vpxdec),
+        "command": command,
+        "deps_dir": str(deps_dir),
+        "extract_root": str(extract_root),
+        "vpxenc": str(vpxenc),
+        "vpxdec": str(vpxdec),
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
 def require_number(result: dict[str, Any], field: str) -> float:
     value = result.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -258,6 +319,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="download vpx-tools .deb into build/deps without sudo",
     )
+    parser.add_argument(
+        "--extract-vpx-tools",
+        action="store_true",
+        help="extract the downloaded vpx-tools .deb into build/deps/vpx-tools-root",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -274,8 +340,12 @@ def main(argv: list[str]) -> int:
         report = fetch_vpx_tools()
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.extract_vpx_tools:
+        report = extract_vpx_tools()
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, or --fetch-vpx-tools", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, or --extract-vpx-tools", file=sys.stderr)
     return 2
 
 
