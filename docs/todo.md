@@ -392,7 +392,7 @@
 
 - [x] 完整错误码文档。
 - [x] CLI 文档。
-- [ ] Kernel benchmark 报告。
+- [x] Kernel benchmark 报告。
 - [ ] Decoder conformance 报告。
 - [ ] Encoder quality 报告。
 - [ ] Fuzz corpus 最小化。
@@ -405,7 +405,7 @@
 验收标准：
 
 - [ ] `make check` 通过。
-- [ ] `make bench-smoke` 通过。
+- [x] `make bench-smoke` 通过。
 - [ ] release notes 明确支持范围和限制。
 
 ## SIMD 专项 Backlog

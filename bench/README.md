@@ -31,3 +31,5 @@ forced-SIMD 达到 speedup 阈值。使用 `make bench-motion-search-smoke`
 计算密集型 kernel 必须达到 1.25x，端到端 decoder forced-SIMD 路径相比
 forced scalar 不能慢超过 5%。每个默认启用的 kernel 还需要位精确输出、
 代码生成检查和基准测试证据。
+
+当前 kernel benchmark smoke 结果记录在 `docs/kernel_benchmark_report.md`。
