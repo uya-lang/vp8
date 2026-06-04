@@ -15,7 +15,7 @@
 | --- | --- | --- | --- |
 | widen | no direct vector widen from narrow lanes to wider lanes | SAD、sub-pixel filter、loop filter 中的 `u8 -> i16/i32` 中间值需要额外步骤 | scalar tile helper 或拆成多个 scalar lanes；x86 SAD 16x16 已有可选 `@asm` microkernel |
 | narrow / truncate / convert | no direct vector narrow or lane conversion builtin | residual add/clamp、inverse transform 后写回 `u8` 时缺少 `i16/i32 -> u8` vector path | scalar clamp and store；未来可用 `@vector.select` 组合局部替代 |
-| shuffle / lane shift | no `@vector.shuffle` or lane permute builtin | 6-tap sub-pixel、transpose、loop filter 邻域重排难以表达 | multiple loads plus scalar lane handling；x86 luma horizontal sub-pixel 已有可选 `@asm` microkernel |
+| shuffle / lane shift | no `@vector.shuffle` or lane permute builtin；request recorded in `docs/uya_compiler_requests.md` | 6-tap sub-pixel、transpose、loop filter 邻域重排难以表达 | multiple loads plus scalar lane handling；x86 luma horizontal sub-pixel 已有可选 `@asm` microkernel |
 | unsigned saturating add/sub | signed vector `+|` / `-|` works, unsigned vector saturating is rejected | VP8 pixel math needs unsigned clamp semantics and narrow-to-u8 saturation | signed intermediate plus scalar clamp, or explicit compare/select when practical |
 
 ## 设计约束
