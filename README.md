@@ -1,9 +1,8 @@
 # vp8uya
 
-`vp8uya` is a pure UYA VP8 codec project. The first target is a bit-exact
-VP8 decoder for IVF, raw VP8 payloads, and a minimal WebM VP8 subset. Encoder
-support, SIMD kernels, row parallelism, and broader container support are
-planned after the scalar decoder is correct.
+`vp8uya` is a pure UYA VP8 codec project. The current target is a bit-exact VP8
+decoder for IVF and a minimal WebM VP8 subset, plus a deterministic one-frame
+I420-to-IVF keyframe encoder path for regression work.
 
 ## Current Status
 
@@ -11,9 +10,13 @@ This repository has a scalar decoder work-in-progress and a limited one-frame
 I420-to-IVF keyframe encoder path. It can parse IVF container metadata and a
 minimal WebM VP8 subset, decode the supported scalar VP8 path for tiny built-in
 samples, write visible I420 YUV output, and encode deterministic one-frame
-keyframe IVF samples with PSNR/SSIM reporting. Broader conformance coverage,
-SIMD default dispatch, parallelism, and multi-frame encoder support are still
+keyframe IVF samples with PSNR/SSIM reporting. Forced scalar/SIMD dispatch and
+single-vs-multithread regression checks are available, but broader conformance
+coverage, default SIMD enablement, and multi-frame encoder support are still
 pending.
+
+Current release: `0.1.0-alpha.1`. The changelog and release notes live in
+`CHANGELOG.md`.
 
 Current command surface:
 
@@ -26,6 +29,8 @@ Current command surface:
   minimal VP8 subset demuxer and the first matching SimpleBlock sample.
 - `vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>` writes one
   decoded visible frame by IVF frame index.
+- `vp8uya encode <input.yuv> --width W --height H --out <out.ivf>` writes a
+  one-frame VP8 keyframe IVF stream from contiguous I420 input.
 
 Full command documentation lives in `docs/cli.md`.
 

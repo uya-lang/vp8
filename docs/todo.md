@@ -400,13 +400,13 @@
 - [x] CI: scalar-only。
 - [x] CI: SIMD enabled。
 - [x] CI: optional libvpx diff。
-- [ ] 版本号和 changelog。
+- [x] 版本号和 changelog。
 
 验收标准：
 
 - [x] `make check` 通过。
 - [x] `make bench-smoke` 通过。
-- [ ] release notes 明确支持范围和限制。
+- [x] release notes 明确支持范围和限制。
 
 ## SIMD 专项 Backlog
 

@@ -44,6 +44,9 @@ ERROR_CODES_DOC := docs/error_codes.md
 ERROR_CODES_DOC_SCRIPT := tests/error_codes_doc.py
 CLI_DOC := docs/cli.md
 CLI_DOC_SCRIPT := tests/cli_doc.py
+VERSION_FILE := VERSION
+CHANGELOG := CHANGELOG.md
+RELEASE_NOTES_SCRIPT := tests/release_notes.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 ENCODE_CLI_DIR := $(BUILD_DIR)/encode-cli
@@ -62,7 +65,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff test test-cli-doc test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -133,12 +136,16 @@ ci-libvpx-diff: build
 test-cli-doc: build
 	python3 $(CLI_DOC_SCRIPT) $(CLI_DOC) $(BIN)
 
+test-release-notes: build
+	python3 $(RELEASE_NOTES_SCRIPT) $(VERSION_FILE) $(CHANGELOG) $(CLI_DOC) $(BIN)
+
 test-error-codes-doc:
 	python3 $(ERROR_CODES_DOC_SCRIPT) $(ERROR_CODES_DOC) src
 
 test: build check-toolchain $(SAMPLE_IVF)
 	$(MAKE) check-kernel-thresholds
 	$(MAKE) test-cli-doc
+	$(MAKE) test-release-notes
 	$(MAKE) test-error-codes-doc
 	$(MAKE) test-decoder-scalar
 	$(MAKE) test-examples

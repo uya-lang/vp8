@@ -94,7 +94,7 @@ struct EncodedKeyframeAnalysis {
 }
 
 fn print_help() void {
-    _ = printf("vp8uya scaffold CLI\n");
+    _ = printf("vp8uya CLI\n");
     _ = printf("Usage:\n");
     _ = printf("  vp8uya [--help|-h]\n");
     _ = printf("  vp8uya [--force-scalar|--force-simd] [--threads N] <command> [args]\n");
@@ -106,7 +106,7 @@ fn print_help() void {
 }
 
 fn print_version() void {
-    _ = printf("vp8uya 0.0.0-scaffold\n");
+    _ = printf("vp8uya 0.1.0-alpha.1\n");
 }
 
 fn read_file(path: &byte) !FileBuffer {

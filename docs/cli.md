@@ -22,7 +22,7 @@ build/vp8uya
 The built-in help currently prints:
 
 ```text
-vp8uya scaffold CLI
+vp8uya CLI
 Usage:
   vp8uya [--help|-h]
   vp8uya [--force-scalar|--force-simd] [--threads N] <command> [args]
@@ -67,8 +67,11 @@ build/vp8uya version
 Prints:
 
 ```text
-vp8uya 0.0.0-scaffold
+vp8uya 0.1.0-alpha.1
 ```
+
+The release version is tracked in the top-level `VERSION` file and summarized in
+`CHANGELOG.md`.
 
 ## `info`
 
