@@ -348,3 +348,39 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_simd_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_dispatch_test.uya`
 - `make test-scalar-vs-simd`
+
+## SIMD Default Path Lane Temporaries And Memcpy
+
+Status: passed.
+
+Evidence:
+
+- The default runtime SIMD level is scalar: `simd_level_default()` returns
+  `SimdLevel.scalar`, `make_default_kernel_table(...)` ignores detected
+  capabilities and returns `make_scalar_kernel_table()`, and
+  `make_decoder(...)` uses that default table.
+- CLI default decoding uses `make_decoder(...)`; CLI encoding/mode helpers use
+  `make_cli_kernel_table(false, false)`, which also returns the scalar table.
+  SIMD kernels are only selected by explicit `--force-simd`,
+  `VP8UYA_FORCE_SIMD=1`, or API `SimdLevel.vector128`.
+- `src/vp8_kernels_dispatch_test.uya` asserts that the default kernel table
+  remains scalar and separately checks the forced SIMD table entries.
+- `docs/simd_codegen.md` audits current generated C/assembly for forced SIMD:
+  vector load/store lowering is recorded as `__uya_memcpy`, and sub-pixel,
+  residual clamp, true-motion, and transform paths document their current
+  lane-array or gather/scatter fallbacks.
+- `docs/simd_gaps.md`, `docs/uya_compiler_requests.md`, and
+  `bench/kernel_thresholds.json` keep these lowering gaps visible and mark
+  default dispatch as `disabled_until_threshold_passes`, requiring bit-exact,
+  codegen, and benchmark evidence before any SIMD kernel can become default.
+- `docs/phase9_acceptance.md` now matches the current implementation: default
+  dispatch is scalar, while forced SIMD registers vector128 entries when
+  available and falls back to scalar otherwise.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_cpu_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_dispatch_test.uya`
+- `make check-simd-codegen`
+- `make check-kernel-thresholds`
+- `make test-scalar-vs-simd`

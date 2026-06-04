@@ -9,8 +9,11 @@
 ## SIMD 不可用时回退 scalar
 
 - 当前没有已注册的默认 SIMD kernel。
-- `make_forced_simd_kernel_table` 当前返回 scalar table。
-- `src/vp8_kernels_dispatch_test.uya` 的 `forced SIMD kernel table falls back to scalar until SIMD kernels are registered` 覆盖该行为。
+- `make_default_kernel_table` 当前保持 scalar。
+- `make_forced_simd_kernel_table` 在 vector128 可用时注册 forced SIMD
+  entries；不可用时回退 scalar table。
+- `src/vp8_kernels_dispatch_test.uya` 覆盖默认 scalar 表、forced SIMD 表和
+  无效 entry 拒绝。
 
 ## benchmark scalar/SIMD 指标
 
