@@ -680,6 +680,23 @@ test "reject VP8 token partition size table overrun" {
     try assert_eq_i32(failed, 1);
 }
 
+test "reject VP8 token partitions when first partition bounds exceed payload" {
+    var frame: [byte: 5] = [ 0x50, 0x00, 0x00, 0xaa, 0xbb ];
+    var readers: [BoolReader: 8] = [];
+    var failed_end: i32 = 0;
+    var failed_offset: i32 = 0;
+
+    _ = parse_vp8_token_partition_readers(&frame[0] as &byte, 5, 3, 3, 1 as u8, &readers[0] as &BoolReader) catch {
+        failed_end = 1;
+    };
+    _ = parse_vp8_token_partition_readers(&frame[0] as &byte, 5, 6, 0, 1 as u8, &readers[0] as &BoolReader) catch {
+        failed_offset = 1;
+    };
+
+    try assert_eq_i32(failed_end, 1);
+    try assert_eq_i32(failed_offset, 1);
+}
+
 test "map macroblock rows to VP8 token partitions by row modulo partition count" {
     try assert_eq_i32((try vp8_token_partition_for_row(0, 4 as u8)) as i32, 0);
     try assert_eq_i32((try vp8_token_partition_for_row(1, 4 as u8)) as i32, 1);

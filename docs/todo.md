@@ -428,7 +428,7 @@
 ## 高风险检查清单
 
 - [x] bool reader carry/renormalize 与 VP8 规范一致。
-- [ ] first partition size 和 token partition size 边界正确。
+- [x] first partition size 和 token partition size 边界正确。
 - [ ] key frame 重置概率和 reference frame。
 - [ ] 非 16 对齐尺寸的右/下边界预测正确。
 - [ ] segmentation quant/filter delta 符号正确。

@@ -23,3 +23,26 @@ Verification:
 
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_bool_reader_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_bool_writer_test.uya`
+
+## Partition Size Boundaries
+
+Status: passed.
+
+Evidence:
+
+- `parse_vp8_frame_tag_checked` rejects inter-frame first partitions whose
+  declared size exceeds the remaining payload.
+- Key-frame size validation accounts for the 10-byte key-frame header before
+  checking first partition bytes.
+- `parse_vp8_token_partition_readers` rejects first partition offsets beyond the
+  payload, first partition end beyond the payload, token size table overrun, and
+  declared token partition lengths that exceed remaining token bytes.
+- Encoder partition output tests cover multi-partition size table writing,
+  single token partition mode without a size table, non-zero output offsets, and
+  decoder-side reader reconstruction from the packed payload.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_partition_output_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_token_partition_packing_test.uya`
