@@ -212,6 +212,24 @@ def assert_extracted_dir_lookup(module: object) -> None:
         assert vpxdec["error"] is None
 
 
+def assert_fetch_vpx_tools_download(module: object) -> None:
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_runner(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        calls.append((command, cwd))
+        if "sudo" in command:
+            return subprocess.CompletedProcess(command, 1, "", "sudo must not be used")
+        (cwd / "vpx-tools_1.0_test_amd64.deb").write_bytes(b"fake deb")
+        return subprocess.CompletedProcess(command, 0, "downloaded\n", "")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        report = module.fetch_vpx_tools(download_dir=Path(tmp), runner=fake_runner)
+        assert report["ok"] is True
+        assert calls == [(["apt-get", "download", "vpx-tools"], Path(tmp))]
+        assert report["command"] == ["apt-get", "download", "vpx-tools"]
+        assert report["deb_files"] == [str(Path(tmp) / "vpx-tools_1.0_test_amd64.deb")]
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -223,6 +241,7 @@ def main() -> int:
     assert_vpxdec_env_lookup(module)
     assert_probe_tools_path_lookup()
     assert_extracted_dir_lookup(module)
+    assert_fetch_vpx_tools_download(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

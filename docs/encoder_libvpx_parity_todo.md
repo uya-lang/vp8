@@ -45,7 +45,7 @@ Date: 2026-06-04
   - 验收命令：`python3 <future-script> --probe-tools` 能打印 PATH 中发现的 `vpxenc`、`vpxdec`。
 - [x] 支持 `build/deps/vpx-tools-root/usr/bin/` 查找。
   - 验收：把 `vpxenc`、`vpxdec` 放入该目录后，不设置环境变量也能发现。
-- [ ] 支持无 sudo 下载 `vpx-tools`。
+- [x] 支持无 sudo 下载 `vpx-tools`。
   - 验收命令：`apt-get download vpx-tools` 在 `build/deps/` 下生成 `.deb`。
 - [ ] 支持解包 `vpx-tools`。
   - 验收命令：`dpkg-deb -x build/deps/vpx-tools_*.deb build/deps/vpx-tools-root`。

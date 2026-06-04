@@ -11,14 +11,17 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
-from typing import Mapping
 from typing import Any
+from typing import Callable
+from typing import Mapping
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_VPX_TOOLS_DIR = REPO_ROOT / "build" / "deps" / "vpx-tools-root" / "usr" / "bin"
+DEFAULT_DEPS_DIR = REPO_ROOT / "build" / "deps"
+DEFAULT_VPX_TOOLS_DIR = DEFAULT_DEPS_DIR / "vpx-tools-root" / "usr" / "bin"
 LIBVPX_PRESET = "vpxenc --best"
 
 REQUIRED_RESULT_FIELDS = (
@@ -74,6 +77,17 @@ def is_executable_file(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
+def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
 def find_vpx_tool(
     name: str,
     env_var: str,
@@ -111,6 +125,38 @@ def find_vpx_tool(
         return tool_lookup_result(str(extracted_path), "extracted", None, attempted)
 
     return tool_lookup_result(None, None, f"{name} not found", attempted)
+
+
+def fetch_vpx_tools(
+    *,
+    download_dir: Path = DEFAULT_DEPS_DIR,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    download_dir.mkdir(parents=True, exist_ok=True)
+    command = ["apt-get", "download", "vpx-tools"]
+    try:
+        completed = runner(command, download_dir)
+    except OSError as exc:
+        return {
+            "ok": False,
+            "command": command,
+            "download_dir": str(download_dir),
+            "deb_files": [],
+            "returncode": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+    deb_files = sorted(download_dir.glob("vpx-tools_*.deb"))
+    return {
+        "ok": completed.returncode == 0 and len(deb_files) > 0,
+        "command": command,
+        "download_dir": str(download_dir),
+        "deb_files": [str(path) for path in deb_files],
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
 
 
 def require_number(result: dict[str, Any], field: str) -> float:
@@ -207,6 +253,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="locate vpxenc/vpxdec and print the lookup result as JSON",
     )
+    parser.add_argument(
+        "--fetch-vpx-tools",
+        action="store_true",
+        help="download vpx-tools .deb into build/deps without sudo",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -219,8 +270,12 @@ def main(argv: list[str]) -> int:
         report = probe_tools()
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.fetch_vpx_tools:
+        report = fetch_vpx_tools()
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract or --probe-tools", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, or --fetch-vpx-tools", file=sys.stderr)
     return 2
 
 
