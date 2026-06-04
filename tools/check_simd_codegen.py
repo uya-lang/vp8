@@ -104,6 +104,12 @@ HELPERS = (
         "kind": "helper",
         "vector_structs": ("struct uya_simd_vector_int16_t_16",),
     },
+    {
+        "name": "filter6_u8x16",
+        "symbol": "vp8_kernels_simd_filter6_u8x16",
+        "kind": "helper",
+        "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
+    },
 )
 
 SIMD_KERNELS = (
@@ -386,7 +392,7 @@ def write_report(
 
 检查结果：
 
-- {len(c_results)} 个 portable SIMD load/store helper 都生成了稳定的 C 符号。
+- {len(c_results)} 个 portable SIMD helper 都生成了稳定的 C 符号。
 - 当前 C99 后端将 `@vector.load` / `@vector.store` 通过 `__uya_memcpy` 表达，本次生成 C 中 `__uya_memcpy` 出现 {c_memcpy_mentions} 次。
 - 这条记录只证明当前 helper 可生成、可链接、可测试，并记录了实际 lowering；它不证明这些 helper 已经是单条硬件 SIMD load/store。
 

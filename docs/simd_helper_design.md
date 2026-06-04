@@ -194,3 +194,33 @@ Fallback and testing:
 - The helper is intended for transform staging. Refactoring existing DCT/IDCT
   code to use it can be done after benchmark/codegen evidence shows the helper
   is not adding extra hot-path cost.
+
+## `filter6_u8x16`
+
+Purpose: apply one VP8 six-tap luma sub-pixel filter to sixteen independent
+output lanes. Horizontal filtering supplies six overlapping row vectors;
+vertical filtering supplies the same column span from six neighboring rows.
+
+Contract:
+
+- Inputs `tap0..tap5` contain the six filter taps for output lanes `0..15`.
+- `filter_index` selects VP8 sub-pixel filter `0..7`; values above `7` clamp to
+  filter `7`, matching the existing scalar/SIMD offset guard.
+- Each output lane computes
+  `(64 + tap0*c0 + tap1*c1 + tap2*c2 + tap3*c3 + tap4*c4 + tap5*c5) >> 7`.
+- The rounded value is clamped to `[0, 255]` before becoming `u8`.
+- Lane order is unchanged, so output lane `N` uses tap lane `N` from every input
+  vector.
+- Current implementation stores each vector to local lanes, applies the six
+  coefficients per lane, and reloads `u8x16`. This keeps the contract explicit
+  while UYA lacks vector widening, multiply-accumulate, and shuffle helpers.
+
+Fallback and testing:
+
+- Scalar fallback is sixteen independent VP8 six-tap filter calculations with
+  the same rounding and clamp.
+- `src/vp8_kernels_simd_test.uya` covers negative coefficients, clipping at both
+  pixel bounds, and mixed lane values.
+- `predict_luma_subpixel_horizontal_u8x16` and
+  `predict_luma_subpixel_vertical_u8x16` now use this helper for full 16-lane
+  spans and keep the existing 4-lane/tail paths for smaller blocks.

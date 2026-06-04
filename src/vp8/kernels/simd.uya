@@ -223,6 +223,96 @@ fn simd_subpixel_offset_index(offset: u8) usize {
     return offset as usize;
 }
 
+export fn filter6_u8x16(tap0: U8x16, tap1: U8x16, tap2: U8x16, tap3: U8x16, tap4: U8x16, tap5: U8x16, filter_index: u8) U8x16 {
+    const offset: usize = simd_subpixel_offset_index(filter_index);
+    var coeff0: i32 = 0;
+    var coeff1: i32 = 0;
+    var coeff2: i32 = 128;
+    var coeff3: i32 = 0;
+    var coeff4: i32 = 0;
+    var coeff5: i32 = 0;
+
+    if offset == 1 {
+        coeff0 = 0;
+        coeff1 = -6;
+        coeff2 = 123;
+        coeff3 = 12;
+        coeff4 = -1;
+        coeff5 = 0;
+    } else if offset == 2 {
+        coeff0 = 2;
+        coeff1 = -11;
+        coeff2 = 108;
+        coeff3 = 36;
+        coeff4 = -8;
+        coeff5 = 1;
+    } else if offset == 3 {
+        coeff0 = 0;
+        coeff1 = -9;
+        coeff2 = 93;
+        coeff3 = 50;
+        coeff4 = -6;
+        coeff5 = 0;
+    } else if offset == 4 {
+        coeff0 = 3;
+        coeff1 = -16;
+        coeff2 = 77;
+        coeff3 = 77;
+        coeff4 = -16;
+        coeff5 = 3;
+    } else if offset == 5 {
+        coeff0 = 0;
+        coeff1 = -6;
+        coeff2 = 50;
+        coeff3 = 93;
+        coeff4 = -9;
+        coeff5 = 0;
+    } else if offset == 6 {
+        coeff0 = 1;
+        coeff1 = -8;
+        coeff2 = 36;
+        coeff3 = 108;
+        coeff4 = -11;
+        coeff5 = 2;
+    } else if offset == 7 {
+        coeff0 = 0;
+        coeff1 = -1;
+        coeff2 = 12;
+        coeff3 = 123;
+        coeff4 = -6;
+        coeff5 = 0;
+    }
+
+    var tap0_lanes: [u8: 16] = [];
+    var tap1_lanes: [u8: 16] = [];
+    var tap2_lanes: [u8: 16] = [];
+    var tap3_lanes: [u8: 16] = [];
+    var tap4_lanes: [u8: 16] = [];
+    var tap5_lanes: [u8: 16] = [];
+    var out: [u8: 16] = [];
+    store_u8x16(&tap0_lanes[0] as &u8, tap0);
+    store_u8x16(&tap1_lanes[0] as &u8, tap1);
+    store_u8x16(&tap2_lanes[0] as &u8, tap2);
+    store_u8x16(&tap3_lanes[0] as &u8, tap3);
+    store_u8x16(&tap4_lanes[0] as &u8, tap4);
+    store_u8x16(&tap5_lanes[0] as &u8, tap5);
+
+    var index: usize = 0;
+    while index < 16 {
+        const sum: i32 = 64
+            + ((tap0_lanes[index] as i32) * coeff0)
+            + ((tap1_lanes[index] as i32) * coeff1)
+            + ((tap2_lanes[index] as i32) * coeff2)
+            + ((tap3_lanes[index] as i32) * coeff3)
+            + ((tap4_lanes[index] as i32) * coeff4)
+            + ((tap5_lanes[index] as i32) * coeff5);
+        out[index] = simd_clip_i32_to_u8(sum >> 7);
+        index = index + 1;
+    }
+
+    return load_u8x16(&out[0] as &u8);
+}
+
 fn load_u8_as_i16x16(src: &byte) I16x16 {
     var lanes: [i16: 16] = [];
     var index: usize = 0;
@@ -706,6 +796,19 @@ fn luma_horizontal_filter_4_u8x16(dst: &byte, src: &byte, start: usize, filter_b
     }
 }
 
+fn luma_horizontal_filter_16_u8x16(dst: &byte, src: &byte, start: usize, filter_index: u8) void {
+    const filtered: U8x16 = filter6_u8x16(
+        load_u8x16_unaligned(&src[start] as &u8),
+        load_u8x16_unaligned(&src[start + 1] as &u8),
+        load_u8x16_unaligned(&src[start + 2] as &u8),
+        load_u8x16_unaligned(&src[start + 3] as &u8),
+        load_u8x16_unaligned(&src[start + 4] as &u8),
+        load_u8x16_unaligned(&src[start + 5] as &u8),
+        filter_index
+    );
+    store_u8x16_unaligned(&dst[0] as &u8, filtered);
+}
+
 fn luma_vertical_filter_4_u8x16(dst: &byte, src: &byte, start: usize, src_stride: usize, filter_base: usize) void {
     var sum: I32x4 = @vector.splat(64);
     var tap: usize = 0;
@@ -725,6 +828,19 @@ fn luma_vertical_filter_4_u8x16(dst: &byte, src: &byte, start: usize, src_stride
         dst[index] = simd_clip_i32_to_u8(lanes[index]);
         index = index + 1;
     }
+}
+
+fn luma_vertical_filter_16_u8x16(dst: &byte, src: &byte, start: usize, src_stride: usize, filter_index: u8) void {
+    const filtered: U8x16 = filter6_u8x16(
+        load_u8x16_unaligned(&src[start] as &u8),
+        load_u8x16_unaligned(&src[start + src_stride] as &u8),
+        load_u8x16_unaligned(&src[start + (2 * src_stride)] as &u8),
+        load_u8x16_unaligned(&src[start + (3 * src_stride)] as &u8),
+        load_u8x16_unaligned(&src[start + (4 * src_stride)] as &u8),
+        load_u8x16_unaligned(&src[start + (5 * src_stride)] as &u8),
+        filter_index
+    );
+    store_u8x16_unaligned(&dst[0] as &u8, filtered);
 }
 
 fn idct_mul_shift_i32x4(value: I32x4, factor: i32) I32x4 {
@@ -754,6 +870,10 @@ export fn predict_luma_subpixel_horizontal_u8x16(dst: &byte, dst_stride: usize, 
         const dst_base: usize = row * dst_stride;
         const src_base: usize = (row + 2) * src_stride;
         var col: usize = 0;
+        while (col + 16) <= width {
+            luma_horizontal_filter_16_u8x16(&dst[dst_base + col] as &byte, src_window, src_base + col, xoffset);
+            col = col + 16;
+        }
         while (col + 4) <= width {
             luma_horizontal_filter_4_u8x16(&dst[dst_base + col] as &byte, src_window, src_base + col, filter_base);
             col = col + 4;
@@ -785,6 +905,10 @@ export fn predict_luma_subpixel_vertical_u8x16(dst: &byte, dst_stride: usize, sr
         const dst_base: usize = row * dst_stride;
         const src_base: usize = (row * src_stride) + 2;
         var col: usize = 0;
+        while (col + 16) <= width {
+            luma_vertical_filter_16_u8x16(&dst[dst_base + col] as &byte, src_window, src_base + col, src_stride, yoffset);
+            col = col + 16;
+        }
         while (col + 4) <= width {
             luma_vertical_filter_4_u8x16(&dst[dst_base + col] as &byte, src_window, src_base + col, src_stride, filter_base);
             col = col + 4;
@@ -816,6 +940,10 @@ export fn predict_luma_subpixel_u8x16(dst: &byte, dst_stride: usize, src_window:
         const tmp_base: usize = tmp_row * 16;
         const src_base: usize = tmp_row * src_stride;
         var tmp_col: usize = 0;
+        while (tmp_col + 16) <= width {
+            luma_horizontal_filter_16_u8x16(&tmp[tmp_base + tmp_col] as &byte, src_window, src_base + tmp_col, xoffset);
+            tmp_col = tmp_col + 16;
+        }
         while (tmp_col + 4) <= width {
             luma_horizontal_filter_4_u8x16(&tmp[tmp_base + tmp_col] as &byte, src_window, src_base + tmp_col, x_filter_base);
             tmp_col = tmp_col + 4;
@@ -833,6 +961,10 @@ export fn predict_luma_subpixel_u8x16(dst: &byte, dst_stride: usize, src_window:
         const dst_base: usize = out_row * dst_stride;
         const tmp_base: usize = out_row * 16;
         var out_col: usize = 0;
+        while (out_col + 16) <= width {
+            luma_vertical_filter_16_u8x16(&dst[dst_base + out_col] as &byte, &tmp[0] as &byte, tmp_base + out_col, 16, yoffset);
+            out_col = out_col + 16;
+        }
         while (out_col + 4) <= width {
             luma_vertical_filter_4_u8x16(&dst[dst_base + out_col] as &byte, &tmp[0] as &byte, tmp_base + out_col, 16, y_filter_base);
             out_col = out_col + 4;

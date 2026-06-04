@@ -71,6 +71,7 @@ use vp8.kernels.simd.loop_filter_simple_horizontal_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
 use vp8.kernels.simd.narrow_i16x16_to_u8x16_sat;
 use vp8.kernels.simd.extend_plane_border_u8x16;
+use vp8.kernels.simd.filter6_u8x16;
 use vp8.kernels.simd.forward_dct_4x4_i32x4;
 use vp8.kernels.simd.forward_walsh_hadamard_y2_4x4_i32x4;
 use vp8.kernels.simd.dequant_block_4x4_i16x16;
@@ -357,6 +358,55 @@ test "SIMD helper transposes row-major 4x4 i16 block" {
     @vector.store(&actual[0] as &i16, transposed);
 
     try assert_i16_block_eq(&actual[0] as &i16, &expected[0] as &i16);
+}
+
+test "SIMD helper applies VP8 six-tap filter to u8x16 lanes" {
+    var tap0: [u8: 16] = [
+        0u8, 255u8, 0u8, 255u8, 0u8, 255u8, 50u8, 200u8,
+        0u8, 255u8, 30u8, 220u8, 15u8, 240u8, 80u8, 180u8
+    ];
+    var tap1: [u8: 16] = [
+        255u8, 0u8, 255u8, 0u8, 255u8, 0u8, 200u8, 50u8,
+        0u8, 255u8, 220u8, 30u8, 240u8, 15u8, 180u8, 80u8
+    ];
+    var tap2: [u8: 16] = [
+        0u8, 255u8, 0u8, 255u8, 128u8, 128u8, 20u8, 230u8,
+        255u8, 0u8, 30u8, 220u8, 15u8, 240u8, 80u8, 180u8
+    ];
+    var tap3: [u8: 16] = [
+        0u8, 255u8, 255u8, 0u8, 128u8, 128u8, 230u8, 20u8,
+        255u8, 0u8, 220u8, 30u8, 240u8, 15u8, 180u8, 80u8
+    ];
+    var tap4: [u8: 16] = [
+        255u8, 0u8, 0u8, 255u8, 0u8, 255u8, 200u8, 50u8,
+        255u8, 0u8, 30u8, 220u8, 15u8, 240u8, 80u8, 180u8
+    ];
+    var tap5: [u8: 16] = [
+        0u8, 255u8, 255u8, 0u8, 255u8, 0u8, 50u8, 200u8,
+        255u8, 0u8, 220u8, 30u8, 240u8, 15u8, 180u8, 80u8
+    ];
+    var expected: [u8: 16] = [
+        0u8, 255u8, 128u8, 128u8, 128u8, 128u8, 103u8, 147u8,
+        255u8, 0u8, 125u8, 125u8, 128u8, 128u8, 130u8, 130u8
+    ];
+
+    const filtered: TestU8x16 = filter6_u8x16(
+        load_u8x16(&tap0[0] as &u8),
+        load_u8x16(&tap1[0] as &u8),
+        load_u8x16(&tap2[0] as &u8),
+        load_u8x16(&tap3[0] as &u8),
+        load_u8x16(&tap4[0] as &u8),
+        load_u8x16(&tap5[0] as &u8),
+        4u8
+    );
+    var actual: [u8: 16] = [];
+    store_u8x16(&actual[0] as &u8, filtered);
+
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
 }
 
 test "SIMD plane copy u8x16 copies rows with scalar tails" {
