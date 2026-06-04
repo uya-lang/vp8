@@ -41,7 +41,7 @@ use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
 use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
 use vp8.encoder.mode_search.Intra4x4ModeSearchResult;
 use vp8.encoder.mode_search.predict_intra4x4_mode;
-use vp8.encoder.mode_search.search_intra4x4_mode_limited;
+use vp8.encoder.mode_search.search_intra4x4_mode_limited_with_kernel_table;
 use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
 use vp8.encoder.partition_output.write_encoder_bool_partition_output;
 use vp8.encoder.probability_update.EncoderCoeffProbabilityUpdateDecision;
@@ -61,6 +61,8 @@ use vp8.encoder.token_partition_packing.write_encoder_token_partition_count;
 use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.predict_uv8x8_dc;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.mode.parse.VP8_B_MODE_DC;
 use vp8.mode.parse.VP8_B_MODE_HD;
 use vp8.mode.parse.VP8_B_MODE_HE;
@@ -674,6 +676,7 @@ fn encoder_keyframe_reconstruct_one_4x4_block(
 }
 
 fn encoder_keyframe_select_y4x4_modes(
+    kernels: &KernelFunctionTable,
     grid: &MacroblockGrid,
     frame: &YuvFrameView,
     recon: &FrameBuffer,
@@ -719,7 +722,8 @@ fn encoder_keyframe_select_y4x4_modes(
 
                     const above_mode: byte = try encoder_keyframe_above_b_mode(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
                     const left_mode: byte = try encoder_keyframe_left_b_mode(y4x4_modes, grid, mb_x, mb_y, block_x, block_y);
-                    const result: Intra4x4ModeSearchResult = try search_intra4x4_mode_limited(
+                    const result: Intra4x4ModeSearchResult = try search_intra4x4_mode_limited_with_kernel_table(
+                        kernels,
                         &src_block[0] as &byte,
                         4,
                         &above[0] as &byte,
@@ -902,7 +906,7 @@ fn encoder_keyframe_speed_mode_limit(speed_preset: EncoderSpeedPreset) u8 {
     return 10 as u8;
 }
 
-export fn encode_keyframe_ivf_with_stats(config: &EncoderConfig, frame: &YuvFrameView, out: &byte, out_len: usize) !EncoderKeyframeEncodeStats {
+export fn encode_keyframe_ivf_with_stats_and_kernel_table(config: &EncoderConfig, kernels: &KernelFunctionTable, frame: &YuvFrameView, out: &byte, out_len: usize) !EncoderKeyframeEncodeStats {
     try encoder_keyframe_validate_input(config, frame, out, out_len);
 
     const grid: MacroblockGrid = try macroblock_grid_for_frame(config.width, config.height);
@@ -935,7 +939,7 @@ export fn encode_keyframe_ivf_with_stats(config: &EncoderConfig, frame: &YuvFram
 
     var mode_recon: FrameBuffer = try allocate_frame_buffer(config.width, config.height, ENCODER_KEYFRAME_BORDER, ENCODER_KEYFRAME_ALIGNMENT);
     defer free_frame_buffer(&mode_recon);
-    const mode_search_work_units: usize = try encoder_keyframe_select_y4x4_modes(&grid, frame, &mode_recon, &factors, y4x4_modes, rd_model.lambda_q8, encoder_keyframe_speed_mode_limit(config.speed_preset));
+    const mode_search_work_units: usize = try encoder_keyframe_select_y4x4_modes(kernels, &grid, frame, &mode_recon, &factors, y4x4_modes, rd_model.lambda_q8, encoder_keyframe_speed_mode_limit(config.speed_preset));
 
     const default_probs: Vp8Probs = vp8_default_probs();
     var token_stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
@@ -988,6 +992,11 @@ export fn encode_keyframe_ivf_with_stats(config: &EncoderConfig, frame: &YuvFram
         written_len: try encoder_keyframe_checked_add(payload_offset, vp8_payload_size),
         mode_search_work_units: mode_search_work_units
     };
+}
+
+export fn encode_keyframe_ivf_with_stats(config: &EncoderConfig, frame: &YuvFrameView, out: &byte, out_len: usize) !EncoderKeyframeEncodeStats {
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    return try encode_keyframe_ivf_with_stats_and_kernel_table(config, &scalar_table, frame, out, out_len);
 }
 
 export fn encode_keyframe_ivf(config: &EncoderConfig, frame: &YuvFrameView, out: &byte, out_len: usize) !usize {

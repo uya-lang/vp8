@@ -43,7 +43,7 @@ use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.context.yuv420_frame_view_size;
 use vp8.encoder.keyframe.EncoderKeyframeEncodeStats;
-use vp8.encoder.keyframe.encode_keyframe_ivf_with_stats;
+use vp8.encoder.keyframe.encode_keyframe_ivf_with_stats_and_kernel_table;
 use vp8.encoder.keyframe.estimate_keyframe_ivf_size;
 use vp8.encoder.quality.EncoderQualityReport;
 use vp8.encoder.quality.EncoderPsnrMetric;
@@ -345,6 +345,17 @@ fn make_cli_decoder(context: &DecoderContext, force_scalar: bool, force_simd: bo
     return make_decoder(context);
 }
 
+fn make_cli_kernel_table(force_scalar: bool, force_simd: bool) KernelFunctionTable {
+    if force_scalar {
+        return make_scalar_kernel_table();
+    }
+    if force_simd {
+        const capabilities: SimdCapabilities = simd_detect_capabilities();
+        return make_forced_simd_kernel_table(&capabilities);
+    }
+    return make_scalar_kernel_table();
+}
+
 fn run_decode(input_path: &byte, output_path: &byte, stats_path: &byte, force_scalar: bool, force_simd: bool, thread_count: usize) i32 {
     const file: FileBuffer = read_file(input_path) catch {
         _ = printf("error: failed to read input file\n");
@@ -555,7 +566,7 @@ fn analyze_encoded_keyframe(reference: &YuvFrameView, encoded: &byte, encoded_le
     };
 }
 
-fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override: i32, target_bitrate_bps: u32, speed_preset: EncoderSpeedPreset, output_path: &byte) i32 {
+fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override: i32, target_bitrate_bps: u32, speed_preset: EncoderSpeedPreset, output_path: &byte, force_scalar: bool, force_simd: bool) i32 {
     if width == 0 || height == 0 {
         _ = printf("error: encode width and height must be positive\n");
         return 2;
@@ -606,7 +617,8 @@ fn run_encode(input_path: &byte, width: usize, height: usize, quantizer_override
     }
     defer free(out_data as &void);
 
-    const encode_stats: EncoderKeyframeEncodeStats = encode_keyframe_ivf_with_stats(&config, &frame, out_data, out_capacity) catch {
+    const kernels: KernelFunctionTable = make_cli_kernel_table(force_scalar, force_simd);
+    const encode_stats: EncoderKeyframeEncodeStats = encode_keyframe_ivf_with_stats_and_kernel_table(&config, &kernels, &frame, out_data, out_capacity) catch {
         _ = printf("error: failed to encode keyframe IVF\n");
         return 2;
     };
@@ -837,7 +849,7 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
             _ = printf("error: encode requires --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
             return 2;
         }
-        return run_encode(argv[command_index + 1], width, height, quantizer, target_bitrate_bps, speed_preset, out_path);
+        return run_encode(argv[command_index + 1], width, height, quantizer, target_bitrate_bps, speed_preset, out_path, force_scalar, force_simd);
     }
 
     _ = printf("unknown command: %s\n", cmd);

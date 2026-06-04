@@ -362,12 +362,12 @@
 - [x] SIMD token scan helper。
 - [x] SIMD sub-pixel predictor for motion search。
 - [x] SIMD intra predictor cost。
-- [ ] Encoder benchmark 标量/SIMD 对照。
+- [x] Encoder benchmark 标量/SIMD 对照。
 
 验收标准：
 
 - [ ] motion search 热点有明显 SIMD 收益。
-- [ ] SIMD encoder 输出与 scalar encoder 在同配置下 bitstream 一致，或文档明确哪些 RD tie-break 会导致合法差异。
+- [x] SIMD encoder 输出与 scalar encoder 在同配置下 bitstream 一致，或文档明确哪些 RD tie-break 会导致合法差异。
 - [ ] 如果 bitstream 不一致，decoded YUV 和质量指标必须在阈值内。
 
 ## Phase 16: WebM/RTP 与库 API

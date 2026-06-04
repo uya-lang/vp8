@@ -9,6 +9,8 @@ use vp8.bitstream.header.vp8_default_probs;
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.allocate_decoder_context;
 use vp8.common.decode_context.free_decoder_context;
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.simd_detect_capabilities;
 use vp8.common.frame.decoded_frame_release;
 use vp8.container.ivf.IvfFrame;
 use vp8.container.ivf.IvfFrameIterator;
@@ -28,7 +30,11 @@ use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.keyframe.EncoderKeyframeEncodeStats;
 use vp8.encoder.keyframe.encode_keyframe_ivf;
+use vp8.encoder.keyframe.encode_keyframe_ivf_with_stats_and_kernel_table;
 use vp8.encoder.keyframe.encode_keyframe_ivf_with_stats;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_forced_simd_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
 use vp8.mode.parse.VP8_B_MODE_DC;
 
 test "encoder keyframe IVF API writes a parseable one-frame keyframe stream" {
@@ -196,6 +202,57 @@ test "encoder speed presets expose measurable work and output differences" {
         index = index + 1;
     }
     try assert_eq_i32(differs as i32, true as i32);
+}
+
+test "encoder keyframe can use forced SIMD predictor cost kernels" {
+    var input: [byte: 768] = [];
+    var index: usize = 0;
+    while index < 512 {
+        input[index] = (24 + ((((index * 41) + (index / 5) + ((index / 32) * 17)) % (206 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+    while index < 768 {
+        input[index] = (72 + ((((index * 19) + (index / 7)) % (96 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+
+    var scalar_out: [byte: 16384] = [];
+    var simd_out: [byte: 16384] = [];
+    const config: EncoderConfig = make_default_encoder_config(32, 16);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 768, 32, 16);
+    const scalar_table: KernelFunctionTable = make_scalar_kernel_table();
+    const capabilities: SimdCapabilities = simd_detect_capabilities();
+    const simd_table: KernelFunctionTable = make_forced_simd_kernel_table(&capabilities);
+
+    const scalar_stats: EncoderKeyframeEncodeStats = try encode_keyframe_ivf_with_stats_and_kernel_table(&config, &scalar_table, &frame, &scalar_out[0] as &byte, 16384);
+    const simd_stats: EncoderKeyframeEncodeStats = try encode_keyframe_ivf_with_stats_and_kernel_table(&config, &simd_table, &frame, &simd_out[0] as &byte, 16384);
+
+    try assert_eq_i32(simd_stats.written_len as i32, scalar_stats.written_len as i32);
+    try assert_eq_i32(simd_stats.mode_search_work_units as i32, scalar_stats.mode_search_work_units as i32);
+    index = 0;
+    while index < scalar_stats.written_len {
+        try assert_eq_i32(simd_out[index] as i32, scalar_out[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "encoder keyframe rejects missing predictor cost kernel entry" {
+    var input: [byte: 384] = [];
+    var out: [byte: 4096] = [];
+    const config: EncoderConfig = make_default_encoder_config(16, 16);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    var table: KernelFunctionTable = make_scalar_kernel_table();
+    table.intra4x4_predictor_sad_fn = null as &void;
+
+    var failed: i32 = 0;
+    _ = encode_keyframe_ivf_with_stats_and_kernel_table(&config, &table, &frame, &out[0] as &byte, 4096) catch {
+        failed = 1;
+        EncoderKeyframeEncodeStats{
+            written_len: 0,
+            mode_search_work_units: 0
+        };
+    };
+    try assert_eq_i32(failed, 1);
 }
 
 test "encoder keyframe writes coefficient probability updates from token stats" {
