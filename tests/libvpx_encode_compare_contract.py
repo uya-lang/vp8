@@ -315,6 +315,42 @@ def assert_extract_vpx_tools(module: object) -> None:
         assert report["vpxdec"] == str(root / "usr" / "bin" / "vpxdec")
 
 
+def assert_prepare_sample_dirs(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        y4m_dir = root / "real-y4m"
+        i420_dir = root / "fixtures"
+        report = module.prepare_sample_dirs(y4m_dir=y4m_dir, i420_dir=i420_dir)
+        assert report["ok"] is True
+        assert report["y4m_cache_dir"] == str(y4m_dir)
+        assert report["i420_cache_dir"] == str(i420_dir)
+        assert y4m_dir.is_dir()
+        assert i420_dir.is_dir()
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--prepare-sample-dirs",
+                "--y4m-cache-dir",
+                str(root / "cli-real-y4m"),
+                "--i420-cache-dir",
+                str(root / "cli-fixtures"),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        cli_report = json.loads(completed.stdout)
+        assert cli_report["ok"] is True
+        assert (root / "cli-real-y4m").is_dir()
+        assert (root / "cli-fixtures").is_dir()
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -330,6 +366,7 @@ def main() -> int:
     assert_missing_tool_error(module)
     assert_fetch_vpx_tools_download(module)
     assert_extract_vpx_tools(module)
+    assert_prepare_sample_dirs(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

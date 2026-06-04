@@ -23,6 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DEPS_DIR = REPO_ROOT / "build" / "deps"
 DEFAULT_VPX_TOOLS_ROOT = DEFAULT_DEPS_DIR / "vpx-tools-root"
 DEFAULT_VPX_TOOLS_DIR = DEFAULT_VPX_TOOLS_ROOT / "usr" / "bin"
+DEFAULT_Y4M_CACHE_DIR = REPO_ROOT / "build" / "real-y4m"
+DEFAULT_I420_CACHE_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "fixtures"
 LIBVPX_PRESET = "vpxenc --best"
 
 REQUIRED_RESULT_FIELDS = (
@@ -294,6 +296,20 @@ def extract_vpx_tools(
     }
 
 
+def prepare_sample_dirs(
+    *,
+    y4m_dir: Path = DEFAULT_Y4M_CACHE_DIR,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+) -> dict[str, Any]:
+    y4m_dir.mkdir(parents=True, exist_ok=True)
+    i420_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "ok": y4m_dir.is_dir() and i420_dir.is_dir(),
+        "y4m_cache_dir": str(y4m_dir),
+        "i420_cache_dir": str(i420_dir),
+    }
+
+
 def require_number(result: dict[str, Any], field: str) -> float:
     value = result.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -405,6 +421,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="extract the downloaded vpx-tools .deb into build/deps/vpx-tools-root",
     )
+    parser.add_argument(
+        "--prepare-sample-dirs",
+        action="store_true",
+        help="create real Y4M and converted I420 cache directories",
+    )
+    parser.add_argument(
+        "--y4m-cache-dir",
+        type=Path,
+        default=DEFAULT_Y4M_CACHE_DIR,
+        help="directory for downloaded Y4M samples",
+    )
+    parser.add_argument(
+        "--i420-cache-dir",
+        type=Path,
+        default=DEFAULT_I420_CACHE_DIR,
+        help="directory for converted raw I420 samples",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -425,8 +458,12 @@ def main(argv: list[str]) -> int:
         report = extract_vpx_tools()
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.prepare_sample_dirs:
+        report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, or --extract-vpx-tools", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, or --prepare-sample-dirs", file=sys.stderr)
     return 2
 
 

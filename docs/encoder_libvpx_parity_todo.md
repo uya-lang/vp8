@@ -64,13 +64,15 @@ Date: 2026-06-04
 - [f] 添加 `akiyo_qcif` 样本。
   - 验收：manifest 记录 URL、width、height、frames、fps、sha256、groups。
   - blocked: 2026-06-04 `curl --max-time 120` 只下载 1039913/11406644 字节并返回 28；`aria2c -x 8 -s 8` 仍只有约 12KiB/s，被手动停止并清理半截文件。Xiph `MD5SUMS.txt` 有 `akiyo_qcif.y4m` 的 MD5，但未提供 sha256；本项不能诚实填入 sha256。
-- [ ] 添加 `foreman_qcif` 样本。
+- [f] 添加 `foreman_qcif` 样本。
   - 验收：manifest 记录 URL、width、height、frames、fps、sha256、groups。
-- [ ] 添加 `coastguard_qcif` 样本。
+  - blocked: 2026-06-04 `rsync -avP rsync://media.xiph.org/media/video/derf/y4m/foreman_qcif.y4m build/real-y4m/` 约 5-8KiB/s，只到 196608/11406644 字节后被停止并清理半截文件；公网链路仍无法在可接受时间内获取完整文件计算 sha256。
+- [f] 添加 `coastguard_qcif` 样本。
   - 验收：manifest 记录 URL、width、height、frames、fps、sha256、groups。
-- [ ] 添加 `mobile_cif` 样本。
+- [f] 添加 `mobile_cif` 样本。
   - 验收：manifest 记录 URL、width、height、frames、fps、sha256、groups。
-- [ ] 实现样本缓存目录。
+  - blocked: 2026-06-04 两者与 `akiyo_qcif`/`foreman_qcif` 同属 `media.xiph.org/media/video/derf/y4m/`；rsync 列表显示 `coastguard_qcif.y4m` 为 11406644 字节、`mobile_cif.y4m` 为 45621054 字节。当前公网链路无法在可接受时间内下载 11MiB 样本并计算 sha256，Xiph `MD5SUMS.txt` 未提供 sha256；继续下载更大样本没有新的成功假设。
+- [x] 实现样本缓存目录。
   - 产物：`build/real-y4m/`。
 - [ ] 实现 Y4M 下载。
   - 验收：下载成功后 `<sample>.y4m` 存在；下载失败时不把半截文件当作成功缓存。
