@@ -92,6 +92,19 @@ def evaluate_thresholds(result: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         failure_reasons.append(str(exc))
 
+    try:
+        vp8uya_psnr = require_number(evaluated, "vp8uya_psnr_all_db")
+        libvpx_psnr = require_number(evaluated, "libvpx_psnr_all_db")
+        psnr_delta = round(vp8uya_psnr - libvpx_psnr, 6)
+        evaluated["psnr_all_delta_db"] = psnr_delta
+        if psnr_delta < THRESHOLDS["min_psnr_all_delta_db"]:
+            failure_reasons.append(
+                "psnr_all_delta_db "
+                f"{psnr_delta:.6f} below min {THRESHOLDS['min_psnr_all_delta_db']:.6f}"
+            )
+    except ValueError as exc:
+        failure_reasons.append(str(exc))
+
     evaluated["failure_reasons"] = failure_reasons
     evaluated["passed"] = len(failure_reasons) == 0
     return evaluated

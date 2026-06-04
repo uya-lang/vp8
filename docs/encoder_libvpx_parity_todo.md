@@ -28,7 +28,7 @@ Date: 2026-06-04
   - 验收：后续 benchmark JSON 中包含 `vp8uya_bits_per_pixel`、`libvpx_bits_per_pixel`、`vp8uya_psnr_all_db`、`libvpx_psnr_all_db`、`vp8uya_fps`、`libvpx_fps`。
 - [x] 固化码率硬阈值。
   - 验收：`vp8uya_bits_per_pixel > libvpx_bits_per_pixel * 1.10` 时样本判定失败。
-- [ ] 固化 PSNR-all 硬阈值。
+- [x] 固化 PSNR-all 硬阈值。
   - 验收：`vp8uya_psnr_all_db < libvpx_psnr_all_db - 0.50` 时样本判定失败。
 - [ ] 固化 fps 硬阈值。
   - 验收：`vp8uya_fps < libvpx_fps * 0.80` 时样本判定失败。

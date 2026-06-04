@@ -79,10 +79,27 @@ def assert_bitrate_threshold(module: object) -> None:
     assert any("bitrate_ratio" in reason for reason in failing["failure_reasons"])
 
 
+def assert_psnr_threshold(module: object) -> None:
+    passing = module.evaluate_thresholds(
+        make_result(vp8uya_psnr_all_db=39.50, libvpx_psnr_all_db=40.0)
+    )
+    assert passing["passed"] is True
+    assert passing["psnr_all_delta_db"] == -0.50
+    assert passing["failure_reasons"] == []
+
+    failing = module.evaluate_thresholds(
+        make_result(vp8uya_psnr_all_db=39.49, libvpx_psnr_all_db=40.0)
+    )
+    assert failing["passed"] is False
+    assert failing["psnr_all_delta_db"] == -0.51
+    assert any("psnr_all_delta_db" in reason for reason in failing["failure_reasons"])
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
     assert_bitrate_threshold(module)
+    assert_psnr_threshold(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],
