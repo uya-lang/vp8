@@ -55,7 +55,7 @@ Date: 2026-06-04
   - 验收命令：`python3 bench/libvpx_encode_compare.py --fetch-vpx-tools` 在 `build/deps/` 下生成 `.deb`。
 - [x] 实现解包 `vpx-tools`。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --extract-vpx-tools` 生成 `build/deps/vpx-tools-root/usr/bin/vpxenc`。
-- [ ] 校验 `vpxenc` 可执行。
+- [x] 校验 `vpxenc` 可执行。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxenc_probe_returncode`。
 - [ ] 校验 `vpxdec` 可执行。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxdec_probe_returncode`。
