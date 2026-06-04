@@ -1,0 +1,64 @@
+use libc.printf;
+
+use vp8.api.Vp8EncodedPacket;
+use vp8.api.Vp8EncodeFlags;
+use vp8.api.Vp8Encoder;
+use vp8.api.Vp8EncoderOptions;
+use vp8.api.Vp8YuvFrameView;
+use vp8.api.make_vp8_encode_flags;
+use vp8.api.make_vp8_encoder_options;
+use vp8.api.vp8_encoder_default_packet_capacity;
+use vp8.api.vp8_encoder_deinit;
+use vp8.api.vp8_encoder_encode_frame;
+use vp8.api.vp8_encoder_init;
+use vp8.api.vp8_encoder_make_i420_frame_view;
+
+fn fill_i420_16x16(data: &byte) void {
+    var index: usize = 0;
+    while index < 256 {
+        data[index] = (32 + (((index * 17) % (160 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+    while index < 384 {
+        data[index] = (96 + (((index * 7) % (64 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+}
+
+export extern fn main() i32 {
+    var input: [byte: 384] = [];
+    fill_i420_16x16(&input[0] as &byte);
+
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    var encoder: Vp8Encoder = vp8_encoder_init(&options) catch {
+        _ = printf("encoder_api.error=init\n");
+        return 2;
+    };
+    defer vp8_encoder_deinit(&encoder);
+
+    const frame: Vp8YuvFrameView = vp8_encoder_make_i420_frame_view(&input[0] as &byte, 384, 16, 16) catch {
+        _ = printf("encoder_api.error=input\n");
+        return 2;
+    };
+
+    const capacity: usize = vp8_encoder_default_packet_capacity(16, 16) catch {
+        _ = printf("encoder_api.error=capacity\n");
+        return 2;
+    };
+    var out: [byte: 12000] = [];
+    if capacity > 12000 {
+        _ = printf("encoder_api.error=capacity_too_large\n");
+        return 2;
+    }
+
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    const packet: Vp8EncodedPacket = vp8_encoder_encode_frame(&encoder, &frame, &out[0] as &byte, 12000, &flags) catch {
+        _ = printf("encoder_api.error=encode\n");
+        return 2;
+    };
+
+    _ = printf("encoder_api.bytes=%lu\n", packet.len);
+    _ = printf("encoder_api.key_frame=%u\n", packet.key_frame as u32);
+    _ = printf("encoder_api.mode_search_work_units=%lu\n", packet.keyframe_stats.mode_search_work_units);
+    return 0;
+}

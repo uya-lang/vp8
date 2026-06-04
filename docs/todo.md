@@ -380,13 +380,13 @@
 - [x] 实现 decoder library API。
 - [x] 实现 encoder library API。
 - [x] 增加 C ABI 是否需要的设计讨论；默认不实现。
-- [ ] 增加 examples。
+- [x] 增加 examples。
 
 验收标准：
 
 - [ ] WebM subset 样本可 decode。
 - [x] RTP packet loss/malformed 有明确错误。
-- [ ] API examples 可构建运行。
+- [x] API examples 可构建运行。
 
 ## Phase 17: 发布硬化
 

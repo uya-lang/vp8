@@ -39,6 +39,11 @@ FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 ENCODE_CLI_DIR := $(BUILD_DIR)/encode-cli
+EXAMPLE_DIR := $(BUILD_DIR)/examples
+DECODER_API_EXAMPLE_SRC := src/vp8_example_decoder_api.uya
+DECODER_API_EXAMPLE_BIN := $(EXAMPLE_DIR)/decoder_api
+ENCODER_API_EXAMPLE_SRC := src/vp8_example_encoder_api.uya
+ENCODER_API_EXAMPLE_BIN := $(EXAMPLE_DIR)/encoder_api
 SRC := src/main.uya
 SRC_FILES := $(shell find src -name '*.uya' -print)
 TOOLCHAIN_HELLO_SRC := tests/toolchain_hello.uya
@@ -49,7 +54,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -66,6 +71,14 @@ $(TOOLCHAIN_HELLO): $(TOOLCHAIN_HELLO_SRC) Makefile
 $(MOTION_SEARCH_BENCH_BIN): $(SRC_FILES) Makefile
 	mkdir -p $(BUILD_DIR)
 	$(UYA) build $(MOTION_SEARCH_BENCH_SRC) -o $@
+
+$(DECODER_API_EXAMPLE_BIN): $(SRC_FILES) Makefile
+	mkdir -p $(EXAMPLE_DIR)
+	$(UYA) build $(DECODER_API_EXAMPLE_SRC) -o $@
+
+$(ENCODER_API_EXAMPLE_BIN): $(SRC_FILES) Makefile
+	mkdir -p $(EXAMPLE_DIR)
+	$(UYA) build $(ENCODER_API_EXAMPLE_SRC) -o $@
 
 $(SAMPLE_IVF): Makefile
 	mkdir -p $(BUILD_DIR)
@@ -86,6 +99,7 @@ check-kernel-thresholds:
 test: build check-toolchain $(SAMPLE_IVF)
 	$(MAKE) check-kernel-thresholds
 	$(MAKE) test-decoder-scalar
+	$(MAKE) test-examples
 	test -x $(BIN)
 	$(BIN) --help >/dev/null
 	$(BIN) version >/dev/null
@@ -151,6 +165,12 @@ test: build check-toolchain $(SAMPLE_IVF)
 test-decoder-scalar: build
 	set -e; for test_src in $(SCALAR_DECODER_TESTS); do VP8UYA_FORCE_SCALAR=1 $(UYA) test $$test_src; done
 	VP8UYA_FORCE_SCALAR=1 python3 $(TINY_MD5_SCRIPT) $(BIN) $(TINY_MD5_DIR)
+
+test-examples: require-uya $(DECODER_API_EXAMPLE_BIN) $(ENCODER_API_EXAMPLE_BIN)
+	$(DECODER_API_EXAMPLE_BIN) | grep -q 'decoder_api.has_output=1'
+	$(DECODER_API_EXAMPLE_BIN) | grep -q 'decoder_api.width=16'
+	$(ENCODER_API_EXAMPLE_BIN) | grep -q 'encoder_api.key_frame=1'
+	$(ENCODER_API_EXAMPLE_BIN) | grep -q 'encoder_api.bytes='
 
 test-vector-capabilities: require-uya
 	$(UYA) test $(VECTOR_CAPABILITY_TEST)

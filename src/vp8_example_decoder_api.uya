@@ -1,0 +1,91 @@
+use libc.printf;
+
+use vp8.api.Vp8DecodedFrame;
+use vp8.api.Vp8Decoder;
+use vp8.api.Vp8DecoderOptions;
+use vp8.api.Vp8EncodedPacket;
+use vp8.api.Vp8EncodeFlags;
+use vp8.api.Vp8Encoder;
+use vp8.api.Vp8EncoderOptions;
+use vp8.api.Vp8YuvFrameView;
+use vp8.api.make_vp8_decoder_options;
+use vp8.api.make_vp8_encode_flags;
+use vp8.api.make_vp8_encoder_options;
+use vp8.api.vp8_decoded_frame_release;
+use vp8.api.vp8_decoder_decode_frame;
+use vp8.api.vp8_decoder_deinit;
+use vp8.api.vp8_decoder_init;
+use vp8.api.vp8_encoder_deinit;
+use vp8.api.vp8_encoder_encode_frame;
+use vp8.api.vp8_encoder_init;
+use vp8.api.vp8_encoder_make_i420_frame_view;
+use vp8.container.ivf.IvfFrame;
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
+
+fn fill_gray_i420_16x16(data: &byte) void {
+    var index: usize = 0;
+    while index < 384 {
+        data[index] = 128 as byte;
+        index = index + 1;
+    }
+}
+
+fn make_sample_ivf(out: &byte, out_len: usize) !Vp8EncodedPacket {
+    var input: [byte: 384] = [];
+    fill_gray_i420_16x16(&input[0] as &byte);
+
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    var encoder: Vp8Encoder = try vp8_encoder_init(&options);
+    defer vp8_encoder_deinit(&encoder);
+
+    const frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    return try vp8_encoder_encode_frame(&encoder, &frame, out, out_len, &flags);
+}
+
+export extern fn main() i32 {
+    var ivf_data: [byte: 12000] = [];
+    const packet: Vp8EncodedPacket = make_sample_ivf(&ivf_data[0] as &byte, 12000) catch {
+        _ = printf("decoder_api.error=sample\n");
+        return 2;
+    };
+
+    const ivf: IvfHeader = parse_ivf_header(packet.data, packet.len) catch {
+        _ = printf("decoder_api.error=ivf_header\n");
+        return 2;
+    };
+    var iterator: IvfFrameIterator = make_ivf_frame_iterator(packet.data, packet.len, &ivf) catch {
+        _ = printf("decoder_api.error=ivf_iterator\n");
+        return 2;
+    };
+    const ivf_frame: IvfFrame = ivf_frame_iterator_next(&iterator) catch {
+        _ = printf("decoder_api.error=ivf_frame\n");
+        return 2;
+    };
+
+    var options: Vp8DecoderOptions = make_vp8_decoder_options(16, 16) catch {
+        _ = printf("decoder_api.error=options\n");
+        return 2;
+    };
+    var decoder: Vp8Decoder = vp8_decoder_init(&options) catch {
+        _ = printf("decoder_api.error=init\n");
+        return 2;
+    };
+    defer vp8_decoder_deinit(&decoder);
+
+    var decoded: Vp8DecodedFrame = vp8_decoder_decode_frame(&decoder, ivf_frame.payload.data, ivf_frame.payload.len) catch {
+        _ = printf("decoder_api.error=decode\n");
+        return 2;
+    };
+    defer vp8_decoded_frame_release(&decoded) catch {};
+
+    _ = printf("decoder_api.has_output=%u\n", decoded.has_output as u32);
+    _ = printf("decoder_api.width=%lu\n", decoded.view.width);
+    _ = printf("decoder_api.height=%lu\n", decoded.view.height);
+    _ = printf("decoder_api.y0=%u\n", decoded.view.y.origin[0] as u32);
+    return 0;
+}

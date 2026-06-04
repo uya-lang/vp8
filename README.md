@@ -48,6 +48,21 @@ Run the scaffold after building:
 build/vp8uya --help
 ```
 
+## Library API Examples
+
+Small executable examples for the public UYA API live at:
+
+- `src/vp8_example_decoder_api.uya`
+- `src/vp8_example_encoder_api.uya`
+
+Build and run both examples through the Makefile:
+
+```sh
+make test-examples
+```
+
+The generated binaries are written to `build/examples/`.
+
 ## Tests And Benchmarks
 
 `make test` runs UYA unit tests for bitstream, boolean coder, container,
@@ -76,6 +91,7 @@ and checks `decode`/`decode-frame` error exits while `info` still succeeds.
 `make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
 containers with random VP8 payloads, accepting only success or controlled error
 exits.
+`make test-examples` builds and runs the library API examples.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.
