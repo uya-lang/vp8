@@ -258,6 +258,18 @@ def assert_extracted_dir_lookup(module: object) -> None:
         assert vpxdec["error"] is None
 
 
+def assert_missing_tool_error(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = module.find_vpx_tool("vpxenc", "VPXENC", env={}, path="", extracted_dir=Path(tmp))
+        assert missing["path"] is None
+        assert "vpxenc" in missing["error"]
+        assert "VPXENC" in missing["error"]
+        assert "PATH" in missing["error"]
+        assert "vpx-tools" in missing["error"]
+        assert "--fetch-vpx-tools" in missing["error"]
+        assert "--extract-vpx-tools" in missing["error"]
+
+
 def assert_fetch_vpx_tools_download(module: object) -> None:
     calls: list[tuple[list[str], Path]] = []
 
@@ -315,6 +327,7 @@ def main() -> int:
     assert_probe_tools_path_lookup()
     assert_probe_tools_help_version_fallback()
     assert_extracted_dir_lookup(module)
+    assert_missing_tool_error(module)
     assert_fetch_vpx_tools_download(module)
     assert_extract_vpx_tools(module)
 

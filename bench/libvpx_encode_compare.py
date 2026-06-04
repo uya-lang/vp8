@@ -192,7 +192,14 @@ def find_vpx_tool(
     if is_executable_file(extracted_path):
         return tool_lookup_result(str(extracted_path), "extracted", None, attempted)
 
-    return tool_lookup_result(None, None, f"{name} not found", attempted)
+    return tool_lookup_result(
+        None,
+        None,
+        f"{name} not found; set {env_var}, add {name} to PATH, or run "
+        "python3 bench/libvpx_encode_compare.py --fetch-vpx-tools followed by "
+        "python3 bench/libvpx_encode_compare.py --extract-vpx-tools to fetch vpx-tools",
+        attempted,
+    )
 
 
 def fetch_vpx_tools(
