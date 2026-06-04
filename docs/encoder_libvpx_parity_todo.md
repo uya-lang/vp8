@@ -53,7 +53,7 @@ Date: 2026-06-04
   - 验收：把可执行 `vpxenc`、`vpxdec` 放入该目录后，不设置环境变量也能发现。
 - [x] 实现无 sudo 下载 `vpx-tools`。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --fetch-vpx-tools` 在 `build/deps/` 下生成 `.deb`。
-- [ ] 实现解包 `vpx-tools`。
+- [x] 实现解包 `vpx-tools`。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --extract-vpx-tools` 生成 `build/deps/vpx-tools-root/usr/bin/vpxenc`。
 - [ ] 校验 `vpxenc` 可执行。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxenc_probe_returncode`。
