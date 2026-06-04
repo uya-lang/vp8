@@ -334,6 +334,61 @@ test "Decoder.decode_frame wires header mode token readers and scalar kernel sta
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
 }
 
+test "key frame decode resets entropy probabilities and refreshes all references" {
+    var first_partition: [byte: 256] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
+    try write_minimal_key_frame_partition(&first_writer);
+
+    const defaults: Vp8Probs = vp8_default_probs();
+    var token_partition: [byte: 64] = [];
+    var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 64);
+    try write_all_eob_tokens(&token_writer, &defaults);
+
+    var frame: [byte: 330] = [];
+    make_16x16_key_frame(&first_partition[0] as &byte, &token_partition[0] as &byte, bool_writer_byte_count(&token_writer), &frame[0] as &byte);
+
+    var context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    decoder.y_mode_probs[0] = 1 as byte;
+    decoder.y_mode_probs[3] = 1 as byte;
+    decoder.uv_mode_probs[0] = 1 as byte;
+    decoder.uv_mode_probs[2] = 1 as byte;
+    decoder.coeff_probs[33] = 1 as byte;
+    decoder.coeff_probs[1055] = 1 as byte;
+    decoder.mv_probs[0] = 1 as byte;
+    decoder.mv_probs[37] = 1 as byte;
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, &frame[0] as &byte, 266 + bool_writer_byte_count(&token_writer));
+    defer decoded_frame_release(&result.output) catch {};
+
+    try assert_eq_i32(decoder.y_mode_probs[0] as i32, defaults.y_mode_probs[0] as i32);
+    try assert_eq_i32(decoder.y_mode_probs[3] as i32, defaults.y_mode_probs[3] as i32);
+    try assert_eq_i32(decoder.uv_mode_probs[0] as i32, defaults.uv_mode_probs[0] as i32);
+    try assert_eq_i32(decoder.uv_mode_probs[2] as i32, defaults.uv_mode_probs[2] as i32);
+    try assert_eq_i32(decoder.coeff_probs[33] as i32, defaults.coeff_probs[33] as i32);
+    try assert_eq_i32(decoder.coeff_probs[1055] as i32, defaults.coeff_probs[1055] as i32);
+    try assert_eq_i32(decoder.mv_probs[0] as i32, defaults.mv_probs[0] as i32);
+    try assert_eq_i32(decoder.mv_probs[37] as i32, defaults.mv_probs[37] as i32);
+
+    try assert_eq_i32(context.frame_pool.last_slot as i32, context.frame_pool.current_slot as i32);
+    try assert_eq_i32(context.frame_pool.golden_slot as i32, context.frame_pool.current_slot as i32);
+    try assert_eq_i32(context.frame_pool.altref_slot as i32, context.frame_pool.current_slot as i32);
+    try assert_eq_i32(context.frame_pool.slot_ref_count0 as i32, 3);
+    try assert_eq_i32(context.frame_pool.slot_ref_count1 as i32, 0);
+    try assert_eq_i32(context.frame_pool.slot_ref_count2 as i32, 0);
+    try assert_eq_i32(context.frame_pool.slot_ref_count3 as i32, 0);
+    try assert_eq_i32(result.performance.bytes_copied_for_ref_refresh as i32, 0);
+
+    const refreshed_last: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.last_slot);
+    const refreshed_golden: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.golden_slot);
+    const refreshed_altref: &FrameBuffer = try frame_pool_get_slot(&context.frame_pool, context.frame_pool.altref_slot);
+    try assert_eq_i32(refreshed_last.y.plane.origin[0] as i32, 128);
+    try assert_eq_i32(refreshed_golden.u.plane.origin[0] as i32, 128);
+    try assert_eq_i32(refreshed_altref.v.plane.origin[0] as i32, 128);
+}
+
 test "key frame decode parses token residuals into current frame" {
     var first_partition: [byte: 256] = [];
     var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);

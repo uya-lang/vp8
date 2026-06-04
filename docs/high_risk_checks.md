@@ -46,3 +46,33 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_partition_output_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_token_partition_packing_test.uya`
+
+## Key Frame Probability Reset And Reference Refresh
+
+Status: passed.
+
+Evidence:
+
+- `parse_vp8_frame_probability_updates(reader, probs, true)` calls
+  `reset_vp8_key_frame_probs` before reading coefficient probability updates and
+  returns before reading motion-vector probability updates, so key frames do not
+  inherit stale inter-frame entropy state.
+- `decoder_decode_frame` snapshots the decoder probability arrays, passes the
+  key-frame flag into probability parsing, and stores the reset arrays back into
+  the decoder before mode/token parsing uses them.
+- `decoder_decode_frame` refreshes last, golden, and altref references after a
+  successfully reconstructed key frame by calling
+  `frame_pool_refresh_references(..., true, true, true)`.
+- `src/vp8_decoder_scalar_test.uya` now pollutes decoder probability state,
+  decodes a minimal key frame, and checks that y/uv/coeff/mv probabilities match
+  VP8 defaults and that last/golden/altref all alias the current frame without
+  reference-refresh copies.
+- Existing frame-pool and encoder-reference-pool tests cover logical reference
+  aliasing, ref counts, current-slot selection, and zero-copy refresh semantics.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_reference_pool_test.uya`
