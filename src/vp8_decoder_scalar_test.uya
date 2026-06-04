@@ -44,6 +44,10 @@ use vp8.mode.parse.vp8_kf_bmode_prob;
 use vp8.token.parse.CoefficientBlockSummary;
 use vp8.token.parse.coefficient_band;
 
+fn scratch_test_align_up(value: usize, alignment: usize) usize {
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+
 fn write_literal(writer: &BoolWriter, value: u32, bit_count: u8) !void {
     var index: i8 = (bit_count as i8) - 1;
     while index >= 0 {
@@ -649,6 +653,47 @@ test "B_PRED key frame updates token and neighbor EOB contexts" {
     try assert_eq_i32(current.y.plane.origin[current.y.plane.stride] as i32, 129);
     try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
+}
+
+test "key frame coefficient scratch high water stays row bounded across rows" {
+    const width: u16 = 17 as u16;
+    const height: u16 = 17 as u16;
+    const mb_cols: usize = 2;
+    const mb_rows: usize = 2;
+    const mb_count: usize = mb_cols * mb_rows;
+
+    var first_partition: [byte: 256] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
+    try write_minimal_key_frame_partition_for_mb_count(&first_writer, mb_count);
+
+    const probs: Vp8Probs = vp8_default_probs();
+    var token_partition: [byte: 256] = [];
+    var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 256);
+    try write_all_eob_tokens_for_mb_count(&token_writer, &probs, mb_count);
+
+    var frame: [byte: 600] = [];
+    const frame_len: usize = make_key_frame(width, height, 256 as u32, &first_partition[0] as &byte, &token_partition[0] as &byte, bool_writer_byte_count(&token_writer), &frame[0] as &byte);
+
+    var context: DecoderContext = try allocate_decoder_context(width as usize, height as usize, 32, 32, 4096);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, &frame[0] as &byte, frame_len);
+    defer decoded_frame_release(&result.output) catch {};
+
+    const row_output_bytes: usize = try token_decode_row_output_bytes(context.grid.mb_cols);
+    const expected_high_water: usize = scratch_test_align_up(row_output_bytes, 16) + token_decode_row_scratch_bytes();
+    const full_frame_output_bytes: usize = row_output_bytes * context.grid.mb_rows;
+
+    try assert_eq_i32(result.macroblock_count as i32, mb_count as i32);
+    try assert_eq_i32(context.grid.mb_cols as i32, mb_cols as i32);
+    try assert_eq_i32(context.grid.mb_rows as i32, mb_rows as i32);
+    try assert_eq_i32(context.scratch.high_water as i32, expected_high_water as i32);
+    try assert_eq_i32(result.performance.coeff_scratch_high_water as i32, expected_high_water as i32);
+    try expect(result.performance.coeff_scratch_high_water < full_frame_output_bytes);
+    try assert_eq_i32(result.performance.coeff_scratch_bytes_written as i32, full_frame_output_bytes as i32);
+    try assert_eq_i32(result.performance.coeff_scratch_bytes_read as i32, full_frame_output_bytes as i32);
+    try assert_eq_i32(result.performance.hot_loop_heap_allocation_count as i32, 0);
 }
 
 test "non-16 key frame decodes visible right and bottom edges" {

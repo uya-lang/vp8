@@ -439,7 +439,7 @@
 - [x] MV clamp 和 sub-pixel reference border 正确。
 - [x] SIMD 路径所有极值输入与 scalar 一致。
 - [x] SIMD 默认路径没有未审计的逐 lane 临时对象风暴或多余 `memcpy`。
-- [ ] coefficient scratch 没有整帧无界 materialization。
+- [x] coefficient scratch 没有整帧无界 materialization。
 - [ ] reference refresh 没有正常路径整帧 copy。
 - [ ] borrowed `DecodedFrame` 生命周期不会迫使默认 decode 隐式复制。
 - [ ] 多线程路径和单线程输出一致。

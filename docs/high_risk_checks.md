@@ -384,3 +384,39 @@ Verification:
 - `make check-simd-codegen`
 - `make check-kernel-thresholds`
 - `make test-scalar-vs-simd`
+
+## Coefficient Scratch Bounded To Row Windows
+
+Status: passed.
+
+Evidence:
+
+- `TokenDecodeRowOutput` allocates coefficient blocks and packed block summaries
+  from `RowScratchArena` for `mb_cols` only. Its byte formula is
+  `token_decode_row_output_bytes(mb_cols)`, so it does not multiply by
+  `mb_rows` or frame macroblock count.
+- The scalar decoder calls `decoder_context_begin_worker_row(...)` before each
+  key/inter token row, allocates one row output, reconstructs that row, and then
+  records coefficient scratch read/write bytes for that row.
+- Key-frame token decode uses the row output plus a fixed
+  `TokenDecodeRowScratch` block for Y2/dequant temporaries. Inter-frame token
+  decode uses the row output without the extra key-frame scratch block.
+- The public API and CLI default row scratch capacity are computed from one row
+  output plus `token_decode_row_scratch_bytes()` and padding, not from frame
+  height.
+- The parallel row scratch primitive is an explicit `MbCoeffScratchRing` with a
+  fixed ring depth and reconstruct fence. Existing tests verify that its bound
+  is `row_output_bytes * ring_depth` and that high-water does not grow as more
+  frame rows pass through the ring.
+- `src/vp8_decoder_scalar_test.uya` now decodes a 17x17 key frame and asserts
+  coefficient scratch high-water equals one aligned row output plus fixed
+  key-frame scratch, remains lower than a full-frame row-output materialization,
+  and still records per-row read/write totals across the frame.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_scratch_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_decode_context_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_api_decoder_test.uya`
+- `make test-token-partition-md5`
