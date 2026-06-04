@@ -445,6 +445,52 @@ def assert_y4m_cache_reuse(module: object) -> None:
         assert calls == 1
 
 
+def assert_convert_y4m_to_i420(module: object) -> None:
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_runner(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        calls.append((command, cwd))
+        Path(command[-1]).write_bytes(b"i420 payload")
+        return subprocess.CompletedProcess(command, 0, "converted\n", "")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        y4m_dir = root / "real-y4m"
+        i420_dir = root / "fixtures"
+        y4m_dir.mkdir()
+        (y4m_dir / "convert_sample.y4m").write_bytes(b"YUV4MPEG2\nFRAME\n")
+        sample = {
+            "name": "convert_sample",
+            "frames": 60,
+        }
+        report = module.convert_y4m_to_i420(
+            sample,
+            y4m_dir=y4m_dir,
+            i420_dir=i420_dir,
+            runner=fake_runner,
+        )
+        output = i420_dir / "convert_sample.i420"
+        assert report["ok"] is True
+        assert report["output_path"] == str(output)
+        assert output.read_bytes() == b"i420 payload"
+        assert calls == [(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(y4m_dir / "convert_sample.y4m"),
+                "-frames:v",
+                "60",
+                "-pix_fmt",
+                "yuv420p",
+                "-f",
+                "rawvideo",
+                str(output),
+            ],
+            module.REPO_ROOT,
+        )]
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -464,6 +510,7 @@ def main() -> int:
     assert_download_y4m_sample(module)
     assert_verify_y4m_sha256(module)
     assert_y4m_cache_reuse(module)
+    assert_convert_y4m_to_i420(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

@@ -503,6 +503,91 @@ def ensure_y4m_sample(
     }
 
 
+def sample_i420_path(sample: Mapping[str, Any], i420_dir: Path) -> Path:
+    name = sample.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("sample name must be a non-empty string")
+    return i420_dir / f"{name}.i420"
+
+
+def sample_frames(sample: Mapping[str, Any]) -> int:
+    frames = sample.get("frames", 60)
+    if not isinstance(frames, int) or frames <= 0:
+        raise ValueError("sample frames must be a positive integer")
+    return frames
+
+
+def convert_y4m_to_i420(
+    sample: Mapping[str, Any],
+    *,
+    y4m_dir: Path = DEFAULT_Y4M_CACHE_DIR,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    try:
+        input_path = sample_y4m_path(sample, y4m_dir)
+        output_path = sample_i420_path(sample, i420_dir)
+        frames = sample_frames(sample)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "command": [],
+            "input_path": "",
+            "output_path": "",
+            "returncode": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+    if not input_path.exists():
+        return {
+            "ok": False,
+            "command": [],
+            "input_path": str(input_path),
+            "output_path": str(output_path),
+            "returncode": None,
+            "stdout": "",
+            "stderr": f"missing Y4M input: {input_path}",
+        }
+
+    i420_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-frames:v",
+        str(frames),
+        "-pix_fmt",
+        "yuv420p",
+        "-f",
+        "rawvideo",
+        str(output_path),
+    ]
+    try:
+        completed = runner(command, REPO_ROOT)
+    except OSError as exc:
+        return {
+            "ok": False,
+            "command": command,
+            "input_path": str(input_path),
+            "output_path": str(output_path),
+            "returncode": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+    return {
+        "ok": completed.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0,
+        "command": command,
+        "input_path": str(input_path),
+        "output_path": str(output_path),
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
 def require_number(result: dict[str, Any], field: str) -> float:
     value = result.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):
