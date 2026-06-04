@@ -447,6 +447,62 @@ def verify_y4m_sample_sha256(
     }
 
 
+def ensure_y4m_sample(
+    sample: Mapping[str, Any],
+    *,
+    y4m_dir: Path = DEFAULT_Y4M_CACHE_DIR,
+    downloader: Callable[[str, Path], None] = http_download,
+) -> dict[str, Any]:
+    try:
+        path = sample_y4m_path(sample, y4m_dir)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "download": None,
+            "sha256": None,
+            "error": str(exc),
+        }
+
+    if path.exists():
+        sha_report = verify_y4m_sample_sha256(sample, y4m_dir=y4m_dir)
+        if sha_report["ok"]:
+            return {
+                "ok": True,
+                "download": {
+                    "ok": True,
+                    "cached": True,
+                    "path": str(path),
+                    "partial_path": str(path.with_name(path.name + ".part")),
+                    "url": sample.get("url", ""),
+                    "error": None,
+                },
+                "sha256": sha_report,
+                "error": None,
+            }
+        return {
+            "ok": False,
+            "download": None,
+            "sha256": sha_report,
+            "error": sha_report["error"],
+        }
+
+    download_report = download_y4m_sample(sample, y4m_dir=y4m_dir, downloader=downloader)
+    if not download_report["ok"]:
+        return {
+            "ok": False,
+            "download": download_report,
+            "sha256": None,
+            "error": download_report["error"],
+        }
+    sha_report = verify_y4m_sample_sha256(sample, y4m_dir=y4m_dir)
+    return {
+        "ok": sha_report["ok"],
+        "download": download_report,
+        "sha256": sha_report,
+        "error": None if sha_report["ok"] else sha_report["error"],
+    }
+
+
 def require_number(result: dict[str, Any], field: str) -> float:
     value = result.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):

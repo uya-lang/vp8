@@ -420,6 +420,31 @@ def assert_verify_y4m_sha256(module: object) -> None:
         assert bad_path.exists()
 
 
+def assert_y4m_cache_reuse(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        y4m_dir = Path(tmp)
+        payload = b"YUV4MPEG2\nFRAME\ncached"
+        sample = {
+            "name": "cache_sample",
+            "url": "https://example.test/cache_sample.y4m",
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        calls = 0
+
+        def downloader(url: str, dest: Path) -> None:
+            nonlocal calls
+            calls += 1
+            dest.write_bytes(payload)
+
+        first = module.ensure_y4m_sample(sample, y4m_dir=y4m_dir, downloader=downloader)
+        second = module.ensure_y4m_sample(sample, y4m_dir=y4m_dir, downloader=downloader)
+        assert first["ok"] is True
+        assert first["download"]["cached"] is False
+        assert second["ok"] is True
+        assert second["download"]["cached"] is True
+        assert calls == 1
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -438,6 +463,7 @@ def main() -> int:
     assert_prepare_sample_dirs(module)
     assert_download_y4m_sample(module)
     assert_verify_y4m_sha256(module)
+    assert_y4m_cache_reuse(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],
