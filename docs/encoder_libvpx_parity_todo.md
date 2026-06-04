@@ -88,7 +88,7 @@ Date: 2026-06-04
   - 验收命令：`ffmpeg -y -i <sample>.y4m -frames:v 60 -pix_fmt yuv420p -f rawvideo <sample>.i420` 生成 raw I420。
 - [x] 校验 I420 文件大小。
   - 验收：`stat -c %s <sample>.i420` 等于 `frame_size * frames`。
-- [ ] 确认真实媒体文件不入库。
+- [x] 确认真实媒体文件不入库。
   - 验收命令：`git status --short` 不显示 `.y4m`、`.i420`、`.ivf` 真实样本文件。
 
 ## Phase 4: `encode --frames N --fps NUM/DEN`
