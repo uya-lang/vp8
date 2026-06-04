@@ -153,6 +153,23 @@ def assert_vpxenc_env_lookup(module: object) -> None:
         assert missing_path in missing["error"]
 
 
+def assert_vpxdec_env_lookup(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "fake-vpxdec"
+        write_fake_executable(fake)
+        found = module.find_vpx_tool("vpxdec", "VPXDEC", env={"VPXDEC": str(fake)}, path="")
+        assert found["path"] == str(fake)
+        assert found["source"] == "VPXDEC"
+        assert found["error"] is None
+
+        missing_path = str(Path(tmp) / "missing-vpxdec")
+        missing = module.find_vpx_tool("vpxdec", "VPXDEC", env={"VPXDEC": missing_path}, path="")
+        assert missing["path"] is None
+        assert missing["source"] == "VPXDEC"
+        assert "VPXDEC" in missing["error"]
+        assert missing_path in missing["error"]
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -161,6 +178,7 @@ def main() -> int:
     assert_fps_threshold(module)
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
+    assert_vpxdec_env_lookup(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],
