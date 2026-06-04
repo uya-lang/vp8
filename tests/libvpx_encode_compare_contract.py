@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -388,6 +389,37 @@ def assert_download_y4m_sample(module: object) -> None:
         assert not (y4m_dir / "broken_sample.y4m.part").exists()
 
 
+def assert_verify_y4m_sha256(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        y4m_dir = Path(tmp)
+        path = y4m_dir / "hash_ok.y4m"
+        payload = b"YUV4MPEG2\nFRAME\nok"
+        path.write_bytes(payload)
+        sample = {
+            "name": "hash_ok",
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        ok = module.verify_y4m_sample_sha256(sample, y4m_dir=y4m_dir)
+        assert ok["ok"] is True
+        assert ok["actual_sha256"] == sample["sha256"]
+        assert path.exists()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        y4m_dir = Path(tmp)
+        path = y4m_dir / "hash_bad.y4m"
+        path.write_bytes(b"bad payload")
+        sample = {
+            "name": "hash_bad",
+            "sha256": "0" * 64,
+        }
+        bad = module.verify_y4m_sample_sha256(sample, y4m_dir=y4m_dir)
+        bad_path = y4m_dir / "hash_bad.y4m.bad-sha256"
+        assert bad["ok"] is False
+        assert "sha256 mismatch" in bad["error"]
+        assert not path.exists()
+        assert bad_path.exists()
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -405,6 +437,7 @@ def main() -> int:
     assert_extract_vpx_tools(module)
     assert_prepare_sample_dirs(module)
     assert_download_y4m_sample(module)
+    assert_verify_y4m_sha256(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

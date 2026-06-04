@@ -8,6 +8,7 @@ future benchmark and threshold gate. Real sample execution is added later.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -384,6 +385,66 @@ def download_y4m_sample(
             "url": url,
             "error": str(exc),
         }
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_y4m_sample_sha256(
+    sample: Mapping[str, Any],
+    *,
+    y4m_dir: Path = DEFAULT_Y4M_CACHE_DIR,
+) -> dict[str, Any]:
+    try:
+        expected = sample["sha256"]
+        if not isinstance(expected, str) or len(expected) != 64:
+            raise ValueError("sample sha256 must be a 64-character hex string")
+        path = sample_y4m_path(sample, y4m_dir)
+    except (KeyError, ValueError) as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "expected_sha256": "",
+            "actual_sha256": "",
+            "error": str(exc),
+        }
+
+    if not path.exists():
+        return {
+            "ok": False,
+            "path": str(path),
+            "expected_sha256": expected,
+            "actual_sha256": "",
+            "error": f"missing downloaded sample: {path}",
+        }
+
+    actual = sha256_file(path)
+    if actual == expected.lower():
+        return {
+            "ok": True,
+            "path": str(path),
+            "expected_sha256": expected.lower(),
+            "actual_sha256": actual,
+            "error": None,
+        }
+
+    bad_path = path.with_name(path.name + ".bad-sha256")
+    if bad_path.exists():
+        bad_path.unlink()
+    path.replace(bad_path)
+    return {
+        "ok": False,
+        "path": str(path),
+        "bad_path": str(bad_path),
+        "expected_sha256": expected.lower(),
+        "actual_sha256": actual,
+        "error": f"sha256 mismatch for {path}: expected {expected.lower()} got {actual}",
+    }
 
 
 def require_number(result: dict[str, Any], field: str) -> float:
