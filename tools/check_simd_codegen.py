@@ -24,49 +24,58 @@ HELPERS = (
         "name": "load_u8x16",
         "symbol": "vp8_kernels_simd_load_u8x16",
         "kind": "load",
-        "vector_struct": "struct uya_simd_vector_uint8_t_16",
+        "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
     },
     {
         "name": "load_u8x16_unaligned",
         "symbol": "vp8_kernels_simd_load_u8x16_unaligned",
         "kind": "load",
-        "vector_struct": "struct uya_simd_vector_uint8_t_16",
+        "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
     },
     {
         "name": "store_u8x16",
         "symbol": "vp8_kernels_simd_store_u8x16",
         "kind": "store",
-        "vector_struct": "struct uya_simd_vector_uint8_t_16",
+        "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
     },
     {
         "name": "store_u8x16_unaligned",
         "symbol": "vp8_kernels_simd_store_u8x16_unaligned",
         "kind": "store",
-        "vector_struct": "struct uya_simd_vector_uint8_t_16",
+        "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
     },
     {
         "name": "load_i16x8",
         "symbol": "vp8_kernels_simd_load_i16x8",
         "kind": "load",
-        "vector_struct": "struct uya_simd_vector_int16_t_8",
+        "vector_structs": ("struct uya_simd_vector_int16_t_8",),
     },
     {
         "name": "store_i16x8",
         "symbol": "vp8_kernels_simd_store_i16x8",
         "kind": "store",
-        "vector_struct": "struct uya_simd_vector_int16_t_8",
+        "vector_structs": ("struct uya_simd_vector_int16_t_8",),
     },
     {
         "name": "load_i32x4",
         "symbol": "vp8_kernels_simd_load_i32x4",
         "kind": "load",
-        "vector_struct": "struct uya_simd_vector_int32_t_4",
+        "vector_structs": ("struct uya_simd_vector_int32_t_4",),
     },
     {
         "name": "store_i32x4",
         "symbol": "vp8_kernels_simd_store_i32x4",
         "kind": "store",
-        "vector_struct": "struct uya_simd_vector_int32_t_4",
+        "vector_structs": ("struct uya_simd_vector_int32_t_4",),
+    },
+    {
+        "name": "widen_u8x16_to_i16x8_pair",
+        "symbol": "vp8_kernels_simd_widen_u8x16_to_i16x8_pair",
+        "kind": "helper",
+        "vector_structs": (
+            "struct uya_simd_vector_uint8_t_16",
+            "struct uya_simd_vector_int16_t_8",
+        ),
     },
 )
 
@@ -259,27 +268,34 @@ def inspect_c(c_text: str) -> list[dict[str, object]]:
     results = []
     for helper in HELPERS:
         symbol = helper["symbol"]
-        vector_struct = helper["vector_struct"]
+        vector_structs = helper["vector_structs"]
         kind = helper["kind"]
         if symbol not in c_text:
             raise RuntimeError(f"missing generated C symbol: {symbol}")
-        if vector_struct not in c_text:
-            raise RuntimeError(f"missing generated C vector struct for {symbol}: {vector_struct}")
+        for vector_struct in vector_structs:
+            if vector_struct not in c_text:
+                raise RuntimeError(f"missing generated C vector struct for {symbol}: {vector_struct}")
 
         if kind == "load":
             lowering_pattern = "__uya_memcpy(&__uya_simd_load_"
-        else:
+        elif kind == "store":
             lowering_pattern = "__uya_memcpy((void*)(dst), &__uya_simd_store_"
-        lowering = "memcpy" if lowering_pattern in c_text else "unknown"
-        if lowering != "memcpy":
-            raise RuntimeError(f"unexpected C lowering for {symbol}; expected {lowering_pattern}")
+        else:
+            lowering_pattern = ""
+
+        if lowering_pattern:
+            lowering = "memcpy" if lowering_pattern in c_text else "unknown"
+            if lowering != "memcpy":
+                raise RuntimeError(f"unexpected C lowering for {symbol}; expected {lowering_pattern}")
+        else:
+            lowering = "symbol"
 
         results.append(
             {
                 "name": helper["name"],
                 "symbol": symbol,
                 "kind": kind,
-                "vector_struct": vector_struct,
+                "vector_struct": ", ".join(vector_structs),
                 "c_lowering": lowering,
             }
         )

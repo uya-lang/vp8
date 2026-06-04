@@ -53,6 +53,7 @@ use vp8.kernels.scalar.variance_4x4;
 use vp8.kernels.scalar.variance_8x8;
 use vp8.kernels.scalar.variance_16x16;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
+use vp8.kernels.simd.I16x8Pair;
 use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
 use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
 use vp8.kernels.simd.intra4x4_predictor_sad_u8x16;
@@ -110,6 +111,7 @@ use vp8.kernels.simd.sse_16x16_u8x16;
 use vp8.kernels.simd.variance_4x4_u8x16;
 use vp8.kernels.simd.variance_8x8_u8x16;
 use vp8.kernels.simd.variance_16x16_u8x16;
+use vp8.kernels.simd.widen_u8x16_to_i16x8_pair;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
@@ -241,6 +243,27 @@ test "SIMD helper loads and stores i32x4 blocks" {
     var index: usize = 0;
     while index < 4 {
         try assert_eq_i32(dst[index + 1], src[index + 1]);
+        index = index + 1;
+    }
+}
+
+test "SIMD helper widens u8x16 into ordered i16x8 pair" {
+    var src: [u8: 16] = [
+        0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8,
+        128u8, 129u8, 200u8, 201u8, 252u8, 253u8, 254u8, 255u8
+    ];
+    const values: TestU8x16 = load_u8x16(&src[0] as &u8);
+    const widened: I16x8Pair = widen_u8x16_to_i16x8_pair(values);
+
+    var low: [i16: 8] = [];
+    var hi: [i16: 8] = [];
+    store_i16x8(&low[0] as &i16, widened.low);
+    store_i16x8(&hi[0] as &i16, widened.high);
+
+    var index: usize = 0;
+    while index < 8 {
+        try assert_eq_i32(low[index] as i32, src[index] as i32);
+        try assert_eq_i32(hi[index] as i32, src[index + 8] as i32);
         index = index + 1;
     }
 }

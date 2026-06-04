@@ -31,6 +31,11 @@ type I16Mask16 = @mask(16);
 export type I32x4 = @vector(i32, 4);
 export type I32Mask4 = @mask(4);
 
+export struct I16x8Pair {
+    low: I16x8,
+    high: I16x8
+}
+
 struct SimdSumSseResult {
     sum: i32,
     sse: u32
@@ -85,6 +90,25 @@ export fn load_i32x4(src: &i32) I32x4 {
 
 export fn store_i32x4(dst: &i32, value: I32x4) void {
     @vector.store(dst, value);
+}
+
+export fn widen_u8x16_to_i16x8_pair(value: U8x16) I16x8Pair {
+    var input: [u8: 16] = [];
+    store_u8x16(&input[0] as &u8, value);
+
+    var low_lanes: [i16: 8] = [];
+    var high_lanes: [i16: 8] = [];
+    var index: usize = 0;
+    while index < 8 {
+        low_lanes[index] = input[index] as i16;
+        high_lanes[index] = input[index + 8] as i16;
+        index = index + 1;
+    }
+
+    return I16x8Pair{
+        low: load_i16x8(&low_lanes[0] as &i16),
+        high: load_i16x8(&high_lanes[0] as &i16)
+    };
 }
 
 fn simd_clip_i16_to_u8(value: i16) byte {

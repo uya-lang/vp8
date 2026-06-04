@@ -63,3 +63,30 @@ Fallback and testing:
   sentinel bytes before and after the write range remain untouched.
 - Like the load helper, this helper is a portability contract and does not by
   itself default-enable a SIMD dispatcher entry.
+
+## `widen_u8x16_to_i16x8_pair`
+
+Purpose: convert one `u8x16` value into two `i16x8` values without changing lane
+order or interpreting high-bit `u8` values as signed bytes. VP8 SAD, sub-pixel
+filtering, true-motion prediction, residual math, and loop-filter conditions all
+need `u8` pixels promoted to at least `i16` before subtracting or accumulating.
+
+Contract:
+
+- Input lane `0..7` becomes `result.low[0..7]`.
+- Input lane `8..15` becomes `result.high[0..7]`.
+- Each output lane is zero-extended: input `255u8` becomes `255i16`, not `-1`.
+- The helper takes a vector value rather than a pointer so callers can pair it
+  with either aligned or unaligned load helpers.
+- Current implementation stores the `u8x16` into a local lane array, widens each
+  lane explicitly, and reloads two `i16x8` vectors. This documents the desired
+  semantics while UYA lacks a direct vector widen builtin.
+
+Fallback and testing:
+
+- Scalar fallback is two eight-lane loops with unsigned-to-signed promotion.
+- `src/vp8_kernels_simd_test.uya` verifies low/high lane order and high-bit
+  inputs (`128..255`) promote to positive `i16` values.
+- `docs/simd_gaps.md` still records native vector widening as an upstream UYA
+  compiler gap; replacing this helper with a builtin must preserve the same
+  zero-extension contract.
