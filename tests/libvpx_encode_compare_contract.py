@@ -170,6 +170,31 @@ def assert_vpxdec_env_lookup(module: object) -> None:
         assert missing_path in missing["error"]
 
 
+def assert_probe_tools_path_lookup() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        write_fake_executable(tmp_path / "vpxenc")
+        write_fake_executable(tmp_path / "vpxdec")
+        env = dict(os.environ)
+        env["PATH"] = str(tmp_path)
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--probe-tools"],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        report = json.loads(completed.stdout)
+        assert report["vpxenc"]["source"] == "PATH"
+        assert report["vpxenc"]["path"] == str(tmp_path / "vpxenc")
+        assert report["vpxdec"]["source"] == "PATH"
+        assert report["vpxdec"]["path"] == str(tmp_path / "vpxdec")
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -179,6 +204,7 @@ def main() -> int:
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)
+    assert_probe_tools_path_lookup()
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

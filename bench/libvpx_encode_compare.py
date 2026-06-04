@@ -129,6 +129,16 @@ def metric_contract() -> dict[str, Any]:
     }
 
 
+def probe_tools(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
+    vpxenc = find_vpx_tool("vpxenc", "VPXENC", env=env)
+    vpxdec = find_vpx_tool("vpxdec", "VPXDEC", env=env)
+    return {
+        "ok": vpxenc["path"] is not None and vpxdec["path"] is not None,
+        "vpxenc": vpxenc,
+        "vpxdec": vpxdec,
+    }
+
+
 def evaluate_thresholds(result: dict[str, Any]) -> dict[str, Any]:
     evaluated = dict(result)
     failure_reasons: list[str] = []
@@ -192,6 +202,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="print the required benchmark metric names and hard thresholds as JSON",
     )
+    parser.add_argument(
+        "--probe-tools",
+        action="store_true",
+        help="locate vpxenc/vpxdec and print the lookup result as JSON",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -200,8 +215,12 @@ def main(argv: list[str]) -> int:
     if args.print_metric_contract:
         print(json.dumps(metric_contract(), indent=2, sort_keys=True))
         return 0
+    if args.probe_tools:
+        report = probe_tools()
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract or --probe-tools", file=sys.stderr)
     return 2
 
 
