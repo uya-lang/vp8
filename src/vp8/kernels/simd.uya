@@ -67,6 +67,10 @@ export fn store_u8x16(dst: &u8, value: U8x16) void {
     @vector.store(dst, value);
 }
 
+export fn store_u8x16_unaligned(dst: &u8, value: U8x16) void {
+    store_u8x16(dst, value);
+}
+
 export fn load_i16x8(src: &i16) I16x8 {
     return @vector.load(src);
 }

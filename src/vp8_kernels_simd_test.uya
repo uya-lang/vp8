@@ -113,6 +113,7 @@ use vp8.kernels.simd.variance_16x16_u8x16;
 use vp8.kernels.simd.store_i16x8;
 use vp8.kernels.simd.store_i32x4;
 use vp8.kernels.simd.store_u8x16;
+use vp8.kernels.simd.store_u8x16_unaligned;
 use vp8.kernels.simd.token_scan_last_nonzero_4x4_i16x16;
 use vp8.kernels.simd.uv8x8_predictor_sad_u8x16;
 use vp8.mode.parse.VP8_B_MODE_VR;
@@ -182,6 +183,32 @@ test "SIMD helper loads unaligned u8x16 blocks" {
     var index: usize = 0;
     while index < 16 {
         try assert_eq_i32(dst[index + 1] as i32, src[index + 3] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD helper stores unaligned u8x16 blocks" {
+    var src: [u8: 16] = [
+        1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8,
+        9u8, 10u8, 11u8, 12u8, 13u8, 14u8, 15u8, 16u8
+    ];
+    var dst: [u8: 21] = [
+        200u8, 201u8, 202u8, 0u8, 0u8, 0u8, 0u8,
+        0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+        0u8, 0u8, 0u8, 0u8, 0u8, 203u8, 204u8
+    ];
+
+    const values: TestU8x16 = load_u8x16(&src[0] as &u8);
+    store_u8x16_unaligned(&dst[3] as &u8, values);
+
+    try assert_eq_i32(dst[0] as i32, 200);
+    try assert_eq_i32(dst[1] as i32, 201);
+    try assert_eq_i32(dst[2] as i32, 202);
+    try assert_eq_i32(dst[19] as i32, 203);
+    try assert_eq_i32(dst[20] as i32, 204);
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(dst[index + 3] as i32, src[index] as i32);
         index = index + 1;
     }
 }

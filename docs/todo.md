@@ -411,7 +411,7 @@
 ## SIMD 专项 Backlog
 
 - [x] 设计 `load_u8x16_unaligned`。
-- [ ] 设计 `store_u8x16_unaligned`。
+- [x] 设计 `store_u8x16_unaligned`。
 - [ ] 设计 `widen_u8x16_to_i16x8_pair`。
 - [ ] 设计 `narrow_i16x16_to_u8x16_sat`。
 - [ ] 设计 `absdiff_u8x16`。

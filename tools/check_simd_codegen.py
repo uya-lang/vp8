@@ -39,6 +39,12 @@ HELPERS = (
         "vector_struct": "struct uya_simd_vector_uint8_t_16",
     },
     {
+        "name": "store_u8x16_unaligned",
+        "symbol": "vp8_kernels_simd_store_u8x16_unaligned",
+        "kind": "store",
+        "vector_struct": "struct uya_simd_vector_uint8_t_16",
+    },
+    {
         "name": "load_i16x8",
         "symbol": "vp8_kernels_simd_load_i16x8",
         "kind": "load",
