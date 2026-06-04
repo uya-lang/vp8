@@ -19,6 +19,24 @@ use vp8.decoder.scalar.Decoder;
 use vp8.decoder.scalar.DecoderFrameResult;
 use vp8.decoder.scalar.decoder_decode_frame;
 use vp8.decoder.scalar.make_decoder_with_kernel_table;
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderRateControlMode;
+use vp8.encoder.context.EncoderSpeedPreset;
+use vp8.encoder.context.YuvPlaneView;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.context.make_yuv420_frame_view;
+use vp8.encoder.context.validate_encoder_config;
+use vp8.encoder.context.yuv420_frame_view_size;
+use vp8.encoder.keyframe.EncoderKeyframeEncodeStats;
+use vp8.encoder.keyframe.encode_keyframe_ivf_with_stats_and_kernel_table;
+use vp8.encoder.keyframe.estimate_keyframe_ivf_size;
+use vp8.encoder.rate_control.EncoderRateControl;
+use vp8.encoder.rate_control.EncoderRateControlDecision;
+use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
+use vp8.encoder.rate_control.encoder_rate_control_finish_frame;
+use vp8.encoder.rate_control.make_encoder_rate_control;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
@@ -26,6 +44,14 @@ use vp8.kernels.dispatch.make_scalar_kernel_table;
 error ErrVp8DecoderInvalidOptions;
 error ErrVp8DecoderInvalidState;
 error ErrVp8DecoderUnsupportedSimdLevel;
+error ErrVp8EncoderInvalidOptions;
+error ErrVp8EncoderInvalidState;
+error ErrVp8EncoderOutputOverflow;
+error ErrVp8EncoderUnsupportedSimdLevel;
+
+export const VP8_ENCODER_IVF_HEADER_BYTES: usize = 32;
+export const VP8_ENCODER_IVF_FRAME_HEADER_BYTES: usize = 12;
+export const VP8_ENCODER_U32_MAX_AS_U64: u64 = 4294967295;
 
 export const VP8_DECODER_DEFAULT_BORDER: usize = 32;
 export const VP8_DECODER_DEFAULT_ALIGNMENT: usize = 32;
@@ -64,6 +90,73 @@ export struct Vp8Decoder {
     initialized: bool,
     frame_index: u64,
     stats: Vp8DecoderStats
+}
+
+export struct Vp8EncoderOptions {
+    width: usize,
+    height: usize,
+    fps_numerator: u32,
+    fps_denominator: u32,
+    rate_control_mode: EncoderRateControlMode,
+    quantizer: u8,
+    target_bitrate_bps: u32,
+    keyframe_interval: u32,
+    speed_preset: EncoderSpeedPreset,
+    thread_count: usize,
+    simd_level: SimdLevel
+}
+
+export struct Vp8YuvPlaneView {
+    data: &byte,
+    len: usize,
+    width: usize,
+    height: usize,
+    stride: usize
+}
+
+export struct Vp8YuvFrameView {
+    width: usize,
+    height: usize,
+    y: Vp8YuvPlaneView,
+    u: Vp8YuvPlaneView,
+    v: Vp8YuvPlaneView
+}
+
+export struct Vp8EncodeFlags {
+    force_keyframe: bool
+}
+
+export struct Vp8EncoderStats {
+    encoded_frame_count: u64,
+    output_packet_count: u64,
+    keyframe_count: u64,
+    last_bytes_written: usize,
+    last_mode_search_work_units: usize,
+    last_quantizer: u8,
+    last_target_bits: u32,
+    last_actual_bits: u32
+}
+
+export struct Vp8EncodedPacket {
+    has_output: bool,
+    frame_index: u64,
+    pts: u64,
+    key_frame: bool,
+    data: &byte,
+    len: usize,
+    keyframe_stats: EncoderKeyframeEncodeStats,
+    quantizer: u8,
+    target_bits: u32,
+    actual_bits: u32
+}
+
+export struct Vp8Encoder {
+    config: Vp8EncoderOptions,
+    rate_control: EncoderRateControl,
+    kernels: KernelFunctionTable,
+    initialized: bool,
+    frame_index: u64,
+    stats: Vp8EncoderStats
 }
 
 export fn empty_vp8_decoder_stats() Vp8DecoderStats {
@@ -109,6 +202,142 @@ export fn empty_vp8_decoded_frame() Vp8DecodedFrame {
     };
 }
 
+fn vp8_encoder_options_from_config(config: &EncoderConfig) Vp8EncoderOptions {
+    return Vp8EncoderOptions{
+        width: config.width,
+        height: config.height,
+        fps_numerator: config.fps_numerator,
+        fps_denominator: config.fps_denominator,
+        rate_control_mode: config.rate_control_mode,
+        quantizer: config.quantizer,
+        target_bitrate_bps: config.target_bitrate_bps,
+        keyframe_interval: config.keyframe_interval,
+        speed_preset: config.speed_preset,
+        thread_count: config.thread_count,
+        simd_level: config.simd_level
+    };
+}
+
+fn vp8_encoder_options_to_config(options: &Vp8EncoderOptions) EncoderConfig {
+    return EncoderConfig{
+        width: options.width,
+        height: options.height,
+        fps_numerator: options.fps_numerator,
+        fps_denominator: options.fps_denominator,
+        rate_control_mode: options.rate_control_mode,
+        quantizer: options.quantizer,
+        target_bitrate_bps: options.target_bitrate_bps,
+        keyframe_interval: options.keyframe_interval,
+        speed_preset: options.speed_preset,
+        thread_count: options.thread_count,
+        simd_level: options.simd_level
+    };
+}
+
+fn vp8_yuv_plane_view_from_internal(plane: &YuvPlaneView) Vp8YuvPlaneView {
+    return Vp8YuvPlaneView{
+        data: plane.data,
+        len: plane.len,
+        width: plane.width,
+        height: plane.height,
+        stride: plane.stride
+    };
+}
+
+fn vp8_yuv_plane_view_to_internal(plane: &Vp8YuvPlaneView) YuvPlaneView {
+    return YuvPlaneView{
+        data: plane.data,
+        len: plane.len,
+        width: plane.width,
+        height: plane.height,
+        stride: plane.stride
+    };
+}
+
+fn vp8_yuv_frame_view_from_internal(view: &YuvFrameView) Vp8YuvFrameView {
+    return Vp8YuvFrameView{
+        width: view.width,
+        height: view.height,
+        y: vp8_yuv_plane_view_from_internal(&view.y),
+        u: vp8_yuv_plane_view_from_internal(&view.u),
+        v: vp8_yuv_plane_view_from_internal(&view.v)
+    };
+}
+
+fn vp8_yuv_frame_view_to_internal(view: &Vp8YuvFrameView) YuvFrameView {
+    return YuvFrameView{
+        width: view.width,
+        height: view.height,
+        y: vp8_yuv_plane_view_to_internal(&view.y),
+        u: vp8_yuv_plane_view_to_internal(&view.u),
+        v: vp8_yuv_plane_view_to_internal(&view.v)
+    };
+}
+
+fn empty_encoder_rate_control() EncoderRateControl {
+    return EncoderRateControl{
+        mode: EncoderRateControlMode.constant_quantizer,
+        cqp_quantizer: 0 as u8,
+        current_quantizer: 0 as u8,
+        target_bits_per_frame: 0,
+        frame_index: 0,
+        last_actual_bits: 0
+    };
+}
+
+fn empty_encoder_keyframe_stats() EncoderKeyframeEncodeStats {
+    return EncoderKeyframeEncodeStats{
+        written_len: 0,
+        mode_search_work_units: 0
+    };
+}
+
+export fn empty_vp8_encoder_stats() Vp8EncoderStats {
+    return Vp8EncoderStats{
+        encoded_frame_count: 0 as u64,
+        output_packet_count: 0 as u64,
+        keyframe_count: 0 as u64,
+        last_bytes_written: 0,
+        last_mode_search_work_units: 0,
+        last_quantizer: 0 as u8,
+        last_target_bits: 0,
+        last_actual_bits: 0
+    };
+}
+
+export fn empty_vp8_encoded_packet() Vp8EncodedPacket {
+    return Vp8EncodedPacket{
+        has_output: false,
+        frame_index: 0 as u64,
+        pts: 0 as u64,
+        key_frame: false,
+        data: null as &byte,
+        len: 0,
+        keyframe_stats: empty_encoder_keyframe_stats(),
+        quantizer: 0 as u8,
+        target_bits: 0,
+        actual_bits: 0
+    };
+}
+
+export fn empty_vp8_encoder() Vp8Encoder {
+    const config: EncoderConfig = make_default_encoder_config(0, 0);
+    return Vp8Encoder{
+        config: vp8_encoder_options_from_config(&config),
+        rate_control: empty_encoder_rate_control(),
+        kernels: make_scalar_kernel_table(),
+        initialized: false,
+        frame_index: 0 as u64,
+        stats: empty_vp8_encoder_stats()
+    };
+}
+
+export fn make_vp8_encode_flags() Vp8EncodeFlags {
+    return Vp8EncodeFlags{
+        force_keyframe: false
+    };
+}
+
 fn vp8_decoder_checked_add(left: usize, right: usize) !usize {
     const value: usize = left + right;
     if value < left {
@@ -149,6 +378,56 @@ export fn make_vp8_decoder_options(width: usize, height: usize) !Vp8DecoderOptio
     };
 }
 
+export fn make_vp8_encoder_options(width: usize, height: usize) Vp8EncoderOptions {
+    const config: EncoderConfig = make_default_encoder_config(width, height);
+    return vp8_encoder_options_from_config(&config);
+}
+
+export fn vp8_encoder_default_packet_capacity(width: usize, height: usize) !usize {
+    return estimate_keyframe_ivf_size(width, height) catch {
+        return error.ErrVp8EncoderInvalidOptions;
+    };
+}
+
+export fn vp8_encoder_make_i420_frame_view(data: &byte, len: usize, width: usize, height: usize) !Vp8YuvFrameView {
+    const view: YuvFrameView = try make_i420_frame_view(data, len, width, height);
+    return vp8_yuv_frame_view_from_internal(&view);
+}
+
+export fn vp8_encoder_make_yuv420_frame_view(
+    y_data: &byte,
+    y_len: usize,
+    u_data: &byte,
+    u_len: usize,
+    v_data: &byte,
+    v_len: usize,
+    width: usize,
+    height: usize,
+    y_stride: usize,
+    u_stride: usize,
+    v_stride: usize
+) !Vp8YuvFrameView {
+    const view: YuvFrameView = try make_yuv420_frame_view(
+        y_data,
+        y_len,
+        u_data,
+        u_len,
+        v_data,
+        v_len,
+        width,
+        height,
+        y_stride,
+        u_stride,
+        v_stride
+    );
+    return vp8_yuv_frame_view_from_internal(&view);
+}
+
+export fn vp8_encoder_yuv420_frame_view_size(view: &Vp8YuvFrameView) usize {
+    const internal: YuvFrameView = vp8_yuv_frame_view_to_internal(view);
+    return yuv420_frame_view_size(&internal);
+}
+
 fn vp8_decoder_kernel_table_for_level(level: SimdLevel) !KernelFunctionTable {
     if level == SimdLevel.scalar {
         return make_scalar_kernel_table();
@@ -162,6 +441,19 @@ fn vp8_decoder_kernel_table_for_level(level: SimdLevel) !KernelFunctionTable {
     return error.ErrVp8DecoderUnsupportedSimdLevel;
 }
 
+fn vp8_encoder_kernel_table_for_level(level: SimdLevel) !KernelFunctionTable {
+    if level == SimdLevel.scalar {
+        return make_scalar_kernel_table();
+    }
+    if level == SimdLevel.vector128 {
+        const capabilities: SimdCapabilities = simd_detect_capabilities();
+        if simd_level_available(level, &capabilities) {
+            return make_forced_simd_kernel_table(&capabilities);
+        }
+    }
+    return error.ErrVp8EncoderUnsupportedSimdLevel;
+}
+
 fn vp8_decoder_validate_options(options: &Vp8DecoderOptions) !void {
     if options.width == 0 || options.height == 0 {
         return error.ErrVp8DecoderInvalidOptions;
@@ -173,6 +465,17 @@ fn vp8_decoder_validate_options(options: &Vp8DecoderOptions) !void {
         return error.ErrVp8DecoderInvalidOptions;
     }
     _ = try vp8_decoder_kernel_table_for_level(options.simd_level);
+}
+
+fn vp8_encoder_validate_options(options: &Vp8EncoderOptions) !void {
+    if options == null {
+        return error.ErrVp8EncoderInvalidOptions;
+    }
+    const config: EncoderConfig = vp8_encoder_options_to_config(options);
+    validate_encoder_config(&config) catch {
+        return error.ErrVp8EncoderInvalidOptions;
+    };
+    _ = try vp8_encoder_kernel_table_for_level(options.simd_level);
 }
 
 fn vp8_decoder_bind_context(decoder: &Vp8Decoder) void {
@@ -210,6 +513,31 @@ export fn vp8_decoder_deinit(decoder: &Vp8Decoder) void {
     decoder.stats = empty_vp8_decoder_stats();
 }
 
+export fn vp8_encoder_init(options: &Vp8EncoderOptions) !Vp8Encoder {
+    try vp8_encoder_validate_options(options);
+    const kernels: KernelFunctionTable = try vp8_encoder_kernel_table_for_level(options.simd_level);
+    const config: EncoderConfig = vp8_encoder_options_to_config(options);
+    const rate_control: EncoderRateControl = make_encoder_rate_control(&config) catch {
+        return error.ErrVp8EncoderInvalidOptions;
+    };
+    var encoder: Vp8Encoder = empty_vp8_encoder();
+    encoder.config = options[0];
+    encoder.rate_control = rate_control;
+    encoder.kernels = kernels;
+    encoder.initialized = true;
+    return encoder;
+}
+
+export fn vp8_encoder_deinit(encoder: &Vp8Encoder) void {
+    const config: EncoderConfig = make_default_encoder_config(0, 0);
+    encoder.config = vp8_encoder_options_from_config(&config);
+    encoder.rate_control = empty_encoder_rate_control();
+    encoder.kernels = make_scalar_kernel_table();
+    encoder.initialized = false;
+    encoder.frame_index = 0 as u64;
+    encoder.stats = empty_vp8_encoder_stats();
+}
+
 export fn vp8_decoder_set_simd_level(decoder: &Vp8Decoder, level: SimdLevel) !void {
     if !decoder.initialized {
         return error.ErrVp8DecoderInvalidState;
@@ -217,6 +545,15 @@ export fn vp8_decoder_set_simd_level(decoder: &Vp8Decoder, level: SimdLevel) !vo
     const kernels: KernelFunctionTable = try vp8_decoder_kernel_table_for_level(level);
     vp8_decoder_bind_context(decoder);
     decoder.scalar.kernels = kernels;
+}
+
+export fn vp8_encoder_set_simd_level(encoder: &Vp8Encoder, level: SimdLevel) !void {
+    if !encoder.initialized {
+        return error.ErrVp8EncoderInvalidState;
+    }
+    const kernels: KernelFunctionTable = try vp8_encoder_kernel_table_for_level(level);
+    encoder.kernels = kernels;
+    encoder.config.simd_level = level;
 }
 
 export fn vp8_decoder_flush(decoder: &Vp8Decoder) void {
@@ -231,6 +568,96 @@ export fn vp8_decoder_flush(decoder: &Vp8Decoder) void {
 
 export fn vp8_decoder_stats(decoder: &Vp8Decoder) Vp8DecoderStats {
     return decoder.stats;
+}
+
+export fn vp8_encoder_flush(encoder: &Vp8Encoder) !Vp8EncodedPacket {
+    if !encoder.initialized {
+        return error.ErrVp8EncoderInvalidState;
+    }
+    var packet: Vp8EncodedPacket = empty_vp8_encoded_packet();
+    packet.frame_index = encoder.frame_index;
+    packet.pts = encoder.frame_index;
+    return packet;
+}
+
+export fn vp8_encoder_stats(encoder: &Vp8Encoder) Vp8EncoderStats {
+    return encoder.stats;
+}
+
+fn vp8_encoder_actual_bits_from_ivf_len(written_len: usize) !u32 {
+    const header_bytes: usize = VP8_ENCODER_IVF_HEADER_BYTES + VP8_ENCODER_IVF_FRAME_HEADER_BYTES;
+    if written_len < header_bytes {
+        return error.ErrVp8EncoderOutputOverflow;
+    }
+
+    const payload_bytes: usize = written_len - header_bytes;
+    const payload_bits: u64 = (payload_bytes as u64) * (8 as u64);
+    if payload_bits > VP8_ENCODER_U32_MAX_AS_U64 {
+        return error.ErrVp8EncoderOutputOverflow;
+    }
+    return payload_bits as u32;
+}
+
+fn vp8_encoded_packet_from_keyframe(
+    out: &byte,
+    frame_index: u64,
+    encode_stats: &EncoderKeyframeEncodeStats,
+    decision: &EncoderRateControlDecision,
+    actual_bits: u32
+) Vp8EncodedPacket {
+    var packet: Vp8EncodedPacket = empty_vp8_encoded_packet();
+    packet.has_output = true;
+    packet.frame_index = frame_index;
+    packet.pts = frame_index;
+    packet.key_frame = true;
+    packet.data = out;
+    packet.len = encode_stats.written_len;
+    packet.keyframe_stats = encode_stats[0];
+    packet.quantizer = decision.quantizer;
+    packet.target_bits = decision.target_bits;
+    packet.actual_bits = actual_bits;
+    return packet;
+}
+
+export fn vp8_encoder_encode_frame(
+    encoder: &Vp8Encoder,
+    frame: &Vp8YuvFrameView,
+    out: &byte,
+    out_len: usize,
+    flags: &Vp8EncodeFlags
+) !Vp8EncodedPacket {
+    if !encoder.initialized {
+        return error.ErrVp8EncoderInvalidState;
+    }
+    if frame == null || out == null || flags == null {
+        return error.ErrVp8EncoderInvalidOptions;
+    }
+
+    const decision: EncoderRateControlDecision = try encoder_rate_control_decide_frame(&encoder.rate_control, true);
+    var frame_config: EncoderConfig = vp8_encoder_options_to_config(&encoder.config);
+    frame_config.quantizer = decision.quantizer;
+    const internal_frame: YuvFrameView = vp8_yuv_frame_view_to_internal(frame);
+    const encode_stats: EncoderKeyframeEncodeStats = try encode_keyframe_ivf_with_stats_and_kernel_table(
+        &frame_config,
+        &encoder.kernels,
+        &internal_frame,
+        out,
+        out_len
+    );
+    const actual_bits: u32 = try vp8_encoder_actual_bits_from_ivf_len(encode_stats.written_len);
+    try encoder_rate_control_finish_frame(&encoder.rate_control, actual_bits);
+
+    const frame_index: u64 = encoder.frame_index;
+    encoder.frame_index = encoder.frame_index + (1 as u64);
+    encoder.stats.encoded_frame_count = encoder.stats.encoded_frame_count + (1 as u64);
+    encoder.stats.output_packet_count = encoder.stats.output_packet_count + (1 as u64);
+    encoder.stats.keyframe_count = encoder.stats.keyframe_count + (1 as u64);
+    encoder.stats.last_bytes_written = encode_stats.written_len;
+    encoder.stats.last_mode_search_work_units = encode_stats.mode_search_work_units;
+    encoder.stats.last_quantizer = decision.quantizer;
+    encoder.stats.last_target_bits = decision.target_bits;
+    encoder.stats.last_actual_bits = actual_bits;
+    return vp8_encoded_packet_from_keyframe(out, frame_index, &encode_stats, &decision, actual_bits);
 }
 
 fn vp8_decoded_frame_from_result(result: &DecoderFrameResult, frame_index: u64) Vp8DecodedFrame {

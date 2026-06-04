@@ -1,0 +1,127 @@
+use std.testing.assert_eq_i32;
+
+use vp8.api.Vp8DecodedFrame;
+use vp8.api.Vp8Decoder;
+use vp8.api.Vp8DecoderOptions;
+use vp8.api.Vp8EncodedPacket;
+use vp8.api.Vp8EncodeFlags;
+use vp8.api.Vp8Encoder;
+use vp8.api.Vp8EncoderOptions;
+use vp8.api.Vp8EncoderStats;
+use vp8.api.Vp8YuvFrameView;
+use vp8.api.empty_vp8_encoded_packet;
+use vp8.api.empty_vp8_encoder;
+use vp8.api.make_vp8_decoder_options;
+use vp8.api.make_vp8_encode_flags;
+use vp8.api.make_vp8_encoder_options;
+use vp8.api.vp8_decoded_frame_release;
+use vp8.api.vp8_decoder_decode_frame;
+use vp8.api.vp8_decoder_deinit;
+use vp8.api.vp8_decoder_init;
+use vp8.api.vp8_encoder_default_packet_capacity;
+use vp8.api.vp8_encoder_deinit;
+use vp8.api.vp8_encoder_encode_frame;
+use vp8.api.vp8_encoder_flush;
+use vp8.api.vp8_encoder_make_i420_frame_view;
+use vp8.api.vp8_encoder_set_simd_level;
+use vp8.api.vp8_encoder_stats;
+use vp8.common.cpu.SimdLevel;
+use vp8.container.ivf.IvfFrame;
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.ivf_frame_iterator_has_next;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
+
+test "public encoder API encodes an I420 frame to a borrowed IVF packet" {
+    var input: [byte: 384] = [];
+    var index: usize = 0;
+    while index < 256 {
+        input[index] = (32 + (((index * 23) % (160 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+    while index < 384 {
+        input[index] = (88 + (((index * 9) % (80 as usize)) as i32)) as byte;
+        index = index + 1;
+    }
+
+    var out: [byte: 12000] = [];
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    var encoder: Vp8Encoder = try vp8_encoder_init(&options);
+    defer vp8_encoder_deinit(&encoder);
+    try vp8_encoder_set_simd_level(&encoder, SimdLevel.scalar);
+
+    const capacity: usize = try vp8_encoder_default_packet_capacity(16, 16);
+    try assert_eq_i32((capacity <= 12000) as i32, true as i32);
+
+    const frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    var packet: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &frame, &out[0] as &byte, 12000, &flags);
+
+    try assert_eq_i32(packet.has_output as i32, true as i32);
+    try assert_eq_i32(packet.frame_index as i32, 0);
+    try assert_eq_i32(packet.pts as i32, 0);
+    try assert_eq_i32(packet.key_frame as i32, true as i32);
+    try assert_eq_i32(packet.len as i32 > 44, true as i32);
+    try assert_eq_i32((packet.data == (&out[0] as &byte)) as i32, true as i32);
+    try assert_eq_i32(packet.quantizer as i32, options.quantizer as i32);
+    try assert_eq_i32(packet.keyframe_stats.written_len as i32, packet.len as i32);
+    try assert_eq_i32(packet.keyframe_stats.mode_search_work_units as i32 > 0, true as i32);
+
+    const ivf: IvfHeader = try parse_ivf_header(packet.data, packet.len);
+    try assert_eq_i32(ivf.width as i32, 16);
+    try assert_eq_i32(ivf.height as i32, 16);
+    try assert_eq_i32(ivf.frame_count as i32, 1);
+
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(packet.data, packet.len, &ivf);
+    const ivf_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    try assert_eq_i32(ivf_frame.index as i32, 0);
+    try assert_eq_i32(ivf_frame_iterator_has_next(&iterator) as i32, false as i32);
+    try assert_eq_i32(packet.actual_bits as i32, (ivf_frame.payload.len * 8) as i32);
+
+    var decoder_options: Vp8DecoderOptions = try make_vp8_decoder_options(16, 16);
+    var decoder: Vp8Decoder = try vp8_decoder_init(&decoder_options);
+    defer vp8_decoder_deinit(&decoder);
+    var decoded: Vp8DecodedFrame = try vp8_decoder_decode_frame(&decoder, ivf_frame.payload.data, ivf_frame.payload.len);
+    defer vp8_decoded_frame_release(&decoded) catch {};
+    try assert_eq_i32(decoded.has_output as i32, true as i32);
+    try assert_eq_i32(decoded.view.width as i32, 16);
+    try assert_eq_i32(decoded.view.height as i32, 16);
+
+    const stats: Vp8EncoderStats = vp8_encoder_stats(&encoder);
+    try assert_eq_i32(stats.encoded_frame_count as i32, 1);
+    try assert_eq_i32(stats.output_packet_count as i32, 1);
+    try assert_eq_i32(stats.keyframe_count as i32, 1);
+    try assert_eq_i32(stats.last_bytes_written as i32, packet.len as i32);
+    try assert_eq_i32(stats.last_mode_search_work_units as i32, packet.keyframe_stats.mode_search_work_units as i32);
+    try assert_eq_i32(stats.last_actual_bits as i32, packet.actual_bits as i32);
+
+    packet = try vp8_encoder_flush(&encoder);
+    try assert_eq_i32(packet.has_output as i32, false as i32);
+}
+
+test "public encoder API validates options and state" {
+    var invalid: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    invalid.thread_count = 0;
+
+    var failed: i32 = 0;
+    _ = vp8_encoder_init(&invalid) catch {
+        failed = 1;
+        empty_vp8_encoder();
+    };
+    try assert_eq_i32(failed, 1);
+
+    var input: [byte: 384] = [];
+    var out: [byte: 64] = [];
+    const frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    var empty: Vp8Encoder = empty_vp8_encoder();
+
+    failed = 0;
+    _ = vp8_encoder_encode_frame(&empty, &frame, &out[0] as &byte, 64, &flags) catch {
+        failed = 1;
+        empty_vp8_encoded_packet();
+    };
+    try assert_eq_i32(failed, 1);
+}
