@@ -26,6 +26,30 @@ fn clip_i32_to_u8(value: i32) byte {
     return value as byte;
 }
 
+fn sad_row_16_x86_asm(src: &byte, reference: &byte) u32 {
+    var sum: u32 = 0 as u32;
+    @asm {
+        "movdqu 0(%1), %%xmm0" (src, reference, -> sum);
+        "movdqu 0(%2), %%xmm1" ();
+        "psadbw %%xmm1, %%xmm0" ();
+        "movhlps %%xmm0, %%xmm1" ();
+        "paddq %%xmm1, %%xmm0" ();
+        "movd %%xmm0, %%eax" ();
+        "movl %%eax, %0" ();
+    } clobbers = ["rax", "xmm0", "xmm1", "memory"];
+    return sum;
+}
+
+export fn sad_16x16_x86_asm(src: &byte, src_stride: usize, reference: &byte, reference_stride: usize) u32 {
+    var distortion: u32 = 0 as u32;
+    var row: usize = 0;
+    while row < 16 {
+        distortion = distortion + sad_row_16_x86_asm(&src[row * src_stride] as &byte, &reference[row * reference_stride] as &byte);
+        row = row + 1;
+    }
+    return distortion;
+}
+
 fn luma_horizontal_filter_sample_x86(src: &byte, filter: &i16) byte {
     var sum: i32 = 0;
     @asm {

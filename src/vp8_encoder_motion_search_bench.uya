@@ -1,0 +1,149 @@
+use libc.atoi;
+use libc.printf;
+use libc.strcmp;
+
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.simd_detect_capabilities;
+use vp8.common.frame.FrameBuffer;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
+use vp8.encoder.motion_search.search_last_frame_integer_pel_with_kernel_table;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_begin_frame;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_forced_simd_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
+
+const MOTION_SEARCH_BENCH_WIDTH: usize = 128;
+const MOTION_SEARCH_BENCH_HEIGHT: usize = 128;
+const MOTION_SEARCH_BENCH_I420_SIZE: usize = 24576;
+const MOTION_SEARCH_BENCH_RADIUS: usize = 8;
+
+struct MotionSearchBenchResult {
+    candidates: usize,
+    checksum: u64
+}
+
+fn fill_reference_pattern(frame: &FrameBuffer) void {
+    var row: usize = 0;
+    while row < frame.height {
+        var col: usize = 0;
+        while col < frame.width {
+            frame.y.plane.origin[(row * frame.y.plane.stride) + col] = (((row * (17 as usize)) + (col * (29 as usize)) + ((row / (4 as usize)) * ((col % (7 as usize)) + (1 as usize)) * (11 as usize)) + (23 as usize)) % (251 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn fill_shifted_input(input: &byte, reference: &FrameBuffer) void {
+    var row: usize = 0;
+    while row < MOTION_SEARCH_BENCH_HEIGHT {
+        var col: usize = 0;
+        while col < MOTION_SEARCH_BENCH_WIDTH {
+            const ref_row: usize = (row + MOTION_SEARCH_BENCH_HEIGHT - 2) % MOTION_SEARCH_BENCH_HEIGHT;
+            const ref_col: usize = (col + 3) % MOTION_SEARCH_BENCH_WIDTH;
+            input[(row * MOTION_SEARCH_BENCH_WIDTH) + col] = reference.y.plane.origin[(ref_row * reference.y.plane.stride) + ref_col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var index: usize = MOTION_SEARCH_BENCH_WIDTH * MOTION_SEARCH_BENCH_HEIGHT;
+    while index < MOTION_SEARCH_BENCH_I420_SIZE {
+        input[index] = ((96 as usize) + ((index * (13 as usize)) % (64 as usize))) as byte;
+        index = index + 1;
+    }
+}
+
+fn motion_search_bench_mv_component(value: i16) u64 {
+    return ((value as i32) + 32768) as u64;
+}
+
+fn run_motion_search_bench(kernels: &KernelFunctionTable, iterations: usize) !MotionSearchBenchResult {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(MOTION_SEARCH_BENCH_WIDTH, MOTION_SEARCH_BENCH_HEIGHT, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 24576] = [];
+    fill_shifted_input(&input[0] as &byte, seed);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, MOTION_SEARCH_BENCH_I420_SIZE, MOTION_SEARCH_BENCH_WIDTH, MOTION_SEARCH_BENCH_HEIGHT);
+
+    var total_candidates: usize = 0;
+    var checksum: u64 = 0 as u64;
+    var iteration: usize = 0;
+    while iteration < iterations {
+        var mb_y: usize = 1;
+        while mb_y < 7 {
+            var mb_x: usize = 1;
+            while mb_x < 7 {
+                const result: IntegerPelMotionSearchResult = try search_last_frame_integer_pel_with_kernel_table(&refs, kernels, &frame, mb_x, mb_y, MOTION_SEARCH_BENCH_RADIUS);
+                total_candidates = total_candidates + result.candidates_evaluated;
+                checksum = checksum + (result.distortion as u64);
+                checksum = checksum + (motion_search_bench_mv_component(result.mv_x) * (3 as u64));
+                checksum = checksum + (motion_search_bench_mv_component(result.mv_y) * (5 as u64));
+                mb_x = mb_x + 1;
+            }
+            mb_y = mb_y + 1;
+        }
+        iteration = iteration + 1;
+    }
+
+    return MotionSearchBenchResult{
+        candidates: total_candidates,
+        checksum: checksum
+    };
+}
+
+fn usage() i32 {
+    _ = printf("usage: vp8_motion_search_bench scalar|simd <iterations>\n");
+    return 2;
+}
+
+export extern fn main(argc: i32, argv: & &byte) i32 {
+    if argc < 3 {
+        return usage();
+    }
+
+    const iterations_i32: i32 = atoi(argv[2]);
+    if iterations_i32 <= 0 {
+        _ = printf("error: iterations must be positive\n");
+        return 2;
+    }
+    const iterations: usize = iterations_i32 as usize;
+
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var mode_name: &byte = "scalar";
+    if strcmp(argv[1], "scalar") == 0 {
+        kernels = make_scalar_kernel_table();
+        mode_name = "scalar";
+    } else if strcmp(argv[1], "simd") == 0 {
+        const capabilities: SimdCapabilities = simd_detect_capabilities();
+        kernels = make_forced_simd_kernel_table(&capabilities);
+        mode_name = "simd";
+    } else {
+        return usage();
+    }
+
+    const result: MotionSearchBenchResult = run_motion_search_bench(&kernels, iterations) catch {
+        _ = printf("error: motion search benchmark failed\n");
+        return 2;
+    };
+
+    _ = printf("motion_search.mode=%s\n", mode_name);
+    _ = printf("motion_search.iterations=%lu\n", iterations);
+    _ = printf("motion_search.macroblocks_per_iteration=36\n");
+    _ = printf("motion_search.search_radius=%lu\n", MOTION_SEARCH_BENCH_RADIUS);
+    _ = printf("motion_search.candidates=%lu\n", result.candidates);
+    _ = printf("motion_search.checksum=%lu\n", result.checksum);
+    return 0;
+}

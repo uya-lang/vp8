@@ -1,7 +1,9 @@
 use std.testing.assert_eq_i32;
 
 use vp8.kernels.asm_x86.predict_luma_subpixel_horizontal_x86_asm;
+use vp8.kernels.asm_x86.sad_16x16_x86_asm;
 use vp8.kernels.scalar.predict_luma_subpixel;
+use vp8.kernels.scalar.sad_16x16;
 
 fn assert_buffers_equal(expected: &byte, actual: &byte, len: usize) !void {
     var index: usize = 0;
@@ -21,6 +23,29 @@ fn fill_subpixel_source(src: &byte, stride: usize, rows: usize) void {
         }
         row = row + 1;
     }
+}
+
+fn fill_sad_source(src: &byte, reference: &byte, src_stride: usize, reference_stride: usize) void {
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            src[(row * src_stride) + col] = (((row * 37) + (col * 17) + 11) % (251 as usize)) as byte;
+            reference[(row * reference_stride) + col] = (((row * 19) + (col * 29) + 7) % (251 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+test "x86 asm SAD 16x16 microkernel matches scalar byte exact" {
+    var src: [byte: 400] = [];
+    var reference: [byte: 448] = [];
+    fill_sad_source(&src[3] as &byte, &reference[7] as &byte, 19, 21);
+
+    const scalar: u32 = sad_16x16(&src[3] as &byte, 19, &reference[7] as &byte, 21);
+    const asm: u32 = sad_16x16_x86_asm(&src[3] as &byte, 19, &reference[7] as &byte, 21);
+    try assert_eq_i32(asm as i32, scalar as i32);
 }
 
 test "x86 asm luma horizontal sub-pixel microkernel matches scalar byte exact" {

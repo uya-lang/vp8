@@ -366,9 +366,9 @@
 
 验收标准：
 
-- [ ] motion search 热点有明显 SIMD 收益。
+- [x] motion search 热点有明显 SIMD 收益。
 - [x] SIMD encoder 输出与 scalar encoder 在同配置下 bitstream 一致，或文档明确哪些 RD tie-break 会导致合法差异。
-- [ ] 如果 bitstream 不一致，decoded YUV 和质量指标必须在阈值内。
+- [x] 如果 bitstream 不一致，decoded YUV 和质量指标必须在阈值内。
 
 ## Phase 16: WebM/RTP 与库 API
 

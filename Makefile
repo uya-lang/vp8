@@ -14,6 +14,10 @@ BENCH_DIR := $(BUILD_DIR)/bench
 BENCH_SCRIPT := bench/decode_bench.py
 ENCODE_BENCH_DIR := $(BUILD_DIR)/bench-encode
 ENCODE_BENCH_SCRIPT := bench/encode_bench.py
+MOTION_SEARCH_BENCH_BIN := $(BUILD_DIR)/vp8_motion_search_bench
+MOTION_SEARCH_BENCH_DIR := $(BUILD_DIR)/bench-motion-search
+MOTION_SEARCH_BENCH_SCRIPT := bench/motion_search_bench.py
+MOTION_SEARCH_BENCH_SRC := src/vp8_encoder_motion_search_bench.uya
 BENCH_1080P_DIR := $(BUILD_DIR)/bench-1080p
 KERNEL_THRESHOLDS := bench/kernel_thresholds.json
 KERNEL_THRESHOLDS_SCRIPT := bench/check_kernel_thresholds.py
@@ -45,7 +49,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-encode bench-smoke bench-encode-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -58,6 +62,10 @@ $(BIN): $(SRC_FILES) Makefile
 $(TOOLCHAIN_HELLO): $(TOOLCHAIN_HELLO_SRC) Makefile
 	mkdir -p $(BUILD_DIR)
 	$(UYA) build $(TOOLCHAIN_HELLO_SRC) -o $@
+
+$(MOTION_SEARCH_BENCH_BIN): $(SRC_FILES) Makefile
+	mkdir -p $(BUILD_DIR)
+	$(UYA) build $(MOTION_SEARCH_BENCH_SRC) -o $@
 
 $(SAMPLE_IVF): Makefile
 	mkdir -p $(BUILD_DIR)
@@ -194,7 +202,7 @@ test-fuzz-smoke: build
 test-vpxdiff: build
 	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR) $(BIN)
 
-bench: bench-decode bench-encode
+bench: bench-decode bench-encode bench-motion-search
 
 bench-decode: build
 	python3 $(BENCH_SCRIPT) $(BIN) $(BENCH_DIR)
@@ -202,12 +210,19 @@ bench-decode: build
 bench-encode: build
 	python3 $(ENCODE_BENCH_SCRIPT) $(BIN) $(ENCODE_BENCH_DIR)
 
+bench-motion-search: $(MOTION_SEARCH_BENCH_BIN)
+	python3 $(MOTION_SEARCH_BENCH_SCRIPT) $(MOTION_SEARCH_BENCH_BIN) $(MOTION_SEARCH_BENCH_DIR)
+
 bench-smoke: build
 	python3 $(BENCH_SCRIPT) --repeats 1 --warmups 0 $(BIN) $(BENCH_DIR)
 	python3 $(ENCODE_BENCH_SCRIPT) --group smoke --repeats 1 --warmups 0 $(BIN) $(ENCODE_BENCH_DIR)
+	$(MAKE) bench-motion-search-smoke
 
 bench-encode-smoke: build
 	python3 $(ENCODE_BENCH_SCRIPT) --group smoke --repeats 1 --warmups 0 $(BIN) $(ENCODE_BENCH_DIR)
+
+bench-motion-search-smoke: $(MOTION_SEARCH_BENCH_BIN)
+	python3 $(MOTION_SEARCH_BENCH_SCRIPT) --repeats 3 --warmups 0 --iterations 1 $(MOTION_SEARCH_BENCH_BIN) $(MOTION_SEARCH_BENCH_DIR)
 
 bench-1080p-smoke: build
 	python3 $(BENCH_SCRIPT) --include-1080p --group bench-1080p --repeats 1 --warmups 0 --threads 4 $(BIN) $(BENCH_1080P_DIR)

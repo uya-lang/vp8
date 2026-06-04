@@ -8,6 +8,7 @@ use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.encoder_reference_last;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.kernel_table_predict_luma_subpixel_16x16;
+use vp8.kernels.dispatch.kernel_table_sad_16x16;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
 
 error ErrEncoderMotionSearchInvalidGeometry;
@@ -106,7 +107,7 @@ fn encoder_motion_search_source_sample_clamped(plane: &YuvPlaneView, x: i32, y: 
     return plane.data[(sample_y * plane.stride) + sample_x];
 }
 
-fn encoder_motion_search_sad_y16(src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, dx: i32, dy: i32) !u32 {
+fn encoder_motion_search_sad_y16_clamped(src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, dx: i32, dy: i32) !u32 {
     const src_x: i32 = (mb_x * (16 as usize)) as i32;
     const src_y: i32 = (mb_y * (16 as usize)) as i32;
     const ref_x: i32 = src_x + dx;
@@ -127,6 +128,33 @@ fn encoder_motion_search_sad_y16(src: &YuvFrameView, reference: &FrameBuffer, mb
         row = row + 1;
     }
     return distortion;
+}
+
+fn encoder_motion_search_sad_y16(kernels: &KernelFunctionTable, src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, dx: i32, dy: i32) !u32 {
+    if kernels == null {
+        return error.ErrEncoderMotionSearchInvalidGeometry;
+    }
+
+    const src_x: i32 = (mb_x * (16 as usize)) as i32;
+    const src_y: i32 = (mb_y * (16 as usize)) as i32;
+    const ref_x: i32 = src_x + dx;
+    const ref_y: i32 = src_y + dy;
+    const ref_index: usize = try encoder_motion_search_block_data_index(&reference.y.plane, ref_x, ref_y, 16, 16);
+    const block_end_x: usize = (src_x as usize) + (16 as usize);
+    const block_end_y: usize = (src_y as usize) + (16 as usize);
+
+    if block_end_x <= src.y.width && block_end_y <= src.y.height {
+        const src_index: usize = ((src_y as usize) * src.y.stride) + (src_x as usize);
+        return try kernel_table_sad_16x16(
+            kernels,
+            &src.y.data[src_index] as &byte,
+            src.y.stride,
+            &reference.y.plane.data[ref_index] as &byte,
+            reference.y.plane.stride
+        );
+    }
+
+    return try encoder_motion_search_sad_y16_clamped(src, reference, mb_x, mb_y, dx, dy);
 }
 
 fn encoder_motion_search_floor_div8(value: i32) i32 {
@@ -273,7 +301,11 @@ fn encoder_motion_search_validate_input(frame: &YuvFrameView, reference: &FrameB
     }
 }
 
-export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame: &YuvFrameView, mb_x: usize, mb_y: usize, search_radius: usize) !IntegerPelMotionSearchResult {
+export fn search_last_frame_integer_pel_with_kernel_table(refs: &EncoderReferenceFramePool, kernels: &KernelFunctionTable, frame: &YuvFrameView, mb_x: usize, mb_y: usize, search_radius: usize) !IntegerPelMotionSearchResult {
+    if kernels == null {
+        return error.ErrEncoderMotionSearchInvalidGeometry;
+    }
+
     const reference: &FrameBuffer = try encoder_reference_last(refs);
     try encoder_motion_search_validate_input(frame, reference, mb_x, mb_y, search_radius);
 
@@ -293,7 +325,7 @@ export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame:
         var dx: i32 = 0 - radius;
         while dx <= radius {
             var valid: bool = true;
-            const distortion: u32 = encoder_motion_search_sad_y16(frame, reference, mb_x, mb_y, dx, dy) catch {
+            const distortion: u32 = encoder_motion_search_sad_y16(kernels, frame, reference, mb_x, mb_y, dx, dy) catch {
                 valid = false;
                 0 as u32;
             };
@@ -315,6 +347,11 @@ export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame:
         return error.ErrEncoderMotionSearchNoCandidate;
     }
     return best;
+}
+
+export fn search_last_frame_integer_pel(refs: &EncoderReferenceFramePool, frame: &YuvFrameView, mb_x: usize, mb_y: usize, search_radius: usize) !IntegerPelMotionSearchResult {
+    const kernels: KernelFunctionTable = make_scalar_kernel_table();
+    return try search_last_frame_integer_pel_with_kernel_table(refs, &kernels, frame, mb_x, mb_y, search_radius);
 }
 
 export fn refine_last_frame_half_quarter_pel_with_kernel_table(refs: &EncoderReferenceFramePool, kernels: &KernelFunctionTable, frame: &YuvFrameView, mb_x: usize, mb_y: usize, base_mv_x: i16, base_mv_y: i16) !SubpixelMotionRefinementResult {
