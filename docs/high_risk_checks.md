@@ -76,3 +76,37 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_reference_pool_test.uya`
+
+## Non-16 Right/Bottom Prediction Boundaries
+
+Status: passed.
+
+Evidence:
+
+- `macroblock_grid_for_frame(17, 17)` rounds to a 2x2 macroblock grid, while
+  `macroblock_grid_position` exposes the bottom-right macroblock as a clipped
+  1x1 luma region and a 1x1 chroma region.
+- Frame allocation keeps visible 17x17 luma and 9x9 chroma dimensions while
+  retaining border storage, so full 16x16/8x8 reconstruction of cropped edge
+  macroblocks stays inside allocated planes and output views expose only visible
+  pixels.
+- `src/vp8_decoder_scalar_test.uya` now constructs a 17x17 key frame with four
+  macroblocks and checks the decoded visible crop directly: output dimensions
+  are 17x17 luma and 9x9 chroma, and the right column, bottom row, bottom-right
+  luma pixel, and bottom-right U/V pixels all contain the expected predictor
+  value.
+- `tests/tiny_ivf_md5.py` generates the tracked `gray-17x17` fixture by writing
+  mode and token data for all four macroblocks, including the right, bottom, and
+  bottom-right cropped macroblocks.
+- `make test-non16-md5` verifies that `gray-17x17` decodes to 451 visible I420
+  bytes with MD5 `2671dd258a7442dc814db1376ce7682d`; the same MD5 passed under
+  forced SIMD.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `VP8UYA_FORCE_SCALAR=1 /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_mb_grid_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
+- `make test-non16-md5`
+- `VP8UYA_FORCE_SIMD=1 make test-non16-md5`

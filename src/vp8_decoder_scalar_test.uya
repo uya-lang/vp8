@@ -46,7 +46,7 @@ fn write_literal(writer: &BoolWriter, value: u32, bit_count: u8) !void {
     }
 }
 
-fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
+fn write_minimal_key_frame_partition_for_mb_count(writer: &BoolWriter, mb_count: usize) !void {
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
@@ -70,11 +70,21 @@ fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     const key_y_mode_probs: [byte: 4] = [ 145, 156, 163, 128 ];
     const key_uv_mode_probs: [byte: 3] = [ 142, 114, 183 ];
-    try bool_writer_write(writer, 1 as u8, key_y_mode_probs[0]);
-    try bool_writer_write(writer, 0 as u8, key_y_mode_probs[1]);
-    try bool_writer_write(writer, 0 as u8, key_y_mode_probs[2]);
-    try bool_writer_write(writer, 0 as u8, key_uv_mode_probs[0]);
+
+    index = 0;
+    while index < mb_count {
+        try bool_writer_write(writer, 1 as u8, key_y_mode_probs[0]);
+        try bool_writer_write(writer, 0 as u8, key_y_mode_probs[1]);
+        try bool_writer_write(writer, 0 as u8, key_y_mode_probs[2]);
+        try bool_writer_write(writer, 0 as u8, key_uv_mode_probs[0]);
+        index = index + 1;
+    }
+
     try bool_writer_flush(writer);
+}
+
+fn write_minimal_key_frame_partition(writer: &BoolWriter) !void {
+    try write_minimal_key_frame_partition_for_mb_count(writer, 1);
 }
 
 fn test_coeff_prob_offset(block_type: usize, position: usize, context: byte) !usize {
@@ -158,7 +168,7 @@ fn write_key_frame_tokens_with_u_dc(writer: &BoolWriter, probs: &Vp8Probs) !void
     try bool_writer_flush(writer);
 }
 
-fn write_all_eob_tokens(writer: &BoolWriter, probs: &Vp8Probs) !void {
+fn write_all_eob_macroblock_tokens(writer: &BoolWriter, probs: &Vp8Probs) !void {
     var block: usize = 0;
     while block < 16 {
         try write_eob_token(writer, probs.coeff_probs, 0, 0, 0 as byte);
@@ -170,12 +180,24 @@ fn write_all_eob_tokens(writer: &BoolWriter, probs: &Vp8Probs) !void {
         try write_eob_token(writer, probs.coeff_probs, 2, 0, 0 as byte);
         block = block + 1;
     }
+}
+
+fn write_all_eob_tokens(writer: &BoolWriter, probs: &Vp8Probs) !void {
+    try write_all_eob_macroblock_tokens(writer, probs);
+    try bool_writer_flush(writer);
+}
+
+fn write_all_eob_tokens_for_mb_count(writer: &BoolWriter, probs: &Vp8Probs, mb_count: usize) !void {
+    var mb_index: usize = 0;
+    while mb_index < mb_count {
+        try write_all_eob_macroblock_tokens(writer, probs);
+        mb_index = mb_index + 1;
+    }
 
     try bool_writer_flush(writer);
 }
 
-fn make_16x16_key_frame(first_partition: &byte, token_partition: &byte, token_partition_len: usize, frame: &byte) void {
-    const first_partition_size: u32 = 256 as u32;
+fn make_key_frame(width: u16, height: u16, first_partition_size: u32, first_partition: &byte, token_partition: &byte, token_partition_len: usize, frame: &byte) usize {
     const tag: u32 = (0 as u32) | (0 as u32 << 1) | (1 as u32 << 4) | (first_partition_size << 5);
     frame[0] = (tag & (0xff as u32)) as byte;
     frame[1] = ((tag >> 8) & (0xff as u32)) as byte;
@@ -183,21 +205,27 @@ fn make_16x16_key_frame(first_partition: &byte, token_partition: &byte, token_pa
     frame[3] = 0x9d as byte;
     frame[4] = 0x01 as byte;
     frame[5] = 0x2a as byte;
-    frame[6] = 16 as byte;
-    frame[7] = 0 as byte;
-    frame[8] = 16 as byte;
-    frame[9] = 0 as byte;
+    frame[6] = (width & (0xff as u16)) as byte;
+    frame[7] = ((width >> 8) & (0xff as u16)) as byte;
+    frame[8] = (height & (0xff as u16)) as byte;
+    frame[9] = ((height >> 8) & (0xff as u16)) as byte;
 
     var index: usize = 0;
-    while index < 256 {
+    while index < (first_partition_size as usize) {
         frame[10 + index] = first_partition[index];
         index = index + 1;
     }
     index = 0;
     while index < token_partition_len {
-        frame[266 + index] = token_partition[index];
+        frame[10 + (first_partition_size as usize) + index] = token_partition[index];
         index = index + 1;
     }
+
+    return 10 + (first_partition_size as usize) + token_partition_len;
+}
+
+fn make_16x16_key_frame(first_partition: &byte, token_partition: &byte, token_partition_len: usize, frame: &byte) void {
+    _ = make_key_frame(16 as u16, 16 as u16, 256 as u32, first_partition, token_partition, token_partition_len, frame);
 }
 
 fn make_16x16_inter_frame(first_partition: &byte, first_partition_len: usize, token_partition: &byte, token_partition_len: usize, frame: &byte) void {
@@ -416,6 +444,53 @@ test "key frame decode parses token residuals into current frame" {
     try assert_eq_i32(current.v.plane.origin[0] as i32, 128);
     try expect(context.scratch.coeff_bytes_written > 0);
     try expect(context.scratch.coeff_bytes_read > 0);
+}
+
+test "non-16 key frame decodes visible right and bottom edges" {
+    const width: u16 = 17 as u16;
+    const height: u16 = 17 as u16;
+    const mb_count: usize = 4;
+
+    var first_partition: [byte: 256] = [];
+    var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
+    try write_minimal_key_frame_partition_for_mb_count(&first_writer, mb_count);
+
+    const probs: Vp8Probs = vp8_default_probs();
+    var token_partition: [byte: 256] = [];
+    var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 256);
+    try write_all_eob_tokens_for_mb_count(&token_writer, &probs, mb_count);
+
+    var frame: [byte: 600] = [];
+    const frame_len: usize = make_key_frame(width, height, 256 as u32, &first_partition[0] as &byte, &token_partition[0] as &byte, bool_writer_byte_count(&token_writer), &frame[0] as &byte);
+
+    var context: DecoderContext = try allocate_decoder_context(width as usize, height as usize, 32, 32, 4096);
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_decoder(&context);
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, &frame[0] as &byte, frame_len);
+    defer decoded_frame_release(&result.output) catch {};
+
+    try assert_eq_i32(result.header.width as i32, width as i32);
+    try assert_eq_i32(result.header.height as i32, height as i32);
+    try assert_eq_i32(result.macroblock_count as i32, mb_count as i32);
+    try assert_eq_i32(result.output.view.width as i32, width as i32);
+    try assert_eq_i32(result.output.view.height as i32, height as i32);
+    try assert_eq_i32(result.output.view.y.width as i32, width as i32);
+    try assert_eq_i32(result.output.view.y.height as i32, height as i32);
+    try assert_eq_i32(result.output.view.u.width as i32, 9);
+    try assert_eq_i32(result.output.view.u.height as i32, 9);
+    try assert_eq_i32(result.output.view.v.width as i32, 9);
+    try assert_eq_i32(result.output.view.v.height as i32, 9);
+
+    const y_stride: usize = result.output.view.y.stride;
+    const u_stride: usize = result.output.view.u.stride;
+    const v_stride: usize = result.output.view.v.stride;
+    try assert_eq_i32(result.output.view.y.origin[0] as i32, 128);
+    try assert_eq_i32(result.output.view.y.origin[16] as i32, 128);
+    try assert_eq_i32(result.output.view.y.origin[16 * y_stride] as i32, 128);
+    try assert_eq_i32(result.output.view.y.origin[(16 * y_stride) + 16] as i32, 128);
+    try assert_eq_i32(result.output.view.u.origin[(8 * u_stride) + 8] as i32, 128);
+    try assert_eq_i32(result.output.view.v.origin[(8 * v_stride) + 8] as i32, 128);
 }
 
 test "decode_frame returns output frame only when show_frame is set" {
