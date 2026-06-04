@@ -396,7 +396,7 @@
 - [x] Decoder conformance 报告。
 - [x] Encoder quality 报告。
 - [x] Fuzz corpus 最小化。
-- [ ] CI: build/test/bench smoke。
+- [x] CI: build/test/bench smoke。
 - [ ] CI: scalar-only。
 - [ ] CI: SIMD enabled。
 - [ ] CI: optional libvpx diff。

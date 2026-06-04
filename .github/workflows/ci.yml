@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LC_ALL: C
+  UYA_PREFIX: ${{ github.workspace }}/.ci/uya-install
+  UYA: ${{ github.workspace }}/.ci/uya-install/bin/uya
+  UYA_ROOT: ${{ github.workspace }}/.ci/uya-install/lib
+
+jobs:
+  build-test-bench-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout vp8uya
+        uses: actions/checkout@v4
+
+      - name: Checkout UYA compiler source
+        uses: actions/checkout@v4
+        with:
+          repository: uya-lang/uya
+          path: .ci/uya-src
+
+      - name: Build and install UYA compiler
+        run: |
+          make -C .ci/uya-src from-c
+          make -C .ci/uya-src install PREFIX="$UYA_PREFIX"
+          "$UYA" -v
+
+      - name: Build vp8uya
+        run: make build
+
+      - name: Run test suite
+        run: make test
+
+      - name: Run benchmark smoke
+        run: make bench-smoke
