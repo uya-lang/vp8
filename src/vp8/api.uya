@@ -745,7 +745,7 @@ export fn vp8_encoder_encode_frame(
     encoder.stats.encoded_frame_count = encoder.stats.encoded_frame_count + (1 as u64);
     encoder.stats.output_packet_count = encoder.stats.output_packet_count + (1 as u64);
     encoder.stats.last_bytes_written = inter_stats.written_len;
-    encoder.stats.last_mode_search_work_units = 0;
+    encoder.stats.last_mode_search_work_units = inter_stats.mode_search_work_units;
     encoder.stats.last_quantizer = decision.quantizer;
     encoder.stats.last_target_bits = decision.target_bits;
     encoder.stats.last_actual_bits = inter_actual_bits;

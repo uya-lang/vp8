@@ -2,13 +2,23 @@ use std.testing.assert_eq_i32;
 
 use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.parse_vp8_frame_tag;
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.allocate_decoder_context;
+use vp8.common.decode_context.free_decoder_context;
+use vp8.common.frame.decoded_frame_release;
 use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_pool_get_slot;
+use vp8.common.frame.frame_pool_refresh_references;
 use vp8.container.ivf.IvfFrame;
 use vp8.container.ivf.IvfFrameIterator;
 use vp8.container.ivf.IvfHeader;
 use vp8.container.ivf.ivf_frame_iterator_next;
 use vp8.container.ivf.make_ivf_frame_iterator;
 use vp8.container.ivf.parse_ivf_header;
+use vp8.decoder.scalar.Decoder;
+use vp8.decoder.scalar.DecoderFrameResult;
+use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.decoder.scalar.make_decoder;
 use vp8.encoder.context.EncoderConfig;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_default_encoder_config;
@@ -23,6 +33,7 @@ use vp8.encoder.reference_pool.encoder_reference_refresh;
 use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
+use vp8.mode.parse.VP8_REF_LAST;
 
 fn fill_constant_reference(frame: &FrameBuffer, y_value: byte, u_value: byte, v_value: byte) void {
     var row: usize = 0;
@@ -60,6 +71,62 @@ fn fill_constant_i420(input: &byte, y_value: byte, u_value: byte, v_value: byte)
     while index < 384 {
         input[index] = v_value;
         index = index + 1;
+    }
+}
+
+fn fill_reference_pattern(frame: &FrameBuffer) void {
+    var row: usize = 0;
+    while row < frame.height {
+        var col: usize = 0;
+        while col < frame.width {
+            frame.y.plane.origin[(row * frame.y.plane.stride) + col] = (((row * 5) + (col * 7) + 13) % (251 as usize)) as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    row = 0;
+    while row < frame.u.plane.height {
+        var col_uv: usize = 0;
+        while col_uv < frame.u.plane.width {
+            frame.u.plane.origin[(row * frame.u.plane.stride) + col_uv] = 128 as byte;
+            frame.v.plane.origin[(row * frame.v.plane.stride) + col_uv] = 129 as byte;
+            col_uv = col_uv + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn fill_i420_for_shifted_macroblock(input: &byte, seed: &FrameBuffer) void {
+    var row: usize = 0;
+    while row < 64 {
+        var col: usize = 0;
+        while col < 64 {
+            input[(row * 64) + col] = seed.y.plane.origin[(row * seed.y.plane.stride) + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    var uv_row: usize = 0;
+    while uv_row < 32 {
+        var uv_col: usize = 0;
+        while uv_col < 32 {
+            input[4096 + (uv_row * 32) + uv_col] = seed.u.plane.origin[(uv_row * seed.u.plane.stride) + uv_col];
+            input[5120 + (uv_row * 32) + uv_col] = seed.v.plane.origin[(uv_row * seed.v.plane.stride) + uv_col];
+            uv_col = uv_col + 1;
+        }
+        uv_row = uv_row + 1;
+    }
+
+    row = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[((16 + row) * 64) + 16 + col] = seed.y.plane.origin[((14 + row) * seed.y.plane.stride) + 19 + col];
+            col = col + 1;
+        }
+        row = row + 1;
     }
 }
 
@@ -121,4 +188,49 @@ test "inter frame writer applies luma residual over LAST prediction" {
     try assert_eq_i32(current.y.plane.origin[0] > (100 as byte), true as i32);
     try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 129);
+}
+
+test "inter frame writer emits and decodes integer NEWMV macroblock" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, true, true);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 6144] = [];
+    fill_i420_for_shifted_macroblock(&input[0] as &byte, seed);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 6144, 64, 64);
+    var config: EncoderConfig = make_default_encoder_config(64, 64);
+    config.quantizer = 0 as u8;
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var out: [byte: 80000] = [];
+
+    const stats: EncoderInterFrameEncodeStats = try encode_inter_frame_ivf_with_stats_and_kernel_table(&config, &kernels, &refs, &frame, &out[0] as &byte, 80000);
+    try assert_eq_i32((stats.newmv_count > 0) as i32, true as i32);
+
+    const ivf: IvfHeader = try parse_ivf_header(&out[0] as &byte, stats.written_len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, stats.written_len, &ivf);
+    const encoded_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+
+    var decode_context: DecoderContext = try allocate_decoder_context(64, 64, 32, 32, 4096);
+    defer free_decoder_context(&decode_context);
+    const decode_seed: &FrameBuffer = try frame_pool_get_slot(&decode_context.frame_pool, decode_context.frame_pool.current_slot);
+    fill_reference_pattern(decode_seed);
+    try frame_pool_refresh_references(&decode_context.frame_pool, true, false, false);
+    var decoder: Decoder = make_decoder(&decode_context);
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, encoded_frame.payload.data, encoded_frame.payload.len);
+    defer decoded_frame_release(&result.output) catch {};
+    const mb_index: usize = (1 * decode_context.grid.mb_cols) + 1;
+    try assert_eq_i32(result.header.frame_type as i32, 1);
+    try assert_eq_i32(decode_context.mb_info.ref_frame[mb_index] as i32, VP8_REF_LAST as i32);
+    try assert_eq_i32(decode_context.mb_info.mv_x[mb_index] as i32, 24);
+    try assert_eq_i32(decode_context.mb_info.mv_y[mb_index] as i32, -16);
+    try assert_eq_i32(stats.newmv_count as i32, 1);
+    try assert_eq_i32(stats.zero_mv_count as i32, 15);
+    try assert_eq_i32((stats.mode_search_work_units > 0) as i32, true as i32);
+    try assert_eq_i32((result.output.view.y.origin[(16 * result.output.view.y.stride) + 16] > (0 as byte)) as i32, true as i32);
+    try assert_eq_i32(decode_context.mb_info.mv_x[mb_index] != (0 as i16), true as i32);
+    try assert_eq_i32(decode_context.mb_info.mv_y[mb_index] != (0 as i16), true as i32);
 }

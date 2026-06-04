@@ -36,6 +36,7 @@ use vp8.container.ivf.IvfHeader;
 use vp8.container.ivf.write_ivf_frame_header;
 use vp8.container.ivf.write_ivf_header;
 use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderSpeedPreset;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.YuvPlaneView;
 use vp8.encoder.context.validate_encoder_config;
@@ -44,6 +45,10 @@ use vp8.encoder.inter_prediction.EncoderInterPredictionResult;
 use vp8.encoder.inter_prediction.predict_last_frame_macroblock;
 use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
 use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
+use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
+use vp8.encoder.motion_search.search_last_frame_integer_pel_with_kernel_table;
+use vp8.encoder.mv_cost.inter_mv_mode_cost_q8;
+use vp8.encoder.mv_cost.mv_delta_cost_q8;
 use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
 use vp8.encoder.partition_output.write_encoder_bool_partition_output;
 use vp8.encoder.quant.EncoderCoefficientToken;
@@ -51,6 +56,9 @@ use vp8.encoder.quant.forward_dct_4x4;
 use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
 use vp8.encoder.quant.tokenize_quantized_block_4x4;
+use vp8.encoder.rd_cost.encoder_rd_score_q8;
+use vp8.encoder.rd_cost.make_encoder_quantizer_rd_cost_model;
+use vp8.encoder.rd_cost.EncoderRdCostModel;
 use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
 use vp8.encoder.reconstruct.reconstruct_y_block_with_y2_dc;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
@@ -76,6 +84,8 @@ use vp8.token.parse.VP8_COEFF_TOKEN_TWO;
 use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
 use vp8.token.parse.coefficient_band;
 use vp8.token.parse.coefficient_eob_context;
+use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
+use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
 
 error ErrEncoderInterFrameInvalidInput;
 error ErrEncoderInterFrameInvalidGeometry;
@@ -86,7 +96,18 @@ error ErrEncoderInterFrameSizeOverflow;
 export struct EncoderInterFrameEncodeStats {
     written_len: usize,
     border_extension_count: usize,
-    nonzero_coefficient_count: usize
+    nonzero_coefficient_count: usize,
+    zero_mv_count: usize,
+    newmv_count: usize,
+    mode_search_work_units: usize
+}
+
+struct EncoderInterMacroblockDecision {
+    inter_mv_mode: byte,
+    mv_x: i16,
+    mv_y: i16,
+    distortion: u32,
+    candidates_evaluated: usize
 }
 
 const ENCODER_INTER_FIRST_BASE_CAPACITY: usize = 4096;
@@ -176,6 +197,73 @@ fn encoder_inter_write_literal(writer: &BoolWriter, value: u32, bit_count: usize
     }
 }
 
+fn encoder_inter_abs_i32(value: i32) u32 {
+    if value < 0 {
+        return (0 - value) as u32;
+    }
+    return value as u32;
+}
+
+fn encoder_inter_write_mv_component(writer: &BoolWriter, probs: &byte, component: i16) !void {
+    const value: i32 = component as i32;
+    const magnitude: u32 = encoder_inter_abs_i32(value);
+    if magnitude > (255 as u32) {
+        return error.ErrEncoderInterFrameInvalidInput;
+    }
+
+    if magnitude <= (7 as u32) {
+        try bool_writer_write(writer, 0 as u8, probs[0]);
+        if magnitude <= (1 as u32) {
+            try bool_writer_write(writer, 0 as u8, probs[2]);
+            try bool_writer_write(writer, 0 as u8, probs[3]);
+            try bool_writer_write(writer, magnitude as u8, probs[4]);
+        } else if magnitude <= (3 as u32) {
+            try bool_writer_write(writer, 0 as u8, probs[2]);
+            try bool_writer_write(writer, 1 as u8, probs[3]);
+            try bool_writer_write(writer, (magnitude - (2 as u32)) as u8, probs[5]);
+        } else if magnitude <= (5 as u32) {
+            try bool_writer_write(writer, 1 as u8, probs[2]);
+            try bool_writer_write(writer, 0 as u8, probs[6]);
+            try bool_writer_write(writer, (magnitude - (4 as u32)) as u8, probs[7]);
+        } else {
+            try bool_writer_write(writer, 1 as u8, probs[2]);
+            try bool_writer_write(writer, 1 as u8, probs[6]);
+            try bool_writer_write(writer, (magnitude - (6 as u32)) as u8, probs[8]);
+        }
+    } else {
+        try bool_writer_write(writer, 1 as u8, probs[0]);
+        try encoder_inter_write_literal(writer, magnitude & (15 as u32), 4);
+        var bit_index: usize = 0;
+        while bit_index < 4 {
+            const high_bit: u32 = (16 as u32) << (bit_index as i32);
+            try bool_writer_write(writer, ((magnitude & high_bit) != (0 as u32)) as u8, probs[9 + bit_index]);
+            bit_index = bit_index + 1;
+        }
+    }
+
+    if magnitude != (0 as u32) {
+        try bool_writer_write(writer, (value < 0) as u8, probs[1]);
+    }
+}
+
+fn encoder_inter_write_mv_mode(writer: &BoolWriter, probs: &Vp8Probs, decision: &EncoderInterMacroblockDecision) !void {
+    if decision.inter_mv_mode == VP8_INTER_MV_MODE_ZERO {
+        try bool_writer_write(writer, 0 as u8, 2 as byte);
+        return;
+    }
+    if decision.inter_mv_mode == VP8_INTER_MV_MODE_NEW {
+        if probs.mv_probs == null || probs.mv_prob_count < VP8_MV_PROB_COUNT {
+            return error.ErrEncoderInterFrameInvalidInput;
+        }
+        try bool_writer_write(writer, 1 as u8, 2 as byte);
+        try bool_writer_write(writer, 1 as u8, 173 as byte);
+        try encoder_inter_write_mv_component(writer, &probs.mv_probs[0] as &byte, decision.mv_y);
+        try encoder_inter_write_mv_component(writer, &probs.mv_probs[19] as &byte, decision.mv_x);
+        return;
+    }
+    return error.ErrEncoderInterFrameInvalidInput;
+}
+
 fn encoder_inter_write_probability_updates(writer: &BoolWriter) !void {
     var index: usize = 0;
     while index < VP8_COEFF_PROB_COUNT {
@@ -211,14 +299,122 @@ fn encoder_inter_write_fixed_header_bits(writer: &BoolWriter, config: &EncoderCo
     try encoder_inter_write_probability_updates(writer);
 }
 
-fn encoder_inter_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid) !void {
+fn encoder_inter_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid, probs: &Vp8Probs, decisions: &EncoderInterMacroblockDecision) !void {
     var mb_y: usize = 0;
     while mb_y < grid.mb_rows {
         var mb_x: usize = 0;
         while mb_x < grid.mb_cols {
+            const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
             try bool_writer_write(writer, 1 as u8, 145 as byte);
             try bool_writer_write(writer, 0 as u8, 156 as byte);
-            try bool_writer_write(writer, 0 as u8, 2 as byte);
+            try encoder_inter_write_mv_mode(writer, probs, &decisions[mb_index] as &EncoderInterMacroblockDecision);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
+fn encoder_inter_search_radius(config: &EncoderConfig) usize {
+    if config.speed_preset == EncoderSpeedPreset.fastest {
+        return 0;
+    }
+    if config.speed_preset == EncoderSpeedPreset.fast {
+        return 2;
+    }
+    if config.speed_preset == EncoderSpeedPreset.best {
+        return 8;
+    }
+    return 4;
+}
+
+fn encoder_inter_make_decision_from_search(result: &IntegerPelMotionSearchResult) EncoderInterMacroblockDecision {
+    var mode: byte = VP8_INTER_MV_MODE_NEW;
+    if result.mv_x == (0 as i16) && result.mv_y == (0 as i16) {
+        mode = VP8_INTER_MV_MODE_ZERO;
+    }
+    return EncoderInterMacroblockDecision{
+        inter_mv_mode: mode,
+        mv_x: result.mv_x,
+        mv_y: result.mv_y,
+        distortion: result.distortion,
+        candidates_evaluated: result.candidates_evaluated
+    };
+}
+
+fn encoder_inter_rate_cost_q8(probs: &Vp8Probs, decision: &EncoderInterMacroblockDecision) !u32 {
+    var cost: u32 = try inter_mv_mode_cost_q8(decision.inter_mv_mode);
+    if decision.inter_mv_mode == VP8_INTER_MV_MODE_NEW {
+        cost = cost + (try mv_delta_cost_q8(probs, decision.mv_y, decision.mv_x, 0 as i16, 0 as i16));
+    }
+    return cost;
+}
+
+fn encoder_inter_decision_score_q8(probs: &Vp8Probs, decision: &EncoderInterMacroblockDecision, lambda_q8: u32) !u32 {
+    return try encoder_rd_score_q8(decision.distortion, try encoder_inter_rate_cost_q8(probs, decision), lambda_q8);
+}
+
+fn encoder_inter_decide_macroblock(
+    config: &EncoderConfig,
+    kernels: &KernelFunctionTable,
+    refs: &EncoderReferenceFramePool,
+    frame: &YuvFrameView,
+    probs: &Vp8Probs,
+    rd_model: &EncoderRdCostModel,
+    mb_x: usize,
+    mb_y: usize
+) !EncoderInterMacroblockDecision {
+    const zero_search: IntegerPelMotionSearchResult = try search_last_frame_integer_pel_with_kernel_table(refs, kernels, frame, mb_x, mb_y, 0);
+    var best: EncoderInterMacroblockDecision = encoder_inter_make_decision_from_search(&zero_search);
+
+    const radius: usize = encoder_inter_search_radius(config);
+    if radius != 0 {
+        const integer_search: IntegerPelMotionSearchResult = try search_last_frame_integer_pel_with_kernel_table(refs, kernels, frame, mb_x, mb_y, radius);
+        var integer_decision: EncoderInterMacroblockDecision = encoder_inter_make_decision_from_search(&integer_search);
+        integer_decision.candidates_evaluated = integer_decision.candidates_evaluated + zero_search.candidates_evaluated;
+
+        const best_score: u32 = try encoder_inter_decision_score_q8(probs, &best, rd_model.lambda_q8);
+        const integer_score: u32 = try encoder_inter_decision_score_q8(probs, &integer_decision, rd_model.lambda_q8);
+        if integer_score < best_score {
+            best = integer_decision;
+        } else {
+            best.candidates_evaluated = best.candidates_evaluated + integer_search.candidates_evaluated;
+        }
+    }
+
+    return best;
+}
+
+fn encoder_inter_decide_macroblocks(
+    config: &EncoderConfig,
+    kernels: &KernelFunctionTable,
+    grid: &MacroblockGrid,
+    refs: &EncoderReferenceFramePool,
+    frame: &YuvFrameView,
+    probs: &Vp8Probs,
+    decisions: &EncoderInterMacroblockDecision,
+    zero_mv_count: &usize,
+    newmv_count: &usize,
+    mode_search_work_units: &usize
+) !void {
+    const rd_model: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(config.quantizer);
+
+    var mb_y: usize = 0;
+    while mb_y < grid.mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < grid.mb_cols {
+            const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
+            const decision: EncoderInterMacroblockDecision = try encoder_inter_decide_macroblock(config, kernels, refs, frame, probs, &rd_model, mb_x, mb_y);
+            mode_search_work_units[0] = mode_search_work_units[0] + decision.candidates_evaluated;
+            if decision.inter_mv_mode == VP8_INTER_MV_MODE_NEW {
+                newmv_count[0] = newmv_count[0] + 1;
+            } else {
+                zero_mv_count[0] = zero_mv_count[0] + 1;
+            }
+            decisions[mb_index].inter_mv_mode = decision.inter_mv_mode;
+            decisions[mb_index].mv_x = decision.mv_x;
+            decisions[mb_index].mv_y = decision.mv_y;
+            decisions[mb_index].distortion = decision.distortion;
+            decisions[mb_index].candidates_evaluated = decision.candidates_evaluated;
             mb_x = mb_x + 1;
         }
         mb_y = mb_y + 1;
@@ -582,6 +778,7 @@ fn encoder_inter_encode_tokens(
     frame: &YuvFrameView,
     quant: &Vp8QuantHeader,
     probs: &Vp8Probs,
+    decisions: &EncoderInterMacroblockDecision,
     border_extension_count: &usize,
     nonzero_coefficient_count: &usize
 ) !void {
@@ -594,7 +791,9 @@ fn encoder_inter_encode_tokens(
         try coeff_context_start_row(&coeff_ctx);
         var mb_x: usize = 0;
         while mb_x < grid.mb_cols {
-            const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, 0 as i16, 0 as i16);
+            const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
+            const decision: &EncoderInterMacroblockDecision = &decisions[mb_index] as &EncoderInterMacroblockDecision;
+            const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, decision.mv_x, decision.mv_y);
             border_extension_count[0] = border_extension_count[0] + prediction.border_extension_count;
             const current: &FrameBuffer = try encoder_reference_current(refs);
             nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_y_blocks(writer, probs, &coeff_ctx, frame, current, &factors, mb_x, mb_y));
@@ -640,11 +839,32 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
 
     const quant: Vp8QuantHeader = encoder_inter_make_quant(config);
     const probs: Vp8Probs = vp8_default_probs();
+    const decisions_bytes: usize = try encoder_inter_checked_mul(grid.mb_count, @size_of(EncoderInterMacroblockDecision) as usize);
+    const decisions: &EncoderInterMacroblockDecision = malloc(decisions_bytes) as &EncoderInterMacroblockDecision;
+    if decisions == null {
+        return error.ErrEncoderInterFrameOutOfMemory;
+    }
+    defer free(decisions as &void);
     var border_extension_count: usize = 0;
     var nonzero_coefficient_count: usize = 0;
+    var zero_mv_count: usize = 0;
+    var newmv_count: usize = 0;
+    var mode_search_work_units: usize = 0;
 
+    try encoder_inter_decide_macroblocks(
+        config,
+        kernels,
+        &grid,
+        refs,
+        frame,
+        &probs,
+        decisions,
+        &zero_mv_count as &usize,
+        &newmv_count as &usize,
+        &mode_search_work_units as &usize
+    );
     try encoder_inter_write_fixed_header_bits(&first_writer, config);
-    try encoder_inter_write_mode_map(&first_writer, &grid);
+    try encoder_inter_write_mode_map(&first_writer, &grid, &probs, decisions);
     try encoder_inter_encode_tokens(
         &token_writers[0] as &BoolWriter,
         &grid,
@@ -653,6 +873,7 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         frame,
         &quant,
         &probs,
+        decisions,
         &border_extension_count,
         &nonzero_coefficient_count
     );
@@ -697,6 +918,9 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
     return EncoderInterFrameEncodeStats{
         written_len: try encoder_inter_checked_add(payload_offset, vp8_payload_size),
         border_extension_count: border_extension_count,
-        nonzero_coefficient_count: nonzero_coefficient_count
+        nonzero_coefficient_count: nonzero_coefficient_count,
+        zero_mv_count: zero_mv_count,
+        newmv_count: newmv_count,
+        mode_search_work_units: mode_search_work_units
     };
 }
