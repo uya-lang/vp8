@@ -1,8 +1,12 @@
 use std.testing.assert_eq_i32;
 
 use vp8.bitstream.readers.BoundedSlice;
+use vp8.container.rtp_vp8.RtpVp8ReassembledFrame;
+use vp8.container.rtp_vp8.RtpVp8Reassembler;
 use vp8.container.rtp_vp8.RtpVp8PayloadDescriptor;
+use vp8.container.rtp_vp8.make_rtp_vp8_reassembler;
 use vp8.container.rtp_vp8.parse_rtp_vp8_payload_descriptor;
+use vp8.container.rtp_vp8.rtp_vp8_reassembler_push_packet;
 
 fn dummy_descriptor(data: &byte) RtpVp8PayloadDescriptor {
     return RtpVp8PayloadDescriptor{
@@ -100,4 +104,73 @@ test "RTP VP8 payload descriptor rejects reserved bits and truncation" {
     try assert_eq_i32(extension_reserved_failed, 1);
     try assert_eq_i32(truncated_picture_id_failed, 1);
     try assert_eq_i32(no_payload_failed, 1);
+}
+
+test "RTP VP8 packet reassembly appends sequential payloads until marker" {
+    var output: [byte: 8] = [];
+    var first_packet: [byte: 4] = [0x90, 0x80, 0x25, 0x9d];
+    var second_packet: [byte: 4] = [0x80, 0x80, 0x25, 0x01];
+    var third_packet: [byte: 2] = [0x00, 0x2a];
+
+    var assembler: RtpVp8Reassembler = make_rtp_vp8_reassembler(&output[0] as &byte, 8);
+
+    const first: RtpVp8ReassembledFrame = try rtp_vp8_reassembler_push_packet(&assembler, 100 as u16, false, &first_packet[0] as &byte, 4);
+    try assert_eq_i32(first.complete as i32, false as i32);
+    try assert_eq_i32(first.payload.len as i32, 1);
+    try assert_eq_i32(first.picture_id_present as i32, true as i32);
+    try assert_eq_i32(first.picture_id as i32, 0x25);
+
+    const second: RtpVp8ReassembledFrame = try rtp_vp8_reassembler_push_packet(&assembler, 101 as u16, false, &second_packet[0] as &byte, 4);
+    try assert_eq_i32(second.complete as i32, false as i32);
+    try assert_eq_i32(second.payload.len as i32, 2);
+
+    const third: RtpVp8ReassembledFrame = try rtp_vp8_reassembler_push_packet(&assembler, 102 as u16, true, &third_packet[0] as &byte, 2);
+    try assert_eq_i32(third.complete as i32, true as i32);
+    try assert_eq_i32(third.payload.len as i32, 3);
+    try assert_eq_i32(third.payload.data[0] as i32, 0x9d);
+    try assert_eq_i32(third.payload.data[1] as i32, 0x01);
+    try assert_eq_i32(third.payload.data[2] as i32, 0x2a);
+}
+
+test "RTP VP8 packet reassembly reports loss malformed starts and buffer overflow" {
+    var output: [byte: 2] = [];
+    var start_packet: [byte: 2] = [0x10, 0xaa];
+    var next_packet: [byte: 2] = [0x00, 0xbb];
+    var middle_without_start: [byte: 2] = [0x00, 0xcc];
+    var wrong_partition_start: [byte: 2] = [0x11, 0xdd];
+    var too_large_start: [byte: 4] = [0x10, 0x01, 0x02, 0x03];
+
+    var loss_assembler: RtpVp8Reassembler = make_rtp_vp8_reassembler(&output[0] as &byte, 2);
+    _ = try rtp_vp8_reassembler_push_packet(&loss_assembler, 10 as u16, false, &start_packet[0] as &byte, 2);
+    var loss_failed: i32 = 0;
+    _ = rtp_vp8_reassembler_push_packet(&loss_assembler, 12 as u16, true, &next_packet[0] as &byte, 2) catch {
+        loss_failed = 1;
+        RtpVp8ReassembledFrame{ complete: false, payload: BoundedSlice{ data: &output[0] as &byte, len: 0 }, picture_id_present: false, picture_id: 0 as u16 };
+    };
+
+    var missing_start_assembler: RtpVp8Reassembler = make_rtp_vp8_reassembler(&output[0] as &byte, 2);
+    var missing_start_failed: i32 = 0;
+    _ = rtp_vp8_reassembler_push_packet(&missing_start_assembler, 20 as u16, false, &middle_without_start[0] as &byte, 2) catch {
+        missing_start_failed = 1;
+        RtpVp8ReassembledFrame{ complete: false, payload: BoundedSlice{ data: &output[0] as &byte, len: 0 }, picture_id_present: false, picture_id: 0 as u16 };
+    };
+
+    var wrong_partition_assembler: RtpVp8Reassembler = make_rtp_vp8_reassembler(&output[0] as &byte, 2);
+    var wrong_partition_failed: i32 = 0;
+    _ = rtp_vp8_reassembler_push_packet(&wrong_partition_assembler, 30 as u16, false, &wrong_partition_start[0] as &byte, 2) catch {
+        wrong_partition_failed = 1;
+        RtpVp8ReassembledFrame{ complete: false, payload: BoundedSlice{ data: &output[0] as &byte, len: 0 }, picture_id_present: false, picture_id: 0 as u16 };
+    };
+
+    var overflow_assembler: RtpVp8Reassembler = make_rtp_vp8_reassembler(&output[0] as &byte, 2);
+    var overflow_failed: i32 = 0;
+    _ = rtp_vp8_reassembler_push_packet(&overflow_assembler, 40 as u16, true, &too_large_start[0] as &byte, 4) catch {
+        overflow_failed = 1;
+        RtpVp8ReassembledFrame{ complete: false, payload: BoundedSlice{ data: &output[0] as &byte, len: 0 }, picture_id_present: false, picture_id: 0 as u16 };
+    };
+
+    try assert_eq_i32(loss_failed, 1);
+    try assert_eq_i32(missing_start_failed, 1);
+    try assert_eq_i32(wrong_partition_failed, 1);
+    try assert_eq_i32(overflow_failed, 1);
 }

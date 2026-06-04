@@ -376,7 +376,7 @@
 - [x] 实现 WebM track/timecode 解析。
 - [x] 实现 WebM sample 到 VP8 payload。
 - [x] 实现 RTP VP8 payload descriptor parser。
-- [ ] 实现 RTP packet reassembly。
+- [x] 实现 RTP packet reassembly。
 - [ ] 实现 decoder library API。
 - [ ] 实现 encoder library API。
 - [ ] 增加 C ABI 是否需要的设计讨论；默认不实现。
@@ -385,7 +385,7 @@
 验收标准：
 
 - [ ] WebM subset 样本可 decode。
-- [ ] RTP packet loss/malformed 有明确错误。
+- [x] RTP packet loss/malformed 有明确错误。
 - [ ] API examples 可构建运行。
 
 ## Phase 17: 发布硬化

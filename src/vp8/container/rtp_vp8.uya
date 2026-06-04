@@ -4,6 +4,29 @@ use vp8.bitstream.readers.read_slice_at;
 error ErrRtpVp8PayloadDescriptorTooShort;
 error ErrRtpVp8ReservedBitSet;
 error ErrRtpVp8MissingPayload;
+error ErrRtpVp8ReassemblyMissingStart;
+error ErrRtpVp8ReassemblyUnexpectedStart;
+error ErrRtpVp8PacketLoss;
+error ErrRtpVp8PictureIdMismatch;
+error ErrRtpVp8ReassemblyBufferTooSmall;
+
+export struct RtpVp8ReassembledFrame {
+    complete: bool,
+    payload: BoundedSlice,
+    picture_id_present: bool,
+    picture_id: u16
+}
+
+export struct RtpVp8Reassembler {
+    output: &byte,
+    capacity: usize,
+    len: usize,
+    started: bool,
+    complete: bool,
+    next_sequence_number: u16,
+    picture_id_present: bool,
+    picture_id: u16
+}
 
 export struct RtpVp8PayloadDescriptor {
     extended: bool,
@@ -50,6 +73,102 @@ fn rtp_vp8_empty_descriptor(data: &byte) RtpVp8PayloadDescriptor {
         descriptor_size: 0,
         payload: BoundedSlice{ data: data, len: 0 }
     };
+}
+
+export fn make_rtp_vp8_reassembler(output: &byte, capacity: usize) RtpVp8Reassembler {
+    return RtpVp8Reassembler{
+        output: output,
+        capacity: capacity,
+        len: 0,
+        started: false,
+        complete: false,
+        next_sequence_number: 0 as u16,
+        picture_id_present: false,
+        picture_id: 0 as u16
+    };
+}
+
+export fn rtp_vp8_reassembler_reset(assembler: &RtpVp8Reassembler) void {
+    assembler.len = 0;
+    assembler.started = false;
+    assembler.complete = false;
+    assembler.next_sequence_number = 0 as u16;
+    assembler.picture_id_present = false;
+    assembler.picture_id = 0 as u16;
+}
+
+fn rtp_vp8_next_sequence_number(sequence_number: u16) u16 {
+    if sequence_number == (65535 as u16) {
+        return 0 as u16;
+    }
+    return (sequence_number + (1 as u16)) as u16;
+}
+
+fn rtp_vp8_reassembled_frame(assembler: &RtpVp8Reassembler, complete: bool) RtpVp8ReassembledFrame {
+    return RtpVp8ReassembledFrame{
+        complete: complete,
+        payload: BoundedSlice{
+            data: assembler.output,
+            len: assembler.len
+        },
+        picture_id_present: assembler.picture_id_present,
+        picture_id: assembler.picture_id
+    };
+}
+
+fn rtp_vp8_reassembler_append_payload(assembler: &RtpVp8Reassembler, payload: &BoundedSlice) !void {
+    if assembler.len > assembler.capacity {
+        return error.ErrRtpVp8ReassemblyBufferTooSmall;
+    }
+    const remaining: usize = assembler.capacity - assembler.len;
+    if payload.len > remaining {
+        return error.ErrRtpVp8ReassemblyBufferTooSmall;
+    }
+
+    var index: usize = 0;
+    while index < payload.len {
+        assembler.output[assembler.len + index] = payload.data[index];
+        index = index + 1;
+    }
+    assembler.len = assembler.len + payload.len;
+}
+
+export fn rtp_vp8_reassembler_push_packet(
+    assembler: &RtpVp8Reassembler,
+    sequence_number: u16,
+    marker: bool,
+    data: &byte,
+    len: usize
+) !RtpVp8ReassembledFrame {
+    const descriptor: RtpVp8PayloadDescriptor = try parse_rtp_vp8_payload_descriptor(data, len);
+    const is_frame_start: bool = descriptor.start_of_partition && descriptor.partition_id == (0 as byte);
+
+    if (!assembler.started) || assembler.complete {
+        if !is_frame_start {
+            return error.ErrRtpVp8ReassemblyMissingStart;
+        }
+        assembler.len = 0;
+        assembler.started = true;
+        assembler.complete = false;
+        assembler.picture_id_present = descriptor.picture_id_present;
+        assembler.picture_id = descriptor.picture_id;
+    } else {
+        if sequence_number != assembler.next_sequence_number {
+            return error.ErrRtpVp8PacketLoss;
+        }
+        if is_frame_start {
+            return error.ErrRtpVp8ReassemblyUnexpectedStart;
+        }
+        if assembler.picture_id_present && descriptor.picture_id_present &&
+            descriptor.picture_id != assembler.picture_id {
+            return error.ErrRtpVp8PictureIdMismatch;
+        }
+    }
+
+    try rtp_vp8_reassembler_append_payload(assembler, &descriptor.payload);
+    assembler.next_sequence_number = rtp_vp8_next_sequence_number(sequence_number);
+    assembler.complete = marker;
+    return rtp_vp8_reassembled_frame(assembler, marker);
 }
 
 export fn parse_rtp_vp8_payload_descriptor(data: &byte, len: usize) !RtpVp8PayloadDescriptor {
