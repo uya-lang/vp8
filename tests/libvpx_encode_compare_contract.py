@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -129,6 +131,28 @@ def assert_ssim_is_record_only(module: object) -> None:
     assert not any("ssim" in reason.lower() for reason in evaluated["failure_reasons"])
 
 
+def write_fake_executable(path: Path) -> None:
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | 0o111)
+
+
+def assert_vpxenc_env_lookup(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "fake-vpxenc"
+        write_fake_executable(fake)
+        found = module.find_vpx_tool("vpxenc", "VPXENC", env={"VPXENC": str(fake)}, path="")
+        assert found["path"] == str(fake)
+        assert found["source"] == "VPXENC"
+        assert found["error"] is None
+
+        missing_path = str(Path(tmp) / "missing-vpxenc")
+        missing = module.find_vpx_tool("vpxenc", "VPXENC", env={"VPXENC": missing_path}, path="")
+        assert missing["path"] is None
+        assert missing["source"] == "VPXENC"
+        assert "VPXENC" in missing["error"]
+        assert missing_path in missing["error"]
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -136,6 +160,7 @@ def main() -> int:
     assert_psnr_threshold(module)
     assert_fps_threshold(module)
     assert_ssim_is_record_only(module)
+    assert_vpxenc_env_lookup(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

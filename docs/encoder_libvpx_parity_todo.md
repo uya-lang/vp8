@@ -37,7 +37,7 @@ Date: 2026-06-04
 
 ## Phase 2: libvpx 工具链获取
 
-- [ ] 设计 `vpxenc` 查找 helper。
+- [x] 设计 `vpxenc` 查找 helper。
   - 验收：设置 `VPXENC=/tmp/fake-vpxenc` 时 helper 优先返回该路径或报告该路径不可执行。
 - [ ] 设计 `vpxdec` 查找 helper。
   - 验收：设置 `VPXDEC=/tmp/fake-vpxdec` 时 helper 优先返回该路径或报告该路径不可执行。

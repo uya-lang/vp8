@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
+from pathlib import Path
+from typing import Mapping
 from typing import Any
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_VPX_TOOLS_DIR = REPO_ROOT / "build" / "deps" / "vpx-tools-root" / "usr" / "bin"
 LIBVPX_PRESET = "vpxenc --best"
 
 REQUIRED_RESULT_FIELDS = (
@@ -53,6 +59,58 @@ THRESHOLDS = {
     "min_psnr_all_delta_db": -0.50,
     "min_fps_ratio": 0.80,
 }
+
+
+def tool_lookup_result(path: str | None, source: str | None, error: str | None, attempted: list[str]) -> dict[str, Any]:
+    return {
+        "path": path,
+        "source": source,
+        "error": error,
+        "attempted": attempted,
+    }
+
+
+def is_executable_file(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def find_vpx_tool(
+    name: str,
+    env_var: str,
+    *,
+    env: Mapping[str, str] | None = None,
+    path: str | None = None,
+    extracted_dir: Path | None = None,
+) -> dict[str, Any]:
+    env_map = os.environ if env is None else env
+    search_path = env_map.get("PATH", os.environ.get("PATH", "")) if path is None else path
+    tool_dir = DEFAULT_VPX_TOOLS_DIR if extracted_dir is None else extracted_dir
+    attempted: list[str] = []
+
+    env_value = env_map.get(env_var)
+    if env_value:
+        attempted.append(env_value)
+        env_path = Path(env_value)
+        if is_executable_file(env_path):
+            return tool_lookup_result(str(env_path), env_var, None, attempted)
+        return tool_lookup_result(
+            None,
+            env_var,
+            f"{env_var} points to a missing or non-executable {name}: {env_value}",
+            attempted,
+        )
+
+    path_value = shutil.which(name, path=search_path)
+    if path_value is not None:
+        attempted.append(path_value)
+        return tool_lookup_result(path_value, "PATH", None, attempted)
+
+    extracted_path = tool_dir / name
+    attempted.append(str(extracted_path))
+    if is_executable_file(extracted_path):
+        return tool_lookup_result(str(extracted_path), "extracted", None, attempted)
+
+    return tool_lookup_result(None, None, f"{name} not found", attempted)
 
 
 def require_number(result: dict[str, Any], field: str) -> float:
