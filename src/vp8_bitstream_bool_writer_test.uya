@@ -87,6 +87,25 @@ test "VP8 boolean writer carries through pending 0xff bytes" {
     try assert_eq_i32(out[6] as i32, 0x00);
 }
 
+test "VP8 boolean reader decodes carry-producing writer output" {
+    var out: [byte: 8] = [ 0, 0, 0, 0, 0, 0, 0, 0 ];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 8);
+    var index: i32 = 0;
+
+    while index < 40 {
+        try bool_writer_write(&writer, 1 as u8, 128 as byte);
+        index = index + 1;
+    }
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    index = 0;
+    while index < 40 {
+        try assert_eq_i32((try bool_reader_read(&reader, 128 as byte)) as i32, 1);
+        index = index + 1;
+    }
+}
+
 test "VP8 boolean reader roundtrips writer output with fixed probability" {
     var out: [byte: 8] = [ 0, 0, 0, 0, 0, 0, 0, 0 ];
     var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 8);
