@@ -7,10 +7,12 @@ planned after the scalar decoder is correct.
 
 ## Current Status
 
-This repository has a scalar decoder work-in-progress. It can parse IVF
-container metadata and a minimal WebM VP8 subset, decode the supported scalar
-VP8 path for tiny built-in samples, and write visible I420 YUV output. Broader
-conformance coverage, SIMD, parallelism, and encoder support are still
+This repository has a scalar decoder work-in-progress and a limited one-frame
+I420-to-IVF keyframe encoder path. It can parse IVF container metadata and a
+minimal WebM VP8 subset, decode the supported scalar VP8 path for tiny built-in
+samples, write visible I420 YUV output, and encode deterministic one-frame
+keyframe IVF samples with PSNR/SSIM reporting. Broader conformance coverage,
+SIMD default dispatch, parallelism, and multi-frame encoder support are still
 pending.
 
 Current command surface:
@@ -106,6 +108,8 @@ error declaration under `src/`.
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.
 The current decoder conformance snapshot lives in
 `docs/decoder_conformance_report.md`.
+The current encoder quality snapshot lives in
+`docs/encoder_quality_report.md`.
 
 `bench/` is reserved for benchmark harnesses and baseline records. Benchmarks
 must keep scalar and SIMD paths comparable and must not become correctness
@@ -118,4 +122,5 @@ intrinsics, or external assembly in runtime codec code. External tools may be
 used only for test fixture generation and differential validation.
 
 Until conformance work is complete, decoder support is limited to the covered
-scalar path and built-in fixture shapes. Encoder support is not implemented.
+scalar path and built-in fixture shapes. Encoder support is limited to the
+current one-frame I420 keyframe IVF path and supporting API examples.
