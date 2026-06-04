@@ -129,6 +129,7 @@ encoder wrote output bytes.
 | --- | --- |
 | `src/vp8/encoder/context.uya` | `ErrEncoderConfigInvalidValue`, `ErrEncoderIvfWriteOutOfBounds`, `ErrYuvFrameViewInvalidGeometry` |
 | `src/vp8/encoder/keyframe.uya` | `ErrEncoderKeyframeInvalidInput`, `ErrEncoderKeyframeInvalidGeometry`, `ErrEncoderKeyframeOutOfMemory`, `ErrEncoderKeyframeOutOfBounds`, `ErrEncoderKeyframeSizeOverflow` |
+| `src/vp8/encoder/inter_frame.uya` | `ErrEncoderInterFrameInvalidInput`, `ErrEncoderInterFrameInvalidGeometry`, `ErrEncoderInterFrameOutOfMemory`, `ErrEncoderInterFrameOutOfBounds`, `ErrEncoderInterFrameSizeOverflow` |
 | `src/vp8/encoder/keyframe_interval.uya` | `ErrEncoderKeyframeIntervalInvalidInput` |
 | `src/vp8/encoder/rate_control.uya` | `ErrEncoderRateControlInvalidInput`, `ErrEncoderRateControlUnsupportedMode`, `ErrEncoderRateControlFrameIndexOverflow`, `ErrEncoderRateControlTargetOverflow`, `ErrEncoderCbrBufferInvalidInput` |
 | `src/vp8/encoder/quality.uya` | `ErrEncoderQualityInvalidInput` |

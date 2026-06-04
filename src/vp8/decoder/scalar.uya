@@ -1229,6 +1229,8 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     frame_buffer_mark_border_dirty(current);
     if key_frame {
         try frame_pool_refresh_references(&decoder.context.frame_pool, true, true, true);
+    } else {
+        try frame_pool_refresh_references(&decoder.context.frame_pool, true, false, false);
     }
 
     var output: DecodedFrame = empty_decoded_frame();

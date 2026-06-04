@@ -158,6 +158,35 @@ fn encoder_keyframe_validate_input(config: &EncoderConfig, frame: &YuvFrameView,
     }
 }
 
+fn encoder_keyframe_copy_plane(src: &Plane, dst: &Plane) !void {
+    if src.width != dst.width || src.height != dst.height {
+        return error.ErrEncoderKeyframeInvalidGeometry;
+    }
+
+    var row: usize = 0;
+    while row < src.height {
+        var col: usize = 0;
+        while col < src.width {
+            dst.origin[(row * dst.stride) + col] = src.origin[(row * src.stride) + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn encoder_keyframe_copy_recon_to_frame(src: &FrameBuffer, dst: &FrameBuffer) !void {
+    if src == null || dst == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
+    if src.width != dst.width || src.height != dst.height {
+        return error.ErrEncoderKeyframeInvalidGeometry;
+    }
+
+    try encoder_keyframe_copy_plane(&src.y.plane, &dst.y.plane);
+    try encoder_keyframe_copy_plane(&src.u.plane, &dst.u.plane);
+    try encoder_keyframe_copy_plane(&src.v.plane, &dst.v.plane);
+}
+
 export fn estimate_keyframe_ivf_size(width: usize, height: usize) !usize {
     if width == 0 || height == 0 {
         return error.ErrEncoderKeyframeInvalidGeometry;
@@ -907,7 +936,14 @@ fn encoder_keyframe_speed_mode_limit(speed_preset: EncoderSpeedPreset) u8 {
     return 10 as u8;
 }
 
-export fn encode_keyframe_ivf_with_stats_and_kernel_table(config: &EncoderConfig, kernels: &KernelFunctionTable, frame: &YuvFrameView, out: &byte, out_len: usize) !EncoderKeyframeEncodeStats {
+fn encode_keyframe_ivf_with_stats_and_kernel_table_internal(
+    config: &EncoderConfig,
+    kernels: &KernelFunctionTable,
+    frame: &YuvFrameView,
+    out: &byte,
+    out_len: usize,
+    recon_out: &FrameBuffer
+) !EncoderKeyframeEncodeStats {
     try encoder_keyframe_validate_input(config, frame, out, out_len);
 
     const grid: MacroblockGrid = try macroblock_grid_for_frame(config.width, config.height);
@@ -989,10 +1025,32 @@ export fn encode_keyframe_ivf_with_stats_and_kernel_table(config: &EncoderConfig
 
     try write_ivf_frame_header(out, out_len, ENCODER_KEYFRAME_IVF_HEADER_BYTES, vp8_payload_size as u32, 0);
 
+    if recon_out != null {
+        try encoder_keyframe_copy_recon_to_frame(&recon, recon_out);
+    }
+
     return EncoderKeyframeEncodeStats{
         written_len: try encoder_keyframe_checked_add(payload_offset, vp8_payload_size),
         mode_search_work_units: mode_search_work_units
     };
+}
+
+export fn encode_keyframe_ivf_with_stats_and_kernel_table(config: &EncoderConfig, kernels: &KernelFunctionTable, frame: &YuvFrameView, out: &byte, out_len: usize) !EncoderKeyframeEncodeStats {
+    return try encode_keyframe_ivf_with_stats_and_kernel_table_internal(config, kernels, frame, out, out_len, null as &FrameBuffer);
+}
+
+export fn encode_keyframe_ivf_with_stats_and_kernel_table_to_frame(
+    config: &EncoderConfig,
+    kernels: &KernelFunctionTable,
+    frame: &YuvFrameView,
+    out: &byte,
+    out_len: usize,
+    recon_out: &FrameBuffer
+) !EncoderKeyframeEncodeStats {
+    if recon_out == null {
+        return error.ErrEncoderKeyframeInvalidInput;
+    }
+    return try encode_keyframe_ivf_with_stats_and_kernel_table_internal(config, kernels, frame, out, out_len, recon_out);
 }
 
 export fn encode_keyframe_ivf_with_stats(config: &EncoderConfig, frame: &YuvFrameView, out: &byte, out_len: usize) !EncoderKeyframeEncodeStats {

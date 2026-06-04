@@ -1,6 +1,7 @@
 use vp8.common.frame.FrameBuffer;
 use vp8.common.frame.FramePool;
 use vp8.common.frame.allocate_frame_pool;
+use vp8.common.frame.empty_frame_pool;
 use vp8.common.frame.free_frame_pool;
 use vp8.common.frame.frame_pool_begin_frame;
 use vp8.common.frame.frame_pool_get_slot;
@@ -8,6 +9,12 @@ use vp8.common.frame.frame_pool_refresh_references;
 
 export struct EncoderReferenceFramePool {
     pool: FramePool
+}
+
+export fn empty_encoder_reference_frame_pool() EncoderReferenceFramePool {
+    return EncoderReferenceFramePool{
+        pool: empty_frame_pool()
+    };
 }
 
 export fn allocate_encoder_reference_frame_pool(width: usize, height: usize, border: usize, alignment: usize) !EncoderReferenceFramePool {

@@ -1,0 +1,124 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.header.Vp8FrameTag;
+use vp8.bitstream.header.parse_vp8_frame_tag;
+use vp8.common.frame.FrameBuffer;
+use vp8.container.ivf.IvfFrame;
+use vp8.container.ivf.IvfFrameIterator;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.ivf_frame_iterator_next;
+use vp8.container.ivf.make_ivf_frame_iterator;
+use vp8.container.ivf.parse_ivf_header;
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.make_default_encoder_config;
+use vp8.encoder.context.make_i420_frame_view;
+use vp8.encoder.inter_frame.EncoderInterFrameEncodeStats;
+use vp8.encoder.inter_frame.encode_inter_frame_ivf_with_stats_and_kernel_table;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
+use vp8.encoder.reference_pool.encoder_reference_begin_frame;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.reference_pool.encoder_reference_refresh;
+use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
+
+fn fill_constant_reference(frame: &FrameBuffer, y_value: byte, u_value: byte, v_value: byte) void {
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            frame.y.plane.origin[(row * frame.y.plane.stride) + col] = y_value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    row = 0;
+    while row < 8 {
+        var col: usize = 0;
+        while col < 8 {
+            frame.u.plane.origin[(row * frame.u.plane.stride) + col] = u_value;
+            frame.v.plane.origin[(row * frame.v.plane.stride) + col] = v_value;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn fill_constant_i420(input: &byte, y_value: byte, u_value: byte, v_value: byte) void {
+    var index: usize = 0;
+    while index < 256 {
+        input[index] = y_value;
+        index = index + 1;
+    }
+    while index < 320 {
+        input[index] = u_value;
+        index = index + 1;
+    }
+    while index < 384 {
+        input[index] = v_value;
+        index = index + 1;
+    }
+}
+
+fn parsed_inter_tag(packet: &byte, packet_len: usize) !Vp8FrameTag {
+    const ivf: IvfHeader = try parse_ivf_header(packet, packet_len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(packet, packet_len, &ivf);
+    const frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    return try parse_vp8_frame_tag(frame.payload.data, frame.payload.len);
+}
+
+test "inter frame writer emits LAST zero-MV copy frame with empty residual" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_constant_reference(seed, 100 as byte, 128 as byte, 129 as byte);
+    try encoder_reference_refresh(&refs, true, true, true);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 384] = [];
+    fill_constant_i420(&input[0] as &byte, 100 as byte, 128 as byte, 129 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.quantizer = 0 as u8;
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var out: [byte: 12000] = [];
+
+    const stats: EncoderInterFrameEncodeStats = try encode_inter_frame_ivf_with_stats_and_kernel_table(&config, &kernels, &refs, &frame, &out[0] as &byte, 12000);
+    const tag: Vp8FrameTag = try parsed_inter_tag(&out[0] as &byte, stats.written_len);
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+
+    try assert_eq_i32(tag.frame_type as i32, 1);
+    try assert_eq_i32(tag.show_frame as i32, true as i32);
+    try assert_eq_i32(stats.nonzero_coefficient_count as i32, 0);
+    try assert_eq_i32(current.y.plane.origin[0] as i32, 100);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 129);
+}
+
+test "inter frame writer applies luma residual over LAST prediction" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_constant_reference(seed, 100 as byte, 128 as byte, 129 as byte);
+    try encoder_reference_refresh(&refs, true, true, true);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 384] = [];
+    fill_constant_i420(&input[0] as &byte, 132 as byte, 128 as byte, 129 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.quantizer = 0 as u8;
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var out: [byte: 12000] = [];
+
+    const stats: EncoderInterFrameEncodeStats = try encode_inter_frame_ivf_with_stats_and_kernel_table(&config, &kernels, &refs, &frame, &out[0] as &byte, 12000);
+    const current: &FrameBuffer = try encoder_reference_current(&refs);
+
+    try assert_eq_i32(stats.nonzero_coefficient_count > 0, true as i32);
+    try assert_eq_i32(current.y.plane.origin[0] > (100 as byte), true as i32);
+    try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
+    try assert_eq_i32(current.v.plane.origin[0] as i32, 129);
+}

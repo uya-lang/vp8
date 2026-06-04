@@ -34,6 +34,29 @@ use vp8.container.ivf.ivf_frame_iterator_next;
 use vp8.container.ivf.make_ivf_frame_iterator;
 use vp8.container.ivf.parse_ivf_header;
 
+fn fill_i420_constant(input: &byte, y_value: byte, u_value: byte, v_value: byte) void {
+    var index: usize = 0;
+    while index < 256 {
+        input[index] = y_value;
+        index = index + 1;
+    }
+    while index < 320 {
+        input[index] = u_value;
+        index = index + 1;
+    }
+    while index < 384 {
+        input[index] = v_value;
+        index = index + 1;
+    }
+}
+
+fn decode_single_packet(decoder: &Vp8Decoder, packet: &Vp8EncodedPacket) !Vp8DecodedFrame {
+    const ivf: IvfHeader = try parse_ivf_header(packet.data, packet.len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(packet.data, packet.len, &ivf);
+    const ivf_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    return try vp8_decoder_decode_frame(decoder, ivf_frame.payload.data, ivf_frame.payload.len);
+}
+
 test "public encoder API encodes an I420 frame to a borrowed IVF packet" {
     var input: [byte: 384] = [];
     var index: usize = 0;
@@ -99,6 +122,86 @@ test "public encoder API encodes an I420 frame to a borrowed IVF packet" {
 
     packet = try vp8_encoder_flush(&encoder);
     try assert_eq_i32(packet.has_output as i32, false as i32);
+}
+
+test "public encoder API emits inter frames after the first keyframe" {
+    var first_input: [byte: 384] = [];
+    var second_input: [byte: 384] = [];
+    var third_input: [byte: 384] = [];
+    fill_i420_constant(&first_input[0] as &byte, 96 as byte, 128 as byte, 129 as byte);
+    fill_i420_constant(&second_input[0] as &byte, 112 as byte, 128 as byte, 129 as byte);
+    fill_i420_constant(&third_input[0] as &byte, 116 as byte, 130 as byte, 127 as byte);
+
+    var first_out: [byte: 12000] = [];
+    var second_out: [byte: 12000] = [];
+    var third_out: [byte: 12000] = [];
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    options.quantizer = 0 as u8;
+    var encoder: Vp8Encoder = try vp8_encoder_init(&options);
+    defer vp8_encoder_deinit(&encoder);
+    try vp8_encoder_set_simd_level(&encoder, SimdLevel.scalar);
+
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    const first_frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&first_input[0] as &byte, 384, 16, 16);
+    const second_frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&second_input[0] as &byte, 384, 16, 16);
+    const third_frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&third_input[0] as &byte, 384, 16, 16);
+
+    const first_packet: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &first_frame, &first_out[0] as &byte, 12000, &flags);
+    const second_packet: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &second_frame, &second_out[0] as &byte, 12000, &flags);
+    const third_packet: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &third_frame, &third_out[0] as &byte, 12000, &flags);
+
+    try assert_eq_i32(first_packet.key_frame as i32, true as i32);
+    try assert_eq_i32(second_packet.key_frame as i32, false as i32);
+    try assert_eq_i32(third_packet.key_frame as i32, false as i32);
+    try assert_eq_i32(second_packet.len < first_packet.len, true as i32);
+
+    var decoder_options: Vp8DecoderOptions = try make_vp8_decoder_options(16, 16);
+    var decoder: Vp8Decoder = try vp8_decoder_init(&decoder_options);
+    defer vp8_decoder_deinit(&decoder);
+
+    var first_decoded: Vp8DecodedFrame = try decode_single_packet(&decoder, &first_packet);
+    try assert_eq_i32(first_decoded.has_output as i32, true as i32);
+    try assert_eq_i32(first_decoded.key_frame as i32, true as i32);
+    try vp8_decoded_frame_release(&first_decoded);
+
+    var second_decoded: Vp8DecodedFrame = try decode_single_packet(&decoder, &second_packet);
+    try assert_eq_i32(second_decoded.has_output as i32, true as i32);
+    try assert_eq_i32(second_decoded.key_frame as i32, false as i32);
+    try vp8_decoded_frame_release(&second_decoded);
+
+    var third_decoded: Vp8DecodedFrame = try decode_single_packet(&decoder, &third_packet);
+    try assert_eq_i32(third_decoded.has_output as i32, true as i32);
+    try assert_eq_i32(third_decoded.key_frame as i32, false as i32);
+    try vp8_decoded_frame_release(&third_decoded);
+
+    const stats: Vp8EncoderStats = vp8_encoder_stats(&encoder);
+    try assert_eq_i32(stats.encoded_frame_count as i32, 3);
+    try assert_eq_i32(stats.keyframe_count as i32, 1);
+}
+
+test "public encoder API honors forced and interval keyframes" {
+    var input: [byte: 384] = [];
+    fill_i420_constant(&input[0] as &byte, 96 as byte, 128 as byte, 129 as byte);
+
+    var out0: [byte: 12000] = [];
+    var out1: [byte: 12000] = [];
+    var out2: [byte: 12000] = [];
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    options.keyframe_interval = 2;
+    var encoder: Vp8Encoder = try vp8_encoder_init(&options);
+    defer vp8_encoder_deinit(&encoder);
+
+    const frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    var flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    const packet0: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &frame, &out0[0] as &byte, 12000, &flags);
+    flags.force_keyframe = true;
+    const packet1: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &frame, &out1[0] as &byte, 12000, &flags);
+    flags.force_keyframe = false;
+    const packet2: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &frame, &out2[0] as &byte, 12000, &flags);
+
+    try assert_eq_i32(packet0.key_frame as i32, true as i32);
+    try assert_eq_i32(packet1.key_frame as i32, true as i32);
+    try assert_eq_i32(packet2.key_frame as i32, true as i32);
 }
 
 test "public encoder API validates options and state" {

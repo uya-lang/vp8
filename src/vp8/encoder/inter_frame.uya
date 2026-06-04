@@ -1,0 +1,702 @@
+use libc.free;
+use libc.malloc;
+
+use vp8.bitstream.bool_writer.BoolWriter;
+use vp8.bitstream.bool_writer.bool_writer_write;
+use vp8.bitstream.bool_writer.make_bool_writer;
+use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
+use vp8.bitstream.header.VP8_FRAME_TAG_BYTES;
+use vp8.bitstream.header.VP8_MV_PROB_COUNT;
+use vp8.bitstream.header.Vp8FrameTag;
+use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.bitstream.header.Vp8Probs;
+use vp8.bitstream.header.Vp8QuantHeader;
+use vp8.bitstream.header.vp8_coeff_update_probability;
+use vp8.bitstream.header.vp8_default_probs;
+use vp8.bitstream.header.vp8_mv_update_probability;
+use vp8.bitstream.header.write_vp8_frame_tag;
+use vp8.common.coeff_context.AboveLeftCoeffContext;
+use vp8.common.coeff_context.CoeffContextPair;
+use vp8.common.coeff_context.allocate_above_left_coeff_context;
+use vp8.common.coeff_context.coeff_context_get_u;
+use vp8.common.coeff_context.coeff_context_get_v;
+use vp8.common.coeff_context.coeff_context_get_y;
+use vp8.common.coeff_context.coeff_context_get_y2;
+use vp8.common.coeff_context.coeff_context_start_row;
+use vp8.common.coeff_context.coeff_context_store_u_after_decode;
+use vp8.common.coeff_context.coeff_context_store_v_after_decode;
+use vp8.common.coeff_context.coeff_context_store_y_after_decode;
+use vp8.common.coeff_context.coeff_context_store_y2_after_decode;
+use vp8.common.coeff_context.free_above_left_coeff_context;
+use vp8.common.frame.FrameBuffer;
+use vp8.common.mb_grid.MacroblockGrid;
+use vp8.common.mb_grid.macroblock_grid_for_frame;
+use vp8.common.plane.Plane;
+use vp8.container.ivf.IvfHeader;
+use vp8.container.ivf.write_ivf_frame_header;
+use vp8.container.ivf.write_ivf_header;
+use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.YuvPlaneView;
+use vp8.encoder.context.validate_encoder_config;
+use vp8.encoder.context.validate_yuv_frame_view;
+use vp8.encoder.inter_prediction.EncoderInterPredictionResult;
+use vp8.encoder.inter_prediction.predict_last_frame_macroblock;
+use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
+use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
+use vp8.encoder.partition_output.EncoderBoolPartitionOutput;
+use vp8.encoder.partition_output.write_encoder_bool_partition_output;
+use vp8.encoder.quant.EncoderCoefficientToken;
+use vp8.encoder.quant.forward_dct_4x4;
+use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
+use vp8.encoder.quant.quantize_block_4x4;
+use vp8.encoder.quant.tokenize_quantized_block_4x4;
+use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
+use vp8.encoder.reconstruct.reconstruct_y_block_with_y2_dc;
+use vp8.encoder.reference_pool.EncoderReferenceFramePool;
+use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.token_partition_packing.write_encoder_token_partition_count;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.scalar.DequantFactors;
+use vp8.kernels.scalar.build_dequant_factors;
+use vp8.kernels.scalar.dequant_block_4x4;
+use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
+use vp8.token.parse.CoefficientBlockSummary;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT1;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT2;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT3;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT4;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT5;
+use vp8.token.parse.VP8_COEFF_TOKEN_CAT6;
+use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
+use vp8.token.parse.VP8_COEFF_TOKEN_FOUR;
+use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
+use vp8.token.parse.VP8_COEFF_TOKEN_THREE;
+use vp8.token.parse.VP8_COEFF_TOKEN_TWO;
+use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
+use vp8.token.parse.coefficient_band;
+use vp8.token.parse.coefficient_eob_context;
+
+error ErrEncoderInterFrameInvalidInput;
+error ErrEncoderInterFrameInvalidGeometry;
+error ErrEncoderInterFrameOutOfMemory;
+error ErrEncoderInterFrameOutOfBounds;
+error ErrEncoderInterFrameSizeOverflow;
+
+export struct EncoderInterFrameEncodeStats {
+    written_len: usize,
+    border_extension_count: usize,
+    nonzero_coefficient_count: usize
+}
+
+const ENCODER_INTER_FIRST_BASE_CAPACITY: usize = 4096;
+const ENCODER_INTER_FIRST_BYTES_PER_MB: usize = 32;
+const ENCODER_INTER_TOKEN_BASE_CAPACITY: usize = 4096;
+const ENCODER_INTER_TOKEN_BYTES_PER_MB: usize = 2048;
+const ENCODER_INTER_U32_MAX: usize = 4294967295;
+const ENCODER_INTER_IVF_HEADER_BYTES: usize = 32;
+const ENCODER_INTER_IVF_FRAME_HEADER_BYTES: usize = 12;
+
+var VP8_INTER_CAT1_PROBS_ENC: [byte: 1] = [ 159 ];
+var VP8_INTER_CAT2_PROBS_ENC: [byte: 2] = [ 165, 145 ];
+var VP8_INTER_CAT3_PROBS_ENC: [byte: 3] = [ 173, 148, 140 ];
+var VP8_INTER_CAT4_PROBS_ENC: [byte: 4] = [ 176, 155, 140, 135 ];
+var VP8_INTER_CAT5_PROBS_ENC: [byte: 5] = [ 180, 157, 141, 134, 130 ];
+var VP8_INTER_CAT6_PROBS_ENC: [byte: 11] = [ 254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129 ];
+
+fn encoder_inter_checked_add(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrEncoderInterFrameSizeOverflow;
+    }
+    return value;
+}
+
+fn encoder_inter_checked_mul(left: usize, right: usize) !usize {
+    const value: usize = left * right;
+    if right != 0 && (value / right) != left {
+        return error.ErrEncoderInterFrameSizeOverflow;
+    }
+    return value;
+}
+
+fn encoder_inter_ceil_div(value: usize, divisor: usize) usize {
+    return (value + divisor - 1) / divisor;
+}
+
+fn encoder_inter_validate_input(config: &EncoderConfig, refs: &EncoderReferenceFramePool, frame: &YuvFrameView, out: &byte, out_len: usize) !void {
+    if config == null || refs == null || frame == null || out == null {
+        return error.ErrEncoderInterFrameInvalidInput;
+    }
+    try validate_encoder_config(config);
+    try validate_yuv_frame_view(frame);
+    if config.width != frame.width || config.height != frame.height {
+        return error.ErrEncoderInterFrameInvalidGeometry;
+    }
+    if refs.pool.width != config.width || refs.pool.height != config.height {
+        return error.ErrEncoderInterFrameInvalidGeometry;
+    }
+    if out_len < ENCODER_INTER_IVF_HEADER_BYTES + ENCODER_INTER_IVF_FRAME_HEADER_BYTES + VP8_FRAME_TAG_BYTES {
+        return error.ErrEncoderInterFrameOutOfBounds;
+    }
+}
+
+export fn estimate_inter_frame_ivf_size(width: usize, height: usize) !usize {
+    if width == 0 || height == 0 {
+        return error.ErrEncoderInterFrameInvalidGeometry;
+    }
+
+    const mb_cols: usize = encoder_inter_ceil_div(width, 16);
+    const mb_rows: usize = encoder_inter_ceil_div(height, 16);
+    const mb_count: usize = try encoder_inter_checked_mul(mb_cols, mb_rows);
+    const token_bytes: usize = try encoder_inter_checked_add(ENCODER_INTER_TOKEN_BASE_CAPACITY, try encoder_inter_checked_mul(mb_count, ENCODER_INTER_TOKEN_BYTES_PER_MB));
+    const first_bytes: usize = try encoder_inter_checked_add(ENCODER_INTER_FIRST_BASE_CAPACITY, try encoder_inter_checked_mul(mb_count, ENCODER_INTER_FIRST_BYTES_PER_MB));
+    const payload_bytes: usize = try encoder_inter_checked_add(VP8_FRAME_TAG_BYTES, try encoder_inter_checked_add(first_bytes, token_bytes));
+    return try encoder_inter_checked_add(ENCODER_INTER_IVF_HEADER_BYTES + ENCODER_INTER_IVF_FRAME_HEADER_BYTES, payload_bytes);
+}
+
+fn encoder_inter_make_quant(config: &EncoderConfig) Vp8QuantHeader {
+    return Vp8QuantHeader{
+        base_qindex: config.quantizer,
+        y1_dc_delta: 0,
+        y2_dc_delta: 0,
+        y2_ac_delta: 0,
+        uv_dc_delta: 0,
+        uv_ac_delta: 0
+    };
+}
+
+fn encoder_inter_write_literal(writer: &BoolWriter, value: u32, bit_count: usize) !void {
+    var index: usize = 0;
+    while index < bit_count {
+        const shift: usize = bit_count - 1 - index;
+        const bit: u8 = ((value >> (shift as i32)) & (1 as u32)) as u8;
+        try bool_writer_write(writer, bit, 128 as byte);
+        index = index + 1;
+    }
+}
+
+fn encoder_inter_write_probability_updates(writer: &BoolWriter) !void {
+    var index: usize = 0;
+    while index < VP8_COEFF_PROB_COUNT {
+        try bool_writer_write(writer, 0 as u8, vp8_coeff_update_probability(index));
+        index = index + 1;
+    }
+
+    index = 0;
+    while index < VP8_MV_PROB_COUNT {
+        try bool_writer_write(writer, 0 as u8, vp8_mv_update_probability(index));
+        index = index + 1;
+    }
+}
+
+fn encoder_inter_write_fixed_header_bits(writer: &BoolWriter, config: &EncoderConfig) !void {
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+
+    const loop_filter_decision: EncoderLoopFilterLevelDecision = try decide_encoder_loop_filter_level(config.quantizer, false, false);
+    const loop_filter: Vp8LoopFilterHeader = loop_filter_decision.loop_filter;
+    try bool_writer_write(writer, loop_filter.filter_type, 128 as byte);
+    try encoder_inter_write_literal(writer, loop_filter.level as u32, 6);
+    try encoder_inter_write_literal(writer, loop_filter.sharpness as u32, 3);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+
+    try write_encoder_token_partition_count(writer, 1 as u8);
+    try encoder_inter_write_literal(writer, config.quantizer as u32, 7);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+
+    try encoder_inter_write_probability_updates(writer);
+}
+
+fn encoder_inter_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid) !void {
+    var mb_y: usize = 0;
+    while mb_y < grid.mb_rows {
+        var mb_x: usize = 0;
+        while mb_x < grid.mb_cols {
+            try bool_writer_write(writer, 1 as u8, 145 as byte);
+            try bool_writer_write(writer, 0 as u8, 156 as byte);
+            try bool_writer_write(writer, 0 as u8, 2 as byte);
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
+fn encoder_inter_coeff_prob_offset(block_type: usize, position: usize, context: byte) !usize {
+    if block_type >= 4 || position >= 16 || context >= (3 as byte) {
+        return error.ErrEncoderInterFrameInvalidInput;
+    }
+    const band: byte = try coefficient_band(position);
+    return ((((block_type * (8 as usize)) + (band as usize)) * (3 as usize)) + (context as usize)) * (11 as usize);
+}
+
+fn encoder_inter_token_context_after(token: byte) byte {
+    if token == VP8_COEFF_TOKEN_ZERO {
+        return 0 as byte;
+    }
+    if token == VP8_COEFF_TOKEN_ONE {
+        return 1 as byte;
+    }
+    return 2 as byte;
+}
+
+fn encoder_inter_write_extra_bits(writer: &BoolWriter, value: u16, bit_count: u8, probs: &byte) !void {
+    var index: u8 = 0 as u8;
+    while index < bit_count {
+        const shift: u8 = (bit_count - (1 as u8) - index) as u8;
+        const bit: u8 = (((value as u32) >> (shift as i32)) & (1 as u32)) as u8;
+        try bool_writer_write(writer, bit, probs[index as usize]);
+        index = (index + (1 as u8)) as u8;
+    }
+}
+
+fn encoder_inter_write_token_sign(writer: &BoolWriter, token: &EncoderCoefficientToken) !void {
+    if token.token != VP8_COEFF_TOKEN_ZERO && token.token != VP8_COEFF_TOKEN_EOB {
+        try bool_writer_write(writer, token.sign, 128 as byte);
+    }
+}
+
+fn encoder_inter_write_coefficient_token(writer: &BoolWriter, probs: &byte, token: &EncoderCoefficientToken, previous_was_zero: bool) !void {
+    if !previous_was_zero {
+        if token.token == VP8_COEFF_TOKEN_EOB {
+            try bool_writer_write(writer, 0 as u8, probs[0]);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[0]);
+    } else if token.token == VP8_COEFF_TOKEN_EOB {
+        return error.ErrEncoderInterFrameInvalidInput;
+    }
+
+    if token.token == VP8_COEFF_TOKEN_ZERO {
+        try bool_writer_write(writer, 0 as u8, probs[1]);
+        return;
+    }
+
+    try bool_writer_write(writer, 1 as u8, probs[1]);
+    if token.token == VP8_COEFF_TOKEN_ONE {
+        try bool_writer_write(writer, 0 as u8, probs[2]);
+        try encoder_inter_write_token_sign(writer, token);
+        return;
+    }
+
+    try bool_writer_write(writer, 1 as u8, probs[2]);
+    if token.token == VP8_COEFF_TOKEN_TWO || token.token == VP8_COEFF_TOKEN_THREE || token.token == VP8_COEFF_TOKEN_FOUR {
+        try bool_writer_write(writer, 0 as u8, probs[3]);
+        if token.token == VP8_COEFF_TOKEN_TWO {
+            try bool_writer_write(writer, 0 as u8, probs[4]);
+            try encoder_inter_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[4]);
+        if token.token == VP8_COEFF_TOKEN_THREE {
+            try bool_writer_write(writer, 0 as u8, probs[5]);
+            try encoder_inter_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[5]);
+        try encoder_inter_write_token_sign(writer, token);
+        return;
+    }
+
+    try bool_writer_write(writer, 1 as u8, probs[3]);
+    if token.token == VP8_COEFF_TOKEN_CAT1 || token.token == VP8_COEFF_TOKEN_CAT2 {
+        try bool_writer_write(writer, 0 as u8, probs[6]);
+        if token.token == VP8_COEFF_TOKEN_CAT1 {
+            try bool_writer_write(writer, 0 as u8, probs[7]);
+            try encoder_inter_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_INTER_CAT1_PROBS_ENC[0] as &byte);
+            try encoder_inter_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[7]);
+        try encoder_inter_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_INTER_CAT2_PROBS_ENC[0] as &byte);
+        try encoder_inter_write_token_sign(writer, token);
+        return;
+    }
+
+    try bool_writer_write(writer, 1 as u8, probs[6]);
+    if token.token == VP8_COEFF_TOKEN_CAT3 || token.token == VP8_COEFF_TOKEN_CAT4 {
+        try bool_writer_write(writer, 0 as u8, probs[8]);
+        if token.token == VP8_COEFF_TOKEN_CAT3 {
+            try bool_writer_write(writer, 0 as u8, probs[9]);
+            try encoder_inter_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_INTER_CAT3_PROBS_ENC[0] as &byte);
+            try encoder_inter_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[9]);
+        try encoder_inter_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_INTER_CAT4_PROBS_ENC[0] as &byte);
+        try encoder_inter_write_token_sign(writer, token);
+        return;
+    }
+
+    try bool_writer_write(writer, 1 as u8, probs[8]);
+    if token.token == VP8_COEFF_TOKEN_CAT5 || token.token == VP8_COEFF_TOKEN_CAT6 {
+        if token.token == VP8_COEFF_TOKEN_CAT5 {
+            try bool_writer_write(writer, 0 as u8, probs[10]);
+            try encoder_inter_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_INTER_CAT5_PROBS_ENC[0] as &byte);
+            try encoder_inter_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[10]);
+        try encoder_inter_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_INTER_CAT6_PROBS_ENC[0] as &byte);
+        try encoder_inter_write_token_sign(writer, token);
+        return;
+    }
+
+    return error.ErrEncoderInterFrameInvalidInput;
+}
+
+fn encoder_inter_write_quantized_block_tokens(
+    writer: &BoolWriter,
+    probs: &Vp8Probs,
+    block_type: usize,
+    start_position: usize,
+    above_has_coeff: byte,
+    left_has_coeff: byte,
+    qcoeff: &i16
+) !CoefficientBlockSummary {
+    var tokens: [EncoderCoefficientToken: 16] = [];
+    const token_count: usize = try tokenize_quantized_block_4x4(qcoeff, start_position, &tokens[0] as &EncoderCoefficientToken, 16);
+
+    var summary: CoefficientBlockSummary = CoefficientBlockSummary{
+        has_coeff: false,
+        dc_only: false,
+        coefficient_count: 0 as byte,
+        eob_position: 0 as byte
+    };
+    var context: byte = coefficient_eob_context(above_has_coeff, left_has_coeff);
+    var previous_was_zero: bool = false;
+    var index: usize = 0;
+    while index < token_count {
+        const token: &EncoderCoefficientToken = &tokens[index] as &EncoderCoefficientToken;
+        const prob_offset: usize = try encoder_inter_coeff_prob_offset(block_type, token.position as usize, context);
+        try encoder_inter_write_coefficient_token(writer, &probs.coeff_probs[prob_offset] as &byte, token, previous_was_zero);
+        if token.token == VP8_COEFF_TOKEN_EOB {
+            summary.eob_position = token.position;
+        } else {
+            if token.token != VP8_COEFF_TOKEN_ZERO {
+                summary.has_coeff = true;
+                summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
+            }
+            previous_was_zero = token.token == VP8_COEFF_TOKEN_ZERO;
+            context = encoder_inter_token_context_after(token.token);
+        }
+        index = index + 1;
+    }
+    summary.dc_only = summary.coefficient_count == (1 as byte) && qcoeff[0] != (0 as i16);
+    return summary;
+}
+
+fn encoder_inter_clamp_coord(value: usize, limit: usize) usize {
+    if value >= limit {
+        return limit - 1;
+    }
+    return value;
+}
+
+fn encoder_inter_sample_plane_clamped(plane: &YuvPlaneView, x: usize, y: usize) byte {
+    const sample_x: usize = encoder_inter_clamp_coord(x, plane.width);
+    const sample_y: usize = encoder_inter_clamp_coord(y, plane.height);
+    return plane.data[(sample_y * plane.stride) + sample_x];
+}
+
+fn encoder_inter_build_residual_4x4(src: &YuvPlaneView, recon_plane: &Plane, x: usize, y: usize, residual: &i16) void {
+    var row: usize = 0;
+    while row < 4 {
+        var col: usize = 0;
+        while col < 4 {
+            const src_value: byte = encoder_inter_sample_plane_clamped(src, x + col, y + row);
+            const predicted: byte = recon_plane.origin[((y + row) * recon_plane.stride) + x + col];
+            residual[(row * 4) + col] = ((src_value as i32) - (predicted as i32)) as i16;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn encoder_inter_build_y_dct_blocks(frame: &YuvFrameView, current: &FrameBuffer, mb_x: usize, mb_y: usize, y_dct: &i16, y2_input: &i16) void {
+    var block_y: usize = 0;
+    while block_y < 4 {
+        var block_x: usize = 0;
+        while block_x < 4 {
+            const block_index: usize = (block_y * (4 as usize)) + block_x;
+            const x: usize = (mb_x * (16 as usize)) + (block_x * (4 as usize));
+            const y: usize = (mb_y * (16 as usize)) + (block_y * (4 as usize));
+            var residual: [i16: 16] = [];
+            encoder_inter_build_residual_4x4(&frame.y, &current.y.plane, x, y, &residual[0] as &i16);
+            forward_dct_4x4(&residual[0] as &i16, 4, &y_dct[block_index * (16 as usize)] as &i16);
+            y2_input[block_index] = y_dct[block_index * (16 as usize)];
+            y_dct[block_index * (16 as usize)] = 0 as i16;
+            block_x = block_x + 1;
+        }
+        block_y = block_y + 1;
+    }
+}
+
+fn encoder_inter_encode_y_blocks(
+    writer: &BoolWriter,
+    probs: &Vp8Probs,
+    coeff_ctx: &AboveLeftCoeffContext,
+    frame: &YuvFrameView,
+    current: &FrameBuffer,
+    factors: &DequantFactors,
+    mb_x: usize,
+    mb_y: usize
+) !usize {
+    var y_dct: [i16: 256] = [];
+    var y_qcoeff: [i16: 256] = [];
+    var y_dqcoeff: [i16: 16] = [];
+    var y2_input: [i16: 16] = [];
+    var y2_dct: [i16: 16] = [];
+    var y2_qcoeff: [i16: 16] = [];
+    var y2_dqcoeff: [i16: 16] = [];
+    var y2_dequantized: [i16: 16] = [];
+    var y2_dc: [i16: 16] = [];
+    var nonzero_coefficients: usize = 0;
+
+    encoder_inter_build_y_dct_blocks(frame, current, mb_x, mb_y, &y_dct[0] as &i16, &y2_input[0] as &i16);
+    forward_walsh_hadamard_y2_4x4(&y2_input[0] as &i16, 4, &y2_dct[0] as &i16);
+    _ = try quantize_block_4x4(&y2_dct[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_qcoeff[0] as &i16, &y2_dqcoeff[0] as &i16);
+
+    const y2_context: CoeffContextPair = try coeff_context_get_y2(coeff_ctx, mb_x);
+    const y2_summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+        writer,
+        probs,
+        1,
+        0,
+        y2_context.above,
+        y2_context.left,
+        &y2_qcoeff[0] as &i16
+    );
+    nonzero_coefficients = nonzero_coefficients + (y2_summary.coefficient_count as usize);
+    try coeff_context_store_y2_after_decode(coeff_ctx, mb_x, y2_summary.has_coeff as byte);
+
+    dequant_block_4x4(&y2_qcoeff[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_dequantized[0] as &i16);
+    inverse_walsh_hadamard_y2_4x4(&y2_dequantized[0] as &i16, &y2_dc[0] as &i16);
+
+    var block_y: usize = 0;
+    while block_y < 4 {
+        var block_x: usize = 0;
+        while block_x < 4 {
+            const block_index: usize = (block_y * (4 as usize)) + block_x;
+            const block_base: usize = block_index * (16 as usize);
+            const x: usize = (mb_x * (16 as usize)) + (block_x * (4 as usize));
+            const y: usize = (mb_y * (16 as usize)) + (block_y * (4 as usize));
+            _ = try quantize_block_4x4(&y_dct[block_base] as &i16, factors.y1_dc, factors.y1_ac, &y_qcoeff[block_base] as &i16, &y_dqcoeff[0] as &i16);
+            const context: CoeffContextPair = try coeff_context_get_y(coeff_ctx, mb_x, block_x, block_y);
+            const summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+                writer,
+                probs,
+                0,
+                1,
+                context.above,
+                context.left,
+                &y_qcoeff[block_base] as &i16
+            );
+            nonzero_coefficients = nonzero_coefficients + (summary.coefficient_count as usize);
+            try coeff_context_store_y_after_decode(coeff_ctx, mb_x, block_x, block_y, (summary.has_coeff || y2_dc[block_index] != (0 as i16)) as byte);
+            try reconstruct_y_block_with_y2_dc(
+                &y_qcoeff[block_base] as &i16,
+                y2_dc[block_index],
+                factors.y1_ac,
+                &current.y.plane.origin[(y * current.y.plane.stride) + x] as &byte,
+                current.y.plane.stride,
+                summary.has_coeff
+            );
+            block_x = block_x + 1;
+        }
+        block_y = block_y + 1;
+    }
+
+    return nonzero_coefficients;
+}
+
+fn encoder_inter_encode_uv_plane_blocks(
+    writer: &BoolWriter,
+    probs: &Vp8Probs,
+    coeff_ctx: &AboveLeftCoeffContext,
+    src: &YuvPlaneView,
+    recon_plane: &Plane,
+    factors: &DequantFactors,
+    mb_x: usize,
+    mb_y: usize,
+    is_v: bool
+) !usize {
+    var nonzero_coefficients: usize = 0;
+    var block_y: usize = 0;
+    while block_y < 2 {
+        var block_x: usize = 0;
+        while block_x < 2 {
+            const x: usize = (mb_x * (8 as usize)) + (block_x * (4 as usize));
+            const y: usize = (mb_y * (8 as usize)) + (block_y * (4 as usize));
+            var residual: [i16: 16] = [];
+            var dct: [i16: 16] = [];
+            var qcoeff: [i16: 16] = [];
+            var dqcoeff: [i16: 16] = [];
+            encoder_inter_build_residual_4x4(src, recon_plane, x, y, &residual[0] as &i16);
+            forward_dct_4x4(&residual[0] as &i16, 4, &dct[0] as &i16);
+            _ = try quantize_block_4x4(&dct[0] as &i16, factors.uv_dc, factors.uv_ac, &qcoeff[0] as &i16, &dqcoeff[0] as &i16);
+            var context: CoeffContextPair = CoeffContextPair{ above: 0 as byte, left: 0 as byte };
+            if is_v {
+                context = try coeff_context_get_v(coeff_ctx, mb_x, block_x, block_y);
+            } else {
+                context = try coeff_context_get_u(coeff_ctx, mb_x, block_x, block_y);
+            }
+            const summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+                writer,
+                probs,
+                2,
+                0,
+                context.above,
+                context.left,
+                &qcoeff[0] as &i16
+            );
+            nonzero_coefficients = nonzero_coefficients + (summary.coefficient_count as usize);
+            if is_v {
+                try coeff_context_store_v_after_decode(coeff_ctx, mb_x, block_x, block_y, summary.has_coeff as byte);
+            } else {
+                try coeff_context_store_u_after_decode(coeff_ctx, mb_x, block_x, block_y, summary.has_coeff as byte);
+            }
+            try reconstruct_quantized_block_4x4(
+                &qcoeff[0] as &i16,
+                factors.uv_dc,
+                factors.uv_ac,
+                &recon_plane.origin[(y * recon_plane.stride) + x] as &byte,
+                recon_plane.stride,
+                summary.dc_only
+            );
+            block_x = block_x + 1;
+        }
+        block_y = block_y + 1;
+    }
+    return nonzero_coefficients;
+}
+
+fn encoder_inter_encode_tokens(
+    writer: &BoolWriter,
+    grid: &MacroblockGrid,
+    refs: &EncoderReferenceFramePool,
+    kernels: &KernelFunctionTable,
+    frame: &YuvFrameView,
+    quant: &Vp8QuantHeader,
+    probs: &Vp8Probs,
+    border_extension_count: &usize,
+    nonzero_coefficient_count: &usize
+) !void {
+    const factors: DequantFactors = build_dequant_factors(quant);
+    var coeff_ctx: AboveLeftCoeffContext = try allocate_above_left_coeff_context(grid);
+    defer free_above_left_coeff_context(&coeff_ctx);
+
+    var mb_y: usize = 0;
+    while mb_y < grid.mb_rows {
+        try coeff_context_start_row(&coeff_ctx);
+        var mb_x: usize = 0;
+        while mb_x < grid.mb_cols {
+            const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, 0 as i16, 0 as i16);
+            border_extension_count[0] = border_extension_count[0] + prediction.border_extension_count;
+            const current: &FrameBuffer = try encoder_reference_current(refs);
+            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_y_blocks(writer, probs, &coeff_ctx, frame, current, &factors, mb_x, mb_y));
+            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.u, &current.u.plane, &factors, mb_x, mb_y, false));
+            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.v, &current.v.plane, &factors, mb_x, mb_y, true));
+            mb_x = mb_x + 1;
+        }
+        mb_y = mb_y + 1;
+    }
+}
+
+fn encoder_inter_writer_capacity(base: usize, mb_count: usize, per_mb: usize) !usize {
+    return try encoder_inter_checked_add(base, try encoder_inter_checked_mul(mb_count, per_mb));
+}
+
+export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
+    config: &EncoderConfig,
+    kernels: &KernelFunctionTable,
+    refs: &EncoderReferenceFramePool,
+    frame: &YuvFrameView,
+    out: &byte,
+    out_len: usize
+) !EncoderInterFrameEncodeStats {
+    try encoder_inter_validate_input(config, refs, frame, out, out_len);
+
+    const grid: MacroblockGrid = try macroblock_grid_for_frame(config.width, config.height);
+    const first_capacity: usize = try encoder_inter_writer_capacity(ENCODER_INTER_FIRST_BASE_CAPACITY, grid.mb_count, ENCODER_INTER_FIRST_BYTES_PER_MB);
+    const token_capacity: usize = try encoder_inter_writer_capacity(ENCODER_INTER_TOKEN_BASE_CAPACITY, grid.mb_count, ENCODER_INTER_TOKEN_BYTES_PER_MB);
+    const first_buf: &byte = malloc(first_capacity) as &byte;
+    if first_buf == null {
+        return error.ErrEncoderInterFrameOutOfMemory;
+    }
+    defer free(first_buf as &void);
+    const token_buf: &byte = malloc(token_capacity) as &byte;
+    if token_buf == null {
+        return error.ErrEncoderInterFrameOutOfMemory;
+    }
+    defer free(token_buf as &void);
+
+    var first_writer: BoolWriter = make_bool_writer(first_buf, first_capacity);
+    var token_writers: [BoolWriter: 8] = [];
+    token_writers[0] = make_bool_writer(token_buf, token_capacity);
+
+    const quant: Vp8QuantHeader = encoder_inter_make_quant(config);
+    const probs: Vp8Probs = vp8_default_probs();
+    var border_extension_count: usize = 0;
+    var nonzero_coefficient_count: usize = 0;
+
+    try encoder_inter_write_fixed_header_bits(&first_writer, config);
+    try encoder_inter_write_mode_map(&first_writer, &grid);
+    try encoder_inter_encode_tokens(
+        &token_writers[0] as &BoolWriter,
+        &grid,
+        refs,
+        kernels,
+        frame,
+        &quant,
+        &probs,
+        &border_extension_count,
+        &nonzero_coefficient_count
+    );
+
+    const ivf_header: IvfHeader = IvfHeader{
+        version: 0,
+        header_size: ENCODER_INTER_IVF_HEADER_BYTES as u16,
+        width: config.width as u16,
+        height: config.height as u16,
+        timebase_denominator: config.fps_numerator,
+        timebase_numerator: config.fps_denominator,
+        frame_count: 1,
+        unused: 0
+    };
+    try write_ivf_header(out, out_len, &ivf_header);
+
+    const payload_offset: usize = ENCODER_INTER_IVF_HEADER_BYTES + ENCODER_INTER_IVF_FRAME_HEADER_BYTES;
+    const partition_offset: usize = payload_offset + VP8_FRAME_TAG_BYTES;
+    const partition_output: EncoderBoolPartitionOutput = try write_encoder_bool_partition_output(
+        out,
+        out_len,
+        partition_offset,
+        &first_writer,
+        &token_writers[0] as &BoolWriter,
+        1 as u8
+    );
+    const vp8_payload_size: usize = try encoder_inter_checked_add(VP8_FRAME_TAG_BYTES, partition_output.payload_size);
+    if vp8_payload_size > ENCODER_INTER_U32_MAX {
+        return error.ErrEncoderInterFrameOutOfBounds;
+    }
+
+    const tag: Vp8FrameTag = Vp8FrameTag{
+        frame_type: 1 as u8,
+        version: 0 as u8,
+        show_frame: true,
+        first_partition_size: partition_output.first_partition_size as u32
+    };
+    try write_vp8_frame_tag(out, out_len, payload_offset, &tag);
+
+    try write_ivf_frame_header(out, out_len, ENCODER_INTER_IVF_HEADER_BYTES, vp8_payload_size as u32, 0);
+
+    return EncoderInterFrameEncodeStats{
+        written_len: try encoder_inter_checked_add(payload_offset, vp8_payload_size),
+        border_extension_count: border_extension_count,
+        nonzero_coefficient_count: nonzero_coefficient_count
+    };
+}
