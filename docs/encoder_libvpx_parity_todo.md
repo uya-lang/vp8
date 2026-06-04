@@ -32,7 +32,7 @@ Date: 2026-06-04
   - 验收产物：未来 `summary.json` 包含 `vp8uya_psnr_all_db` 和 `libvpx_psnr_all_db`。
 - [x] 固化 `PSNR-all` 硬阈值。
   - 验收：当 `vp8uya_psnr_all_db < libvpx_psnr_all_db - 0.50` 时，未来门禁返回非 0。
-- [ ] 固化速度指标名。
+- [x] 固化速度指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_fps` 和 `libvpx_fps`。
 - [ ] 固化 fps 硬阈值。
   - 验收：当 `vp8uya_fps < libvpx_fps * 0.80` 时，未来门禁返回非 0。
