@@ -420,3 +420,43 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_decode_context_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_api_decoder_test.uya`
 - `make test-token-partition-md5`
+
+## Reference Refresh Avoids Full-frame Copies
+
+Status: passed.
+
+Evidence:
+
+- `frame_pool_refresh_references(...)` implements refresh by marking the
+  current frame border dirty, decrementing the old logical reference slot count,
+  assigning `last_slot`, `golden_slot`, and/or `altref_slot` to
+  `current_slot`, and incrementing that slot refcount. It does not call a plane
+  copy, frame copy, or `memcpy` path.
+- `FramePool.bytes_copied_for_ref_refresh` is initialized to zero and is only
+  read for decoder/encoder performance stats. It is not incremented in the
+  normal refresh path; any future full-plane fallback must make that statistic
+  non-zero.
+- `frame_pool_begin_frame(...)` only reuses or switches to a slot that is not a
+  logical reference and has no outstanding decoded-frame lease. If all slots are
+  protected, it returns `ErrFramePoolNoFreeSlot` instead of copying frame data to
+  manufacture a free slot.
+- Decoder `decoder_decode_frame(...)` snapshots
+  `bytes_copied_for_ref_refresh` before frame parsing and reports the per-frame
+  delta through `DecoderFramePerformanceStats`. Existing key-frame and
+  inter-frame decoder tests assert that this delta remains zero.
+- Encoder refresh helpers are thin wrappers over the same frame-pool refresh
+  function. Encoder reference-pool and golden/altref refresh-policy tests verify
+  that refreshed logical refs alias the reconstructed current frame and that
+  `encoder_reference_bytes_copied(...)` remains zero.
+- `docs/design.md` records the invariant that full-plane copy is only an
+  explicit fallback and must be counted through
+  `bytes_copied_for_ref_refresh`; normal decode expects the metric to be zero.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_reference_pool_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_refresh_policy_test.uya`
+- `make test-keyframe-md5`
+- `make test-inter-md5`
