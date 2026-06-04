@@ -53,6 +53,7 @@ use vp8.kernels.scalar.variance_4x4;
 use vp8.kernels.scalar.variance_8x8;
 use vp8.kernels.scalar.variance_16x16;
 use vp8.kernels.simd.add_residual_4x4_clamped_u8x16;
+use vp8.kernels.simd.absdiff_u8x16;
 use vp8.kernels.simd.I16x8Pair;
 use vp8.kernels.simd.inverse_transform_4x4_batch_i32x4;
 use vp8.kernels.simd.inverse_transform_dc_only_4x4_i16x16;
@@ -284,6 +285,33 @@ test "SIMD helper narrows i16x16 to saturated u8x16" {
     const narrowed: TestU8x16 = narrow_i16x16_to_u8x16_sat(values);
     var actual: [u8: 16] = [];
     store_u8x16(&actual[0] as &u8, narrowed);
+
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD helper computes u8x16 absolute differences" {
+    var a: [u8: 16] = [
+        0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8,
+        128u8, 129u8, 200u8, 201u8, 252u8, 253u8, 254u8, 255u8
+    ];
+    var b: [u8: 16] = [
+        0u8, 2u8, 1u8, 30u8, 4u8, 50u8, 60u8, 7u8,
+        255u8, 0u8, 199u8, 255u8, 0u8, 250u8, 1u8, 128u8
+    ];
+    var expected: [u8: 16] = [
+        0u8, 1u8, 1u8, 27u8, 0u8, 45u8, 54u8, 0u8,
+        127u8, 129u8, 1u8, 54u8, 252u8, 3u8, 253u8, 127u8
+    ];
+
+    const av: TestU8x16 = load_u8x16(&a[0] as &u8);
+    const bv: TestU8x16 = load_u8x16(&b[0] as &u8);
+    const diff: TestU8x16 = absdiff_u8x16(av, bv);
+    var actual: [u8: 16] = [];
+    store_u8x16(&actual[0] as &u8, diff);
 
     var index: usize = 0;
     while index < 16 {

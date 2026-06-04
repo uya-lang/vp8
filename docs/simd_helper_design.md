@@ -118,3 +118,30 @@ Fallback and testing:
   above-range values.
 - Existing `store_clipped_i16x16_to_u8` now reuses this helper before doing an
   unaligned 16-byte store.
+
+## `absdiff_u8x16`
+
+Purpose: compute per-lane absolute pixel differences for two `u8x16` values.
+This is the primitive needed by SAD, variance, loop-filter threshold checks, and
+mode-search costs when the source and predictor pixels are already loaded as
+vectors.
+
+Contract:
+
+- Output lane `N` is `abs(a[N] - b[N])`.
+- Inputs are interpreted as unsigned pixels, so `abs(0u8 - 255u8)` is `255u8`.
+- The helper never wraps through unsigned subtraction; it promotes each lane
+  before subtracting.
+- Lane order is unchanged.
+- The result is representable in `u8` because the maximum pixel difference is
+  255.
+- Current implementation stores both vectors to local arrays, computes each
+  lane with `i16` intermediates, and reloads `u8x16`. A future unsigned absdiff
+  builtin or target-specific intrinsic must preserve the same unsigned
+  interpretation.
+
+Fallback and testing:
+
+- Scalar fallback is sixteen unsigned pixel differences.
+- `src/vp8_kernels_simd_test.uya` covers equal lanes, increasing differences,
+  decreasing differences, and 0/255 extremes.
