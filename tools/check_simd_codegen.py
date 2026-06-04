@@ -98,6 +98,12 @@ HELPERS = (
         "kind": "helper",
         "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
     },
+    {
+        "name": "transpose_4x4_i16",
+        "symbol": "vp8_kernels_simd_transpose_4x4_i16",
+        "kind": "helper",
+        "vector_structs": ("struct uya_simd_vector_int16_t_16",),
+    },
 )
 
 SIMD_KERNELS = (

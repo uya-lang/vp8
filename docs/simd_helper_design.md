@@ -170,3 +170,27 @@ Fallback and testing:
 - `src/vp8_kernels_simd_test.uya` checks a mixed high/low input vector with a
   known total.
 - `sad_row_16_u8x16` now uses this helper for the 16-wide row case.
+
+## `transpose_4x4_i16`
+
+Purpose: transpose a row-major 4x4 block carried in one `i16x16` value. VP8
+transform code repeatedly crosses between row and column passes, so this helper
+defines the exact lane mapping that a future shuffle-based implementation must
+preserve.
+
+Contract:
+
+- Input lane `row * 4 + col` becomes output lane `col * 4 + row`.
+- Both input and output are row-major 4x4 layouts.
+- All values are copied exactly; no arithmetic, clamping, or rounding occurs.
+- Current implementation stores to a local 16-lane array and performs explicit
+  gather/scatter because UYA does not yet expose vector shuffle/permute.
+
+Fallback and testing:
+
+- Scalar fallback is the same nested 4x4 copy.
+- `src/vp8_kernels_simd_test.uya` verifies a block with distinct row/column
+  values, making lane swaps visible.
+- The helper is intended for transform staging. Refactoring existing DCT/IDCT
+  code to use it can be done after benchmark/codegen evidence shows the helper
+  is not adding extra hot-path cost.
