@@ -740,6 +740,28 @@ def evaluate_thresholds(result: dict[str, Any]) -> dict[str, Any]:
     return evaluated
 
 
+def evaluate_result_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {
+            "passed": False,
+            "failure_reasons": [f"failed to read result JSON {path}: {exc}"],
+        }
+    except json.JSONDecodeError as exc:
+        return {
+            "passed": False,
+            "failure_reasons": [f"failed to parse result JSON {path}: {exc}"],
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "passed": False,
+            "failure_reasons": [f"result JSON {path} must contain an object"],
+        }
+    return evaluate_thresholds(data)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare vp8uya encoder output against libvpx")
     parser.add_argument(
@@ -766,6 +788,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--prepare-sample-dirs",
         action="store_true",
         help="create real Y4M and converted I420 cache directories",
+    )
+    parser.add_argument(
+        "--evaluate-result-json",
+        type=Path,
+        help="read one benchmark result JSON object, apply hard thresholds, and return non-zero on failure",
     )
     parser.add_argument(
         "--y4m-cache-dir",
@@ -803,8 +830,12 @@ def main(argv: list[str]) -> int:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.evaluate_result_json is not None:
+        report = evaluate_result_json(args.evaluate_result_json)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["passed"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, or --prepare-sample-dirs", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
     return 2
 
 

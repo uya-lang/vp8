@@ -116,6 +116,45 @@ def assert_fps_threshold(module: object) -> None:
     assert any("fps_ratio" in reason for reason in failing["failure_reasons"])
 
 
+def assert_threshold_cli_return_codes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        passing_path = tmp_path / "passing.json"
+        failing_path = tmp_path / "failing.json"
+        passing_path.write_text(json.dumps(make_result()), encoding="utf-8")
+        failing_path.write_text(
+            json.dumps(make_result(vp8uya_bits_per_pixel=1.11, libvpx_bits_per_pixel=1.0)),
+            encoding="utf-8",
+        )
+
+        passing = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--evaluate-result-json", str(passing_path)],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if passing.returncode != 0:
+            raise AssertionError(passing.stdout)
+        passing_report = json.loads(passing.stdout)
+        assert passing_report["passed"] is True
+
+        failing = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--evaluate-result-json", str(failing_path)],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert failing.returncode != 0
+        failing_report = json.loads(failing.stdout)
+        assert failing_report["passed"] is False
+        assert failing_report["bitrate_ratio"] == 1.11
+        assert any("bitrate_ratio" in reason for reason in failing_report["failure_reasons"])
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -531,6 +570,7 @@ def main() -> int:
     assert_bitrate_threshold(module)
     assert_psnr_threshold(module)
     assert_fps_threshold(module)
+    assert_threshold_cli_return_codes()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

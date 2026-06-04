@@ -26,7 +26,7 @@ Date: 2026-06-04
   - 验收：设计文档和未来报告模板都出现 `vpxenc --best`。
 - [x] 固化码率指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_bits_per_pixel` 和 `libvpx_bits_per_pixel`。
-- [ ] 固化码率硬阈值。
+- [x] 固化码率硬阈值。
   - 验收：当 `vp8uya_bits_per_pixel > libvpx_bits_per_pixel * 1.10` 时，未来门禁返回非 0。
 - [ ] 固化质量指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_psnr_all_db` 和 `libvpx_psnr_all_db`。
