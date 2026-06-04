@@ -423,7 +423,7 @@
 - [x] 建立 SIMD 默认启用 benchmark 阈值表。
 - [x] 向 UYA 编译器反馈/实现 vector shuffle 需求。
 - [x] 向 UYA 编译器反馈/实现 vector widening/narrowing 需求。
-- [ ] 向 UYA 编译器反馈/实现 saturating arithmetic 需求。
+- [x] 向 UYA 编译器反馈/实现 saturating arithmetic 需求。
 
 ## 高风险检查清单
 

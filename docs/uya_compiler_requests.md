@@ -108,3 +108,55 @@ Fallback status in this repository:
   portable helper contracts.
 - `bench/kernel_thresholds.json` keeps widening/narrowing helper-backed targets
   disabled until codegen and benchmark evidence pass.
+
+## Saturating Arithmetic
+
+Requested capability:
+
+- Extend vector saturating operators or builtins to unsigned integer vectors,
+  especially `u8x16` and `u16x8`.
+- Provide explicit saturating narrow/pack forms such as
+  `@vector.narrow_sat(u8, value)` for `i16/i32 -> u8` pixel writes.
+- Keep signed saturating arithmetic for `i16/i32` vectors, which already works
+  in current UYA tests, and add unsigned variants without changing signed
+  behavior.
+- If operator spelling stays as `+|`, `-|`, and `*|`, type checking should
+  accept unsigned vectors with unsigned saturation bounds. Named builtins such as
+  `@vector.add_sat_unsigned` are also acceptable if clearer.
+
+VP8 blockers:
+
+- `narrow_i16x16_to_u8x16_sat` currently clamps each lane with scalar branches
+  before reloading a `u8x16`.
+- Residual add, prediction, and loop-filter output paths repeatedly need pixel
+  clamp semantics `[0, 255]`.
+- Simple and normal loop filters need signed-byte clamps around intermediate
+  filter values as well as unsigned pixel clamps on final writes.
+- Current UYA negative coverage rejects unsigned vector saturating operators,
+  so portable VP8 code cannot express native unsigned pixel saturation yet.
+
+Expected semantics:
+
+- `u8x16` saturating add clamps at `255`; for example `250 +| 10 == 255`.
+- `u8x16` saturating subtract clamps at `0`; for example `5 -| 10 == 0`.
+- Saturating narrow to `u8` maps negative values to `0`, values in range
+  unchanged, and values above `255` to `255`.
+- Signed vector saturation must keep signed min/max bounds and must not be
+  reinterpreted as unsigned.
+- Overflow behavior must be defined by the vector operation, not delegated to C
+  signed-overflow or implementation-defined casts.
+
+Suggested VP8 regression tests:
+
+- Unsigned `u8x16` add/sub around `0`, `1`, `254`, and `255`.
+- `i16x16 -> u8x16` saturating narrow over `-300, -1, 0, 1, 255, 256, 1024`.
+- Residual add clamp and loopfilter edge helpers produce byte-exact output when
+  scalar clamp helpers are replaced by native saturating operations.
+- Existing signed saturating tests keep passing for `i16` / `i32` vectors.
+
+Fallback status in this repository:
+
+- `narrow_i16x16_to_u8x16_sat` and `loopfilter_edge_u8x16` are the current
+  scalar-lane contracts for unsigned pixel saturation.
+- `docs/simd_gaps.md` records the current unsigned saturating operator rejection
+  evidence.
