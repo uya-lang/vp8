@@ -272,3 +272,46 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_token_parse_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_coeff_context_test.uya`
 - `make test-decoder-scalar`
+
+## MV Clamp And Sub-pixel Reference Border
+
+Status: passed.
+
+Evidence:
+
+- `clamp_inter_motion_vector` validates frame/block geometry, derives the
+  per-axis min/max bounds from the macroblock origin and visible
+  `frame_size - block_size` extent in eighth-pel units, and preserves the
+  parsed MV mode while clamping x/y. `inter_motion_vector_inside_frame` uses
+  the same bounds for validation.
+- Decoder inter-mode parsing clamps parsed LAST/GOLDEN/ALTREF motion vectors
+  before storing them in `MacroblockInfo`. The current decoder reconstruction
+  path explicitly rejects luma sub-pixel inter MVs with
+  `ErrDecoderUnsupportedSubpixelInterFrame`, so this evidence is scoped to the
+  supported integer inter decoder path plus encoder sub-pixel motion search.
+- Supported decoder and encoder integer inter prediction both extend the
+  selected reference frame before copying from it. The encoder regression for a
+  negative integer MV proves a left-border luma sample is read from the
+  replicated reference edge.
+- Encoder motion search extends the last-frame reference before integer-pel
+  SAD and half/quarter-pel refinement. Sub-pixel refinement uses floor-div8
+  motion-vector splitting, derives x/y offsets in `0..7`, and accesses the
+  luma six-tap window at `ref_x - 2, ref_y - 2` with a 21x21 bounds check, so
+  edge candidates read the reference border rather than unextended memory.
+- `src/vp8_encoder_motion_search_test.uya` now constructs a top-left
+  macroblock from the extended reference border at negative half-pel offset,
+  then verifies refinement finds `mv_x = -4`, `mv_y = -4`, zero distortion,
+  and `border_extension_count == 3`.
+- Existing frame and kernel tests cover border replication for Y/U/V planes,
+  scalar luma/chroma sub-pixel filtering, and SIMD luma sub-pixel filtering
+  against scalar byte-exact output.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_mode_parse_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_inter_prediction_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_motion_search_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_simd_test.uya`
+- `make test-inter-md5`

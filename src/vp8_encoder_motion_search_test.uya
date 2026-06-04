@@ -3,6 +3,8 @@ use std.testing.assert_eq_i32;
 use vp8.common.cpu.SimdCapabilities;
 use vp8.common.cpu.simd_detect_capabilities;
 use vp8.common.frame.FrameBuffer;
+use vp8.common.frame.frame_buffer_extend_border_counted;
+use vp8.common.frame.frame_buffer_mark_border_dirty;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
@@ -245,6 +247,44 @@ test "half quarter pel refinement finds vertical quarter-pel offset" {
     try assert_eq_i32(result.mv_x as i32, 0);
     try assert_eq_i32(result.mv_y as i32, 2);
     try assert_eq_i32(result.distortion as i32, 0);
+}
+
+test "half quarter pel refinement uses reference border at top left edge" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(32, 32, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_reference_pattern(seed);
+    try encoder_reference_refresh(&refs, true, false, false);
+
+    const last: &FrameBuffer = try encoder_reference_last(&refs);
+    try assert_eq_i32(frame_buffer_extend_border_counted(last) as i32, 3);
+
+    var predicted: [byte: 256] = [];
+    const border: usize = last.y.plane.border;
+    const window_index: usize = ((border - 3) * last.y.plane.stride) + (border - 3);
+    predict_luma_subpixel(&predicted[0] as &byte, 16, &last.y.plane.data[window_index] as &byte, last.y.plane.stride, 16, 16, 4 as u8, 4 as u8);
+    frame_buffer_mark_border_dirty(last);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 1536] = [];
+    var row: usize = 0;
+    while row < 16 {
+        var col: usize = 0;
+        while col < 16 {
+            input[(row * 32) + col] = predicted[(row * 16) + col];
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 1536, 32, 32);
+    const result: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel(&refs, &frame, 0, 0, 0 as i16, 0 as i16);
+
+    try assert_eq_i32(result.mv_x as i32, -4);
+    try assert_eq_i32(result.mv_y as i32, -4);
+    try assert_eq_i32(result.distortion as i32, 0);
+    try assert_eq_i32(result.border_extension_count as i32, 3);
 }
 
 test "half quarter pel refinement can use forced SIMD sub-pixel predictor" {
