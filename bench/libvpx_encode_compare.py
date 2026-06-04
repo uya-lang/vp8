@@ -89,6 +89,22 @@ def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[st
     )
 
 
+def first_nonempty_line(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def extract_help_version(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if "WebM Project VP8" in stripped and ("Encoder" in stripped or "Decoder" in stripped):
+            return stripped
+    return ""
+
+
 def attach_tool_metadata(lookup: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(lookup)
     path = enriched.get("path")
@@ -106,13 +122,14 @@ def attach_tool_metadata(lookup: dict[str, Any]) -> dict[str, Any]:
     version_completed = run_command([str(path), "--version"], REPO_ROOT)
     stdout = version_completed.stdout.strip()
     stderr = version_completed.stderr.strip()
-    version_lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    if not version_lines:
-        version_lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    version_line = first_nonempty_line(stdout)
+    if not version_line:
+        version_line = first_nonempty_line(stderr)
     enriched["version_returncode"] = version_completed.returncode
     enriched["version_stdout"] = stdout
     enriched["version_stderr"] = stderr
-    enriched["version"] = version_lines[0] if version_lines else ""
+    enriched["version"] = version_line
+    enriched["version_source"] = "version" if version_completed.returncode == 0 else "version-error"
 
     if version_completed.returncode == 0:
         enriched["probe_command"] = [str(path), "--version"]
@@ -122,10 +139,18 @@ def attach_tool_metadata(lookup: dict[str, Any]) -> dict[str, Any]:
         return enriched
 
     help_completed = run_command([str(path), "--help"], REPO_ROOT)
+    help_stdout = help_completed.stdout.strip()
+    help_stderr = help_completed.stderr.strip()
     enriched["probe_command"] = [str(path), "--help"]
     enriched["probe_returncode"] = help_completed.returncode
-    enriched["probe_stdout"] = help_completed.stdout.strip()
-    enriched["probe_stderr"] = help_completed.stderr.strip()
+    enriched["probe_stdout"] = help_stdout
+    enriched["probe_stderr"] = help_stderr
+    help_version = extract_help_version(help_stdout)
+    if not help_version:
+        help_version = extract_help_version(help_stderr)
+    if help_version:
+        enriched["version"] = help_version
+        enriched["version_source"] = "help"
     if help_completed.returncode != 0:
         enriched["error"] = f"{path} --help failed with exit {help_completed.returncode}"
     return enriched
@@ -290,6 +315,8 @@ def probe_tools(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
         ),
         "vpxenc": vpxenc,
         "vpxdec": vpxdec,
+        "vpxenc_version": vpxenc["version"],
+        "vpxdec_version": vpxdec["version"],
     }
 
 

@@ -136,6 +136,23 @@ def write_fake_executable(path: Path) -> None:
     path.chmod(path.stat().st_mode | 0o111)
 
 
+def write_fake_help_version_tool(path: Path, version_line: str) -> None:
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"--version\" ]; then\n"
+        "  echo unsupported >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "if [ \"$1\" = \"--help\" ]; then\n"
+        f"  echo '{version_line}'\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+
+
 def assert_vpxenc_env_lookup(module: object) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         fake = Path(tmp) / "fake-vpxenc"
@@ -197,6 +214,31 @@ def assert_probe_tools_path_lookup() -> None:
         assert report["vpxdec"]["path"] == str(tmp_path / "vpxdec")
         assert report["vpxdec"]["version_returncode"] == 0
         assert report["vpxdec"]["probe_returncode"] == 0
+
+
+def assert_probe_tools_help_version_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        write_fake_help_version_tool(tmp_path / "vpxenc", "vp8 - WebM Project VP8 Encoder v9.8.7")
+        write_fake_help_version_tool(tmp_path / "vpxdec", "vp8 - WebM Project VP8 Decoder v9.8.7")
+        env = dict(os.environ)
+        env["PATH"] = str(tmp_path)
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--probe-tools"],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        report = json.loads(completed.stdout)
+        assert report["vpxenc_version"] == "vp8 - WebM Project VP8 Encoder v9.8.7"
+        assert report["vpxenc"]["version_source"] == "help"
+        assert report["vpxdec_version"] == "vp8 - WebM Project VP8 Decoder v9.8.7"
+        assert report["vpxdec"]["version_source"] == "help"
 
 
 def assert_extracted_dir_lookup(module: object) -> None:
@@ -271,6 +313,7 @@ def main() -> int:
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)
     assert_probe_tools_path_lookup()
+    assert_probe_tools_help_version_fallback()
     assert_extracted_dir_lookup(module)
     assert_fetch_vpx_tools_download(module)
     assert_extract_vpx_tools(module)

@@ -52,8 +52,8 @@ Date: 2026-06-04
 - [x] 校验工具可执行。
   - 验收：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `probe_returncode=0`。
   - 证据：Deepin/Debian `vpx-tools 1.12.0` 的 `vpxenc --version`、`vpxdec --version` 返回 1；脚本保留 `version_returncode`，并使用 `--help` 作为可执行性 probe。
-- [ ] 记录工具版本。
-  - 验收：后续 `summary.json` 包含 `vpxenc_version` 和 `vpxdec_version`。
+- [x] 记录工具版本。
+  - 验收：`python3 bench/libvpx_encode_compare.py --probe-tools` JSON 包含 `vpxenc_version` 和 `vpxdec_version`；后续 `summary.json` 复用同名字段。
 - [ ] 工具缺失时给出明确错误。
   - 验收：无环境变量、PATH 和下载缓存时，脚本返回非 0，并提示如何获取 `vpx-tools`。
 
