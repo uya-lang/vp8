@@ -500,3 +500,39 @@ Verification:
 - `make test-examples`
 - `make test-keyframe-md5`
 - `make test-inter-md5`
+
+## Multi-threaded Output Matches Single-threaded Output
+
+Status: passed.
+
+Evidence:
+
+- CLI `--threads N` is parsed before decode commands and passed into
+  `allocate_decoder_context_with_thread_scratch(...)` for IVF and WebM subset
+  decoding, so the CLI parity gate exercises the public worker-count switch
+  rather than a test-only path.
+- `allocate_decoder_context_with_thread_scratch(...)` rejects zero workers,
+  preallocates isolated row scratch arenas per worker, and records the worker
+  count in `DecoderFramePerformanceStats.thread_count`. Existing decode-context
+  tests verify worker scratch isolation and per-worker row reset behavior.
+- The current scalar key-frame and inter-frame row loops still call
+  `decoder_context_begin_worker_row(decoder.context, 0)` and
+  `decoder_context_worker_scratch(decoder.context, 0)` for each reconstructed
+  row. A worker count greater than one therefore changes preallocated
+  thread-local scratch and reported stats, but it does not select a different
+  row scheduling, token decode, reconstruction, loop-filter, or reference
+  refresh algorithm.
+- `tests/single_vs_multithread.py` generates the tracked manifest samples,
+  decodes each sample with `--threads 1` and `--threads 4`, checks both visible
+  YUV sizes, compares the single-thread MD5 against the expected manifest MD5,
+  and requires the four-thread MD5 to match the single-thread MD5.
+- `tests/multithread_malformed.py` runs malformed IVF and VP8 payloads through
+  `--threads 4` CLI commands with per-command timeouts, proving the
+  multi-worker configuration still returns controlled success/error results
+  instead of hanging on invalid inputs.
+
+Verification:
+
+- `make test-single-vs-multithread`
+- `make test-multithread-malformed`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_decode_context_test.uya`

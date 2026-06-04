@@ -442,4 +442,4 @@
 - [x] coefficient scratch 没有整帧无界 materialization。
 - [x] reference refresh 没有正常路径整帧 copy。
 - [x] borrowed `DecodedFrame` 生命周期不会迫使默认 decode 隐式复制。
-- [ ] 多线程路径和单线程输出一致。
+- [x] 多线程路径和单线程输出一致。
