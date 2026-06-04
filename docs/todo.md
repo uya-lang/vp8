@@ -391,7 +391,7 @@
 ## Phase 17: 发布硬化
 
 - [x] 完整错误码文档。
-- [ ] CLI 文档。
+- [x] CLI 文档。
 - [ ] Kernel benchmark 报告。
 - [ ] Decoder conformance 报告。
 - [ ] Encoder quality 报告。

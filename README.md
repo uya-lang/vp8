@@ -25,6 +25,8 @@ Current command surface:
 - `vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>` writes one
   decoded visible frame by IVF frame index.
 
+Full command documentation lives in `docs/cli.md`.
+
 ## Build
 
 The Makefile builds `build/vp8uya` from `src/main.uya`:
@@ -97,6 +99,7 @@ exits.
 decodes it through the CLI, and checks the YUV MD5.
 `make test-error-codes-doc` verifies `docs/error_codes.md` lists every UYA
 error declaration under `src/`.
+`make test-cli-doc` verifies `docs/cli.md` covers every current CLI usage line.
 `make test-examples` builds and runs the library API examples.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
