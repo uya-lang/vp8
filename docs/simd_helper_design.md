@@ -224,3 +224,37 @@ Fallback and testing:
 - `predict_luma_subpixel_horizontal_u8x16` and
   `predict_luma_subpixel_vertical_u8x16` now use this helper for full 16-lane
   spans and keep the existing 4-lane/tail paths for smaller blocks.
+
+## `loopfilter_edge_u8x16`
+
+Purpose: apply the VP8 simple loop filter edge update to sixteen independent
+lanes. Each lane represents one p1/p0/q0/q1 neighborhood crossing an edge; the
+helper returns the updated p0/q0 vectors while leaving p1/q1 unchanged.
+
+Contract:
+
+- Inputs `p1`, `p0`, `q0`, and `q1` contain corresponding edge neighborhoods in
+  lanes `0..15`.
+- A lane is filtered only when
+  `2 * abs(p0 - q0) + (abs(p1 - q1) >> 1) <= limit`.
+- Lanes that do not pass the edge predicate return their original p0/q0 values.
+- Passing lanes use the VP8 simple edge update:
+  `filter = signed_clamp(signed_clamp(p1 - q1) + 3 * (q0 - p0))`, then p0/q0
+  are adjusted with `signed_clamp(filter + 3) >> 3` for p0 and
+  `signed_clamp(filter + 4) >> 3` for q0, then clipped to `[0, 255]`.
+- The result is a `LoopFilterEdgeResultU8x16` carrying updated `p0` and `q0`
+  vectors. Lane order is unchanged.
+- Current implementation stores the four inputs to local lane arrays and applies
+  the scalar edge update per lane. This defines behavior while UYA lacks vector
+  compare masks and saturating signed-byte arithmetic.
+
+Fallback and testing:
+
+- Scalar fallback is sixteen calls to the existing simple loop-filter sample
+  update.
+- `src/vp8_kernels_simd_test.uya` checks mixed passing/failing lanes with known
+  p0/q0 outputs.
+- `loop_filter_simple_vertical_edge_u8x16` and
+  `loop_filter_simple_horizontal_edge_u8x16` now use this helper for full
+  16-lane spans. Normal and macroblock loop-filter helpers still use their
+  wider p3..q3 scalar-lane logic until a separate wide-edge contract is defined.

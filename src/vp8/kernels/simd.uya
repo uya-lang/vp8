@@ -41,6 +41,11 @@ struct SimdSumSseResult {
     sse: u32
 }
 
+export struct LoopFilterEdgeResultU8x16 {
+    p0: U8x16,
+    q0: U8x16
+}
+
 const SIMD_VP8_COSPI8_SQRT2_MINUS_1: i32 = 20091;
 const SIMD_VP8_SINPI8_SQRT2: i32 = 35468;
 const SIMD_VP8_SUBPIXEL_FILTERS: [i16: 48] = [
@@ -997,16 +1002,36 @@ fn apply_simple_loop_filter_values(p1: byte, p0: &byte, q0: &byte, q1: byte, lim
     p0[0] = simd_clip_i32_to_u8((p0_value as i32) + filter2);
 }
 
-fn simd_apply_simple_loop_filter_sample(base: &byte, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, limit: u8) void {
-    apply_simple_loop_filter_values(base[p1_index], &base[p0_index] as &byte, &base[q0_index] as &byte, base[q1_index], limit);
-}
+export fn loopfilter_edge_u8x16(p1: U8x16, p0: U8x16, q0: U8x16, q1: U8x16, limit: u8) LoopFilterEdgeResultU8x16 {
+    var p1_lanes: [u8: 16] = [];
+    var p0_lanes: [u8: 16] = [];
+    var q0_lanes: [u8: 16] = [];
+    var q1_lanes: [u8: 16] = [];
+    store_u8x16(&p1_lanes[0] as &u8, p1);
+    store_u8x16(&p0_lanes[0] as &u8, p0);
+    store_u8x16(&q0_lanes[0] as &u8, q0);
+    store_u8x16(&q1_lanes[0] as &u8, q1);
 
-fn apply_simple_loop_filter_lanes(p1: &byte, p0: &byte, q0: &byte, q1: &byte, limit: u8, lanes: usize) void {
     var lane: usize = 0;
-    while lane < lanes {
-        apply_simple_loop_filter_values(p1[lane], &p0[lane] as &byte, &q0[lane] as &byte, q1[lane], limit);
+    while lane < 16 {
+        apply_simple_loop_filter_values(
+            p1_lanes[lane],
+            &p0_lanes[lane] as &byte,
+            &q0_lanes[lane] as &byte,
+            q1_lanes[lane],
+            limit
+        );
         lane = lane + 1;
     }
+
+    return LoopFilterEdgeResultU8x16{
+        p0: load_u8x16(&p0_lanes[0] as &u8),
+        q0: load_u8x16(&q0_lanes[0] as &u8)
+    };
+}
+
+fn simd_apply_simple_loop_filter_sample(base: &byte, p1_index: usize, p0_index: usize, q0_index: usize, q1_index: usize, limit: u8) void {
+    apply_simple_loop_filter_values(base[p1_index], &base[p0_index] as &byte, &base[q0_index] as &byte, base[q1_index], limit);
 }
 
 export fn loop_filter_simple_vertical_edge_u8x16(base: &byte, stride: usize, edge_col: usize, rows: usize, limit: u8) void {
@@ -1028,7 +1053,15 @@ export fn loop_filter_simple_vertical_edge_u8x16(base: &byte, stride: usize, edg
             lane = lane + 1;
         }
 
-        apply_simple_loop_filter_lanes(&p1_lanes[0] as &byte, &p0_lanes[0] as &byte, &q0_lanes[0] as &byte, &q1_lanes[0] as &byte, limit, 16);
+        const filtered: LoopFilterEdgeResultU8x16 = loopfilter_edge_u8x16(
+            load_u8x16(&p1_lanes[0] as &u8),
+            load_u8x16(&p0_lanes[0] as &u8),
+            load_u8x16(&q0_lanes[0] as &u8),
+            load_u8x16(&q1_lanes[0] as &u8),
+            limit
+        );
+        store_u8x16(&p0_lanes[0] as &u8, filtered.p0);
+        store_u8x16(&q0_lanes[0] as &u8, filtered.q0);
 
         lane = 0;
         while lane < 16 {
@@ -1056,26 +1089,13 @@ export fn loop_filter_simple_horizontal_edge_u8x16(base: &byte, stride: usize, e
 
     var col: usize = 0;
     while (col + 16) <= cols {
-        var p1_lanes: [byte: 16] = [];
-        var p0_lanes: [byte: 16] = [];
-        var q0_lanes: [byte: 16] = [];
-        var q1_lanes: [byte: 16] = [];
-
         const p1_values: U8x16 = load_u8x16(&base[p1_base + col] as &u8);
         const p0_values: U8x16 = load_u8x16(&base[p0_base + col] as &u8);
         const q0_values: U8x16 = load_u8x16(&base[q0_base + col] as &u8);
         const q1_values: U8x16 = load_u8x16(&base[q1_base + col] as &u8);
-        store_u8x16(&p1_lanes[0] as &u8, p1_values);
-        store_u8x16(&p0_lanes[0] as &u8, p0_values);
-        store_u8x16(&q0_lanes[0] as &u8, q0_values);
-        store_u8x16(&q1_lanes[0] as &u8, q1_values);
-
-        apply_simple_loop_filter_lanes(&p1_lanes[0] as &byte, &p0_lanes[0] as &byte, &q0_lanes[0] as &byte, &q1_lanes[0] as &byte, limit, 16);
-
-        const filtered_p0: U8x16 = load_u8x16(&p0_lanes[0] as &u8);
-        const filtered_q0: U8x16 = load_u8x16(&q0_lanes[0] as &u8);
-        store_u8x16(&base[p0_base + col] as &u8, filtered_p0);
-        store_u8x16(&base[q0_base + col] as &u8, filtered_q0);
+        const filtered: LoopFilterEdgeResultU8x16 = loopfilter_edge_u8x16(p1_values, p0_values, q0_values, q1_values, limit);
+        store_u8x16(&base[p0_base + col] as &u8, filtered.p0);
+        store_u8x16(&base[q0_base + col] as &u8, filtered.q0);
         col = col + 16;
     }
 

@@ -69,6 +69,8 @@ use vp8.kernels.simd.loop_filter_normal_mb_vertical_edge_u8x16;
 use vp8.kernels.simd.loop_filter_normal_vertical_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_horizontal_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
+use vp8.kernels.simd.LoopFilterEdgeResultU8x16;
+use vp8.kernels.simd.loopfilter_edge_u8x16;
 use vp8.kernels.simd.narrow_i16x16_to_u8x16_sat;
 use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.filter6_u8x16;
@@ -405,6 +407,52 @@ test "SIMD helper applies VP8 six-tap filter to u8x16 lanes" {
     var index: usize = 0;
     while index < 16 {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD helper applies simple loopfilter edge to u8x16 lanes" {
+    var p1: [u8: 16] = [
+        10u8, 20u8, 30u8, 40u8, 50u8, 60u8, 70u8, 80u8,
+        90u8, 100u8, 110u8, 120u8, 130u8, 140u8, 150u8, 160u8
+    ];
+    var p0: [u8: 16] = [
+        12u8, 30u8, 60u8, 100u8, 120u8, 140u8, 200u8, 250u8,
+        0u8, 20u8, 40u8, 80u8, 160u8, 180u8, 220u8, 240u8
+    ];
+    var q0: [u8: 16] = [
+        18u8, 35u8, 80u8, 90u8, 130u8, 160u8, 210u8, 245u8,
+        30u8, 70u8, 45u8, 75u8, 150u8, 220u8, 225u8, 235u8
+    ];
+    var q1: [u8: 16] = [
+        20u8, 22u8, 35u8, 42u8, 70u8, 90u8, 75u8, 82u8,
+        95u8, 105u8, 200u8, 122u8, 135u8, 145u8, 151u8, 161u8
+    ];
+    var expected_p0: [u8: 16] = [
+        13u8, 32u8, 60u8, 96u8, 121u8, 140u8, 203u8, 248u8,
+        0u8, 20u8, 40u8, 78u8, 156u8, 180u8, 222u8, 238u8
+    ];
+    var expected_q0: [u8: 16] = [
+        17u8, 33u8, 80u8, 94u8, 129u8, 160u8, 207u8, 247u8,
+        30u8, 70u8, 45u8, 77u8, 154u8, 220u8, 223u8, 237u8
+    ];
+
+    const filtered: LoopFilterEdgeResultU8x16 = loopfilter_edge_u8x16(
+        load_u8x16(&p1[0] as &u8),
+        load_u8x16(&p0[0] as &u8),
+        load_u8x16(&q0[0] as &u8),
+        load_u8x16(&q1[0] as &u8),
+        40u8
+    );
+    var actual_p0: [u8: 16] = [];
+    var actual_q0: [u8: 16] = [];
+    store_u8x16(&actual_p0[0] as &u8, filtered.p0);
+    store_u8x16(&actual_q0[0] as &u8, filtered.q0);
+
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual_p0[index] as i32, expected_p0[index] as i32);
+        try assert_eq_i32(actual_q0[index] as i32, expected_q0[index] as i32);
         index = index + 1;
     }
 }
