@@ -43,7 +43,7 @@ Date: 2026-06-04
   - 验收：设置 `VPXDEC=/tmp/fake-vpxdec` 时 helper 优先返回该路径或报告该路径不可执行。
 - [x] 支持 PATH 查找。
   - 验收命令：`python3 <future-script> --probe-tools` 能打印 PATH 中发现的 `vpxenc`、`vpxdec`。
-- [ ] 支持 `build/deps/vpx-tools-root/usr/bin/` 查找。
+- [x] 支持 `build/deps/vpx-tools-root/usr/bin/` 查找。
   - 验收：把 `vpxenc`、`vpxdec` 放入该目录后，不设置环境变量也能发现。
 - [ ] 支持无 sudo 下载 `vpx-tools`。
   - 验收命令：`apt-get download vpx-tools` 在 `build/deps/` 下生成 `.deb`。

@@ -195,6 +195,23 @@ def assert_probe_tools_path_lookup() -> None:
         assert report["vpxdec"]["path"] == str(tmp_path / "vpxdec")
 
 
+def assert_extracted_dir_lookup(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        write_fake_executable(tmp_path / "vpxenc")
+        write_fake_executable(tmp_path / "vpxdec")
+
+        vpxenc = module.find_vpx_tool("vpxenc", "VPXENC", env={}, path="", extracted_dir=tmp_path)
+        assert vpxenc["path"] == str(tmp_path / "vpxenc")
+        assert vpxenc["source"] == "extracted"
+        assert vpxenc["error"] is None
+
+        vpxdec = module.find_vpx_tool("vpxdec", "VPXDEC", env={}, path="", extracted_dir=tmp_path)
+        assert vpxdec["path"] == str(tmp_path / "vpxdec")
+        assert vpxdec["source"] == "extracted"
+        assert vpxdec["error"] is None
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -205,6 +222,7 @@ def main() -> int:
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)
     assert_probe_tools_path_lookup()
+    assert_extracted_dir_lookup(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],
