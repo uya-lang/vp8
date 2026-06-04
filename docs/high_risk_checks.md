@@ -202,3 +202,40 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_level_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
+
+## Y2 Block Mode Selection
+
+Status: passed.
+
+Evidence:
+
+- VP8 residue syntax uses a Y2 block for macroblocks that are not intra
+  `B_PRED` and are not inter `SPLITMV`. The supported decoder inter path is
+  non-split, so inter-coded macroblocks now read Y2 before Y1 tokens.
+- Key-frame token decode already gates Y2 on `y_mode != VP8_Y_MODE_B`; the
+  accompanying Y1 blocks use block type 0 from position 1 when Y2 is present
+  and block type 3 from position 0 for `B_PRED`.
+- Inter-frame token decode now uses the same predicate for current-frame intra
+  macroblocks, and treats supported non-current inter macroblocks as Y2-bearing.
+  It clears/stores Y2 summaries, updates Y contexts with either Y1 coefficients
+  or non-zero Y2 DC, and reconstructs Y blocks with optional Y2 DC.
+- `src/vp8_decoder_scalar_test.uya` now builds a key-frame `B_PRED` macroblock
+  whose token stream contains no Y2 block and whose first luma DC coefficient is
+  decoded from Y1. The test checks the decoded y mode, all 16 B modes, and the
+  reconstructed luma/chroma samples.
+- The same decoder test now builds an inter LAST/ZERO-MV macroblock with a
+  non-zero Y2 token followed by Y1 EOB tokens from position 1. The decoded
+  reference prediction gains the expected luma residual while chroma stays
+  unchanged.
+- Tiny IVF fixture generation now writes inter-copy token partitions with Y2
+  EOB followed by Y1 position-1 EOB tokens, matching the supported inter
+  non-split syntax.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_mode_parse_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_token_parse_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
+- `make test-inter-md5`
+- `make test`

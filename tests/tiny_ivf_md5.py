@@ -328,8 +328,9 @@ def write_token_partitions(sample: Sample, mb_cols: int, mb_rows: int) -> list[b
 def write_inter_token_partition(mb_count: int) -> bytes:
     writer = BoolWriter(max(4096, 1024 + mb_count * 8))
     for _ in range(mb_count):
+        write_eob(writer, 1, 0, 0)
         for _ in range(16):
-            write_eob(writer, 0, 0, 0)
+            write_eob(writer, 0, 1, 0)
         for _ in range(8):
             write_eob(writer, 2, 0, 0)
     writer.flush()

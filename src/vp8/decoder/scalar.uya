@@ -498,6 +498,13 @@ fn coeff_context_store_macroblock_zero(coeff_ctx: &AboveLeftCoeffContext, mb_x: 
     }
 }
 
+fn macroblock_uses_y2(y_mode: byte, ref_frame: byte) bool {
+    if ref_frame != VP8_REF_CURRENT {
+        return true;
+    }
+    return y_mode != VP8_Y_MODE_B;
+}
+
 fn reconstruct_dequantized_block(kernels: &KernelFunctionTable, coefficients: &i16, dc_factor: i16, ac_factor: i16, dst: &byte, dst_stride: usize, dc_only: bool) !void {
     var dequantized: [i16: 16] = [];
     var residual: [i16: 16] = [];
@@ -954,29 +961,53 @@ fn predict_inter_macroblock(decoder: &Decoder, dst: &FrameBuffer, mb_x: usize, m
     return border_extension_count;
 }
 
-fn decode_inter_token_row(decoder: &Decoder, coeff_ctx: &AboveLeftCoeffContext, token_reader: &BoolReader, mb_y: usize, output: &TokenDecodeRowOutput) !void {
+fn decode_inter_token_row(decoder: &Decoder, factors: &DequantFactors, coeff_ctx: &AboveLeftCoeffContext, token_reader: &BoolReader, mb_y: usize, output: &TokenDecodeRowOutput) !void {
     var mb_x: usize = 0;
     while mb_x < decoder.context.grid.mb_cols {
         const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+        const y_mode: byte = decoder.context.mb_info.y_mode[mb_index];
+        const ref_frame: byte = decoder.context.mb_info.ref_frame[mb_index];
+        const has_y2: bool = macroblock_uses_y2(y_mode, ref_frame);
         const skip_coeff: bool = decoder.context.mb_info.skip_coeff[mb_index] != (0 as byte);
         var total_has_coeff: bool = false;
         var total_dc_only: bool = true;
         var total_count: byte = 0 as byte;
+        const y2_dc: &i16 = try token_decode_row_block_coefficients(output, mb_x, TOKEN_OUTPUT_BLOCK_Y2);
+        clear_i16_4x4(y2_dc);
         try token_output_store_empty_summary(output, mb_x, TOKEN_OUTPUT_BLOCK_Y2);
 
         if skip_coeff {
-            try coeff_context_store_macroblock_zero(coeff_ctx, mb_x, false);
+            try coeff_context_store_macroblock_zero(coeff_ctx, mb_x, has_y2);
         } else {
+            if has_y2 {
+                const y2_context: CoeffContextPair = try coeff_context_get_y2(coeff_ctx, mb_x);
+                const y2_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 1, 0, y2_context.above, y2_context.left, y2_dc);
+                add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y2_summary);
+                try token_output_store_summary(output, mb_x, TOKEN_OUTPUT_BLOCK_Y2, &y2_summary);
+                try coeff_context_store_y2_after_decode(coeff_ctx, mb_x, y2_summary.has_coeff as byte);
+                if y2_summary.has_coeff {
+                    var y2_dequantized: [i16: 16] = [];
+                    dequant_block_4x4(y2_dc, factors.y2_dc, factors.y2_ac, &y2_dequantized[0] as &i16);
+                    inverse_walsh_hadamard_y2_4x4(&y2_dequantized[0] as &i16, y2_dc);
+                }
+            }
+
             var y_block_y: usize = 0;
             while y_block_y < 4 {
                 var y_block_x: usize = 0;
                 while y_block_x < 4 {
                     const y_block_index: usize = token_output_y_block_index(y_block_x, y_block_y);
+                    var start_position: usize = 0;
+                    var block_type: usize = 3;
+                    if has_y2 {
+                        start_position = 1;
+                        block_type = 0;
+                    }
                     const y_context: CoeffContextPair = try coeff_context_get_y(coeff_ctx, mb_x, y_block_x, y_block_y);
-                    const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, 0, 0, y_context.above, y_context.left, try token_decode_row_block_coefficients(output, mb_x, y_block_index));
+                    const y_summary: CoefficientBlockSummary = try parse_block_coefficients_with_context(token_reader, &decoder.coeff_probs[0] as &byte, block_type, start_position, y_context.above, y_context.left, try token_decode_row_block_coefficients(output, mb_x, y_block_index));
                     add_summary_counts(&total_has_coeff, &total_dc_only, &total_count, &y_summary);
                     try token_output_store_summary(output, mb_x, y_block_index, &y_summary);
-                    try coeff_context_store_y_after_decode(coeff_ctx, mb_x, y_block_x, y_block_y, y_summary.has_coeff as byte);
+                    try coeff_context_store_y_after_decode(coeff_ctx, mb_x, y_block_x, y_block_y, (y_summary.has_coeff || (has_y2 && y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16))) as byte);
 
                     y_block_x = y_block_x + 1;
                 }
@@ -1017,13 +1048,17 @@ fn reconstruct_inter_token_row(decoder: &Decoder, frame: &FrameBuffer, factors: 
     var mb_x: usize = 0;
     while mb_x < decoder.context.grid.mb_cols {
         const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
+        const y_mode: byte = decoder.context.mb_info.y_mode[mb_index];
+        const ref_frame: byte = decoder.context.mb_info.ref_frame[mb_index];
+        const has_y2: bool = macroblock_uses_y2(y_mode, ref_frame);
         const skip_coeff: bool = decoder.context.mb_info.skip_coeff[mb_index] != (0 as byte);
+        const y2_dc: &i16 = try token_decode_row_block_coefficients(output, mb_x, TOKEN_OUTPUT_BLOCK_Y2);
 
-        if decoder.context.mb_info.ref_frame[mb_index] == VP8_REF_CURRENT {
+        if ref_frame == VP8_REF_CURRENT {
             predict_key_frame_y16(decoder, frame, mb_x, mb_y);
             predict_key_frame_uv(decoder, frame, mb_x, mb_y);
         } else {
-            border_extension_count = border_extension_count + (try predict_inter_macroblock(decoder, frame, mb_x, mb_y, decoder.context.mb_info.ref_frame[mb_index], decoder.context.mb_info.mv_x[mb_index], decoder.context.mb_info.mv_y[mb_index]));
+            border_extension_count = border_extension_count + (try predict_inter_macroblock(decoder, frame, mb_x, mb_y, ref_frame, decoder.context.mb_info.mv_x[mb_index], decoder.context.mb_info.mv_y[mb_index]));
         }
 
         if !skip_coeff {
@@ -1032,8 +1067,13 @@ fn reconstruct_inter_token_row(decoder: &Decoder, frame: &FrameBuffer, factors: 
                 var y_block_x: usize = 0;
                 while y_block_x < 4 {
                     const y_block_index: usize = token_output_y_block_index(y_block_x, y_block_y);
-                    if try token_output_has_coeff(output, mb_x, y_block_index) {
-                        const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
+                    const y_has_coeff: bool = try token_output_has_coeff(output, mb_x, y_block_index);
+                    const y_dst_offset: usize = (((mb_y * (16 as usize)) + (y_block_y * (4 as usize))) * frame.y.plane.stride) + (mb_x * (16 as usize)) + (y_block_x * (4 as usize));
+                    if has_y2 {
+                        if y_has_coeff || y2_dc[(y_block_y * (4 as usize)) + y_block_x] != (0 as i16) {
+                            try reconstruct_y_block_with_optional_y2_dc(&decoder.kernels, try token_decode_row_block_coefficients(output, mb_x, y_block_index), y2_dc[(y_block_y * (4 as usize)) + y_block_x], factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, y_has_coeff);
+                        }
+                    } else if y_has_coeff {
                         try reconstruct_dequantized_block(&decoder.kernels, try token_decode_row_block_coefficients(output, mb_x, y_block_index), factors.y1_dc, factors.y1_ac, &frame.y.plane.origin[y_dst_offset] as &byte, frame.y.plane.stride, try token_output_dc_only(output, mb_x, y_block_index));
                     }
                     y_block_x = y_block_x + 1;
@@ -1086,7 +1126,7 @@ fn decode_inter_macroblocks(decoder: &Decoder, frame: &FrameBuffer, quant: &Vp8Q
         try coeff_context_start_row(&coeff_ctx);
         const token_reader: &BoolReader = try decoder_token_reader_for_mb_row(token_readers, mb_y, token_partition_count);
         const row_output: TokenDecodeRowOutput = try allocate_token_decode_row_output(row_scratch, decoder.context.grid.mb_cols);
-        try decode_inter_token_row(decoder, &coeff_ctx, token_reader, mb_y, &row_output);
+        try decode_inter_token_row(decoder, &factors, &coeff_ctx, token_reader, mb_y, &row_output);
         try coeff_scratch_note_bytes_written(row_scratch, row_output_bytes);
         border_extension_count = border_extension_count + (try reconstruct_inter_token_row(decoder, frame, &factors, mb_y, &row_output));
         try coeff_scratch_note_bytes_read(row_scratch, row_output_bytes);
