@@ -1,16 +1,17 @@
 # vp8uya
 
 `vp8uya` is a pure UYA VP8 codec project. The first target is a bit-exact
-VP8 decoder for IVF and raw VP8 payloads. Encoder support, SIMD kernels, row
-parallelism, and broader container support are planned after the scalar
-decoder is correct.
+VP8 decoder for IVF, raw VP8 payloads, and a minimal WebM VP8 subset. Encoder
+support, SIMD kernels, row parallelism, and broader container support are
+planned after the scalar decoder is correct.
 
 ## Current Status
 
 This repository has a scalar decoder work-in-progress. It can parse IVF
-container metadata, decode the supported scalar VP8 path for tiny built-in
-samples, and write visible I420 YUV output. Broader conformance coverage,
-SIMD, parallelism, and encoder support are still pending.
+container metadata and a minimal WebM VP8 subset, decode the supported scalar
+VP8 path for tiny built-in samples, and write visible I420 YUV output. Broader
+conformance coverage, SIMD, parallelism, and encoder support are still
+pending.
 
 Current command surface:
 
@@ -18,8 +19,9 @@ Current command surface:
 - `vp8uya version`
 - `vp8uya info <input.ivf>` prints IVF width, height, frame count, timebase,
   fps, and the number of bounded frame payloads found.
-- `vp8uya decode <input.ivf> --yuv <out.yuv>` writes decoded I420 output for
-  supported scalar VP8 frames.
+- `vp8uya decode <input.ivf|input.webm> --yuv <out.yuv>` writes decoded I420
+  output for supported scalar VP8 frames. WebM support is limited to the
+  minimal VP8 subset demuxer and the first matching SimpleBlock sample.
 - `vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>` writes one
   decoded visible frame by IVF frame index.
 
@@ -91,6 +93,8 @@ and checks `decode`/`decode-frame` error exits while `info` still succeeds.
 `make test-fuzz-smoke` generates deterministic random IVF blobs and valid IVF
 containers with random VP8 payloads, accepting only success or controlled error
 exits.
+`make test-webm-subset-decode` generates a minimal WebM VP8 subset sample,
+decodes it through the CLI, and checks the YUV MD5.
 `make test-examples` builds and runs the library API examples.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips

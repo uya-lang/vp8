@@ -384,7 +384,7 @@
 
 验收标准：
 
-- [ ] WebM subset 样本可 decode。
+- [x] WebM subset 样本可 decode。
 - [x] RTP packet loss/malformed 有明确错误。
 - [x] API examples 可构建运行。
 

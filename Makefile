@@ -36,6 +36,8 @@ MULTITHREAD_MALFORMED_DIR := $(BUILD_DIR)/multithread-malformed
 MULTITHREAD_MALFORMED_SCRIPT := tests/multithread_malformed.py
 FUZZ_SMOKE_DIR := $(BUILD_DIR)/fuzz-smoke
 FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
+WEBM_SUBSET_DIR := $(BUILD_DIR)/webm-subset
+WEBM_SUBSET_SCRIPT := tests/webm_subset_decode.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 ENCODE_CLI_DIR := $(BUILD_DIR)/encode-cli
@@ -54,7 +56,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -158,6 +160,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(MAKE) test-malformed-vp8
 	$(MAKE) test-multithread-malformed
 	$(MAKE) test-fuzz-smoke
+	$(MAKE) test-webm-subset-decode
 	$(MAKE) test-scalar-vs-simd
 	$(MAKE) test-single-vs-multithread
 	$(MAKE) test-asm-x86
@@ -218,6 +221,9 @@ test-multithread-malformed: build
 
 test-fuzz-smoke: build
 	python3 $(FUZZ_SMOKE_SCRIPT) $(BIN) $(FUZZ_SMOKE_DIR)
+
+test-webm-subset-decode: build
+	VP8UYA_FORCE_SCALAR=1 python3 $(WEBM_SUBSET_SCRIPT) $(BIN) $(WEBM_SUBSET_DIR)
 
 test-vpxdiff: build
 	python3 $(VPXDIFF_SCRIPT) $(VPXDIFF_DIR) $(BIN)

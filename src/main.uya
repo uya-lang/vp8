@@ -30,6 +30,12 @@ use vp8.container.ivf.make_ivf_frame_iterator;
 use vp8.container.ivf.parse_ivf_header;
 use vp8.container.raw.write_yuv420_frame;
 use vp8.container.raw.yuv420_frame_size;
+use vp8.container.webm_subset.WebmSegmentInfo;
+use vp8.container.webm_subset.WebmSubsetDemuxer;
+use vp8.container.webm_subset.WebmVp8Sample;
+use vp8.container.webm_subset.parse_webm_first_vp8_sample;
+use vp8.container.webm_subset.parse_webm_segment_info;
+use vp8.container.webm_subset.parse_webm_subset;
 use vp8.decoder.scalar.Decoder;
 use vp8.decoder.scalar.DecoderFrameResult;
 use vp8.decoder.scalar.decoder_decode_frame;
@@ -71,6 +77,7 @@ error ErrCliScratchCapacityOverflow;
 error ErrEncodeBitrateUnavailable;
 error ErrEncodeQualityUnavailable;
 error ErrInvalidSpeedPreset;
+error ErrCliWebmGeometryOverflow;
 
 const CLI_MIN_ROW_SCRATCH_CAPACITY: usize = 65536;
 const CLI_ENCODE_BITRATE_TOLERANCE_PPM: u32 = 100000;
@@ -93,7 +100,7 @@ fn print_help() void {
     _ = printf("  vp8uya [--force-scalar|--force-simd] [--threads N] <command> [args]\n");
     _ = printf("  vp8uya version\n");
     _ = printf("  vp8uya info <input.ivf>\n");
-    _ = printf("  vp8uya decode <input.ivf> --yuv <out.yuv> [--stats <out.jsonl>]\n");
+    _ = printf("  vp8uya decode <input.ivf|input.webm> --yuv <out.yuv> [--stats <out.jsonl>]\n");
     _ = printf("  vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>\n");
     _ = printf("  vp8uya encode <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
 }
@@ -356,6 +363,119 @@ fn make_cli_kernel_table(force_scalar: bool, force_simd: bool) KernelFunctionTab
     return make_scalar_kernel_table();
 }
 
+fn file_looks_like_webm_subset(file: &FileBuffer) bool {
+    if file.len < 4 {
+        return false;
+    }
+    return file.data[0] == (0x1a as byte) &&
+        file.data[1] == (0x45 as byte) &&
+        file.data[2] == (0xdf as byte) &&
+        file.data[3] == (0xa3 as byte);
+}
+
+fn webm_dimension_to_usize(value: u64) !usize {
+    const converted: usize = value as usize;
+    if converted == 0 || (converted as u64) != value {
+        return error.ErrCliWebmGeometryOverflow;
+    }
+    return converted;
+}
+
+fn run_decode_webm_subset(file: &FileBuffer, output_path: &byte, stats_path: &byte, force_scalar: bool, force_simd: bool, thread_count: usize) i32 {
+    const demux: WebmSubsetDemuxer = parse_webm_subset(file.data, file.len) catch {
+        _ = printf("error: invalid WebM subset\n");
+        return 2;
+    };
+    const info: WebmSegmentInfo = parse_webm_segment_info(&demux.segment) catch {
+        _ = printf("error: invalid WebM segment info\n");
+        return 2;
+    };
+    const sample: WebmVp8Sample = parse_webm_first_vp8_sample(&demux.segment, &info) catch {
+        _ = printf("error: invalid WebM VP8 sample\n");
+        return 2;
+    };
+
+    const width: usize = webm_dimension_to_usize(info.video_track.pixel_width) catch {
+        _ = printf("error: invalid WebM video geometry\n");
+        return 2;
+    };
+    const height: usize = webm_dimension_to_usize(info.video_track.pixel_height) catch {
+        _ = printf("error: invalid WebM video geometry\n");
+        return 2;
+    };
+    const row_scratch_capacity: usize = cli_row_scratch_capacity(width) catch {
+        _ = printf("error: invalid decode scratch geometry\n");
+        return 2;
+    };
+
+    var context: DecoderContext = allocate_decoder_context_with_thread_scratch(width, height, 32, 32, row_scratch_capacity, thread_count) catch {
+        _ = printf("error: failed to allocate decoder context\n");
+        return 2;
+    };
+    defer free_decoder_context(&context);
+    var decoder: Decoder = make_cli_decoder(&context, force_scalar, force_simd);
+
+    const out: &FILE = fopen(output_path as *byte, "wb\0" as &byte);
+    if out == null {
+        _ = printf("error: failed to open output file\n");
+        return 2;
+    }
+
+    var stats: &FILE = null as &FILE;
+    if stats_path != null {
+        stats = fopen(stats_path as *byte, "wb\0" as &byte);
+        if stats == null {
+            _ = fclose(out);
+            _ = printf("error: failed to open stats file\n");
+            return 2;
+        }
+    }
+
+    var result: DecoderFrameResult = decoder_decode_frame(&decoder, sample.payload.data, sample.payload.len) catch {
+        _ = fclose(out);
+        if stats != null {
+            _ = fclose(stats);
+        }
+        _ = printf("error: failed to decode VP8 frame\n");
+        return 2;
+    };
+
+    write_result_yuv(&result, out) catch {
+        _ = decoded_frame_release(&result.output) catch {};
+        _ = fclose(out);
+        if stats != null {
+            _ = fclose(stats);
+        }
+        _ = printf("error: failed to write YUV output\n");
+        return 2;
+    };
+
+    write_result_stats(&result, 0, stats) catch {
+        _ = decoded_frame_release(&result.output) catch {};
+        _ = fclose(out);
+        if stats != null {
+            _ = fclose(stats);
+        }
+        _ = printf("error: failed to write decode stats\n");
+        return 2;
+    };
+
+    _ = decoded_frame_release(&result.output) catch {
+        _ = fclose(out);
+        if stats != null {
+            _ = fclose(stats);
+        }
+        _ = printf("error: failed to release decoded frame\n");
+        return 2;
+    };
+
+    if stats != null {
+        _ = fclose(stats);
+    }
+    _ = fclose(out);
+    return 0;
+}
+
 fn run_decode(input_path: &byte, output_path: &byte, stats_path: &byte, force_scalar: bool, force_simd: bool, thread_count: usize) i32 {
     const file: FileBuffer = read_file(input_path) catch {
         _ = printf("error: failed to read input file\n");
@@ -364,6 +484,9 @@ fn run_decode(input_path: &byte, output_path: &byte, stats_path: &byte, force_sc
     defer free(file.data as &void);
 
     const header: IvfHeader = parse_ivf_header(file.data, file.len) catch {
+        if file_looks_like_webm_subset(&file) {
+            return run_decode_webm_subset(&file, output_path, stats_path, force_scalar, force_simd, thread_count);
+        }
         _ = printf("error: invalid IVF header\n");
         return 2;
     };
@@ -718,7 +841,7 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
     }
     if strcmp(cmd as *const byte, "decode\0" as *const byte) == 0 {
         if (argc as usize) < command_index + 4 {
-            _ = printf("error: decode requires <input.ivf> --yuv <out.yuv> [--stats <out.jsonl>]\n");
+            _ = printf("error: decode requires <input.ivf|input.webm> --yuv <out.yuv> [--stats <out.jsonl>]\n");
             return 2;
         }
         if strcmp(argv[command_index + 2] as *const byte, "--yuv\0" as *const byte) != 0 {
