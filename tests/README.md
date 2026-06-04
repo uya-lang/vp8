@@ -12,6 +12,8 @@ malformed IVF and malformed VP8 payload corpus checks plus deterministic fuzz
 smoke.
 `make test-decoder-scalar` runs the same decoder suite with
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
+`make ci-scalar-only` runs the scalar-only CI gate for decoder goldens, WebM
+subset decode, malformed-input corpora, and minimized fuzz representatives.
 `make test-scalar-vs-simd` decodes the built-in IVF samples with
 `--force-scalar` and `--force-simd`, then compares YUV MD5 values and writes a
 manifest under `build/scalar-vs-simd/`.

@@ -62,7 +62,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-cli-doc test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only test test-cli-doc test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -103,6 +103,17 @@ check-simd-codegen: require-uya
 
 check-kernel-thresholds:
 	python3 $(KERNEL_THRESHOLDS_SCRIPT) $(KERNEL_THRESHOLDS)
+
+ci-scalar-only: build check-toolchain $(SAMPLE_IVF)
+	VP8UYA_FORCE_SCALAR=1 $(MAKE) test-decoder-scalar
+	$(BIN) --force-scalar version >/dev/null
+	VP8UYA_FORCE_SCALAR=1 $(BIN) version >/dev/null
+	$(BIN) --force-scalar info $(SAMPLE_IVF) | grep -q 'ivf.frame_count=1'
+	VP8UYA_FORCE_SCALAR=1 $(BIN) info $(SAMPLE_IVF) | grep -q 'ivf.frame_count=1'
+	VP8UYA_FORCE_SCALAR=1 $(MAKE) test-webm-subset-decode
+	VP8UYA_FORCE_SCALAR=1 $(MAKE) test-malformed-ivf
+	VP8UYA_FORCE_SCALAR=1 $(MAKE) test-malformed-vp8
+	VP8UYA_FORCE_SCALAR=1 $(MAKE) test-fuzz-minimized
 
 test-cli-doc: build
 	python3 $(CLI_DOC_SCRIPT) $(CLI_DOC) $(BIN)

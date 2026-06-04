@@ -397,7 +397,7 @@
 - [x] Encoder quality 报告。
 - [x] Fuzz corpus 最小化。
 - [x] CI: build/test/bench smoke。
-- [ ] CI: scalar-only。
+- [x] CI: scalar-only。
 - [ ] CI: SIMD enabled。
 - [ ] CI: optional libvpx diff。
 - [ ] 版本号和 changelog。

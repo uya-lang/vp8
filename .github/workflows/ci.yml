@@ -44,3 +44,27 @@ jobs:
 
       - name: Run benchmark smoke
         run: make bench-smoke
+
+  scalar-only:
+    runs-on: ubuntu-latest
+    env:
+      VP8UYA_FORCE_SCALAR: "1"
+
+    steps:
+      - name: Checkout vp8uya
+        uses: actions/checkout@v4
+
+      - name: Checkout UYA compiler source
+        uses: actions/checkout@v4
+        with:
+          repository: uya-lang/uya
+          path: .ci/uya-src
+
+      - name: Build and install UYA compiler
+        run: |
+          make -C .ci/uya-src from-c
+          make -C .ci/uya-src install PREFIX="$UYA_PREFIX"
+          "$UYA" -v
+
+      - name: Run scalar-only gate
+        run: make ci-scalar-only
