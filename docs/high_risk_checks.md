@@ -239,3 +239,36 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
 - `make test-inter-md5`
 - `make test`
+
+## EOB Context Updates
+
+Status: passed.
+
+Evidence:
+
+- `coefficient_eob_context(above, left)` maps the neighboring non-zero flags to
+  VP8's coefficient contexts 0, 1, and 2 by summing the above and left
+  `has_coeff` states.
+- `parse_block_coefficients_with_context` starts each block from that
+  above/left EOB context, then updates the in-block context after every
+  non-EOB token: ZERO selects context 0, ONE selects context 1, and larger
+  tokens select context 2. EOB stops the block without writing a coefficient.
+- Key-frame and inter-frame token decode store `summary.has_coeff` back into
+  `AboveLeftCoeffContext` for Y2, Y, U, and V blocks. Skip-coeff macroblocks
+  clear the relevant above/left contexts, while Y blocks with Y2 include
+  non-zero Y2 DC in the Y context state.
+- `src/vp8_decoder_scalar_test.uya` now includes a key-frame `B_PRED` fixture
+  whose first Y block writes `ZERO, ONE, EOB`. The following neighbor blocks
+  write their EOB tokens using the left/above context propagated from that
+  non-zero block, and the test checks the macroblock coefficient summary and
+  reconstructed samples.
+- Existing decoder fixtures cover UV left/above propagation and Y2-derived Y
+  context propagation, while `src/vp8_common_coeff_context_test.uya` verifies
+  row-start behavior preserves above contexts and clears left contexts.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_token_parse_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_coeff_context_test.uya`
+- `make test-decoder-scalar`

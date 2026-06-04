@@ -435,7 +435,7 @@
 - [x] loop filter level 为 0 时完全跳过。
 - [x] simple/normal filter 选择正确。
 - [x] Y2 block 只在对应 y mode 下使用。
-- [ ] EOB context 更新正确。
+- [x] EOB context 更新正确。
 - [ ] MV clamp 和 sub-pixel reference border 正确。
 - [ ] SIMD 路径所有极值输入与 scalar 一致。
 - [ ] SIMD 默认路径没有未审计的逐 lane 临时对象风暴或多余 `memcpy`。
