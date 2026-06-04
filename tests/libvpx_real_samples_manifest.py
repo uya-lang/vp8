@@ -59,6 +59,12 @@ def main() -> int:
         sha256="9b37e95ae2d06b3b173d6130965f450009216084bae12b2025248814baf057af",
         group="motion",
     )
+    assert_qcif_sample(
+        manifest,
+        name="coastguard_qcif",
+        sha256="94b615bcb5f89edc601b0e570a599ef584e066e647647b9b5d8b70fb8ebb0146",
+        group="pan",
+    )
     return 0
 
 

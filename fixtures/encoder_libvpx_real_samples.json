@@ -27,6 +27,16 @@
       "fps": "30000/1001",
       "sha256": "9b37e95ae2d06b3b173d6130965f450009216084bae12b2025248814baf057af",
       "groups": ["real", "qcif", "motion"]
+    },
+    {
+      "name": "coastguard_qcif",
+      "url": "https://media.xiph.org/video/derf/y4m/coastguard_qcif.y4m",
+      "width": 176,
+      "height": 144,
+      "frames": 60,
+      "fps": "30000/1001",
+      "sha256": "94b615bcb5f89edc601b0e570a599ef584e066e647647b9b5d8b70fb8ebb0146",
+      "groups": ["real", "qcif", "pan"]
     }
   ]
 }
