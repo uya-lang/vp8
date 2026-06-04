@@ -105,6 +105,23 @@ def evaluate_thresholds(result: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         failure_reasons.append(str(exc))
 
+    try:
+        vp8uya_fps = require_number(evaluated, "vp8uya_fps")
+        libvpx_fps = require_number(evaluated, "libvpx_fps")
+        if libvpx_fps <= 0.0:
+            evaluated["fps_ratio"] = 0.0
+            failure_reasons.append("libvpx_fps must be positive")
+        else:
+            fps_ratio = round(vp8uya_fps / libvpx_fps, 6)
+            evaluated["fps_ratio"] = fps_ratio
+            if fps_ratio < THRESHOLDS["min_fps_ratio"]:
+                failure_reasons.append(
+                    "fps_ratio "
+                    f"{fps_ratio:.6f} below min {THRESHOLDS['min_fps_ratio']:.6f}"
+                )
+    except ValueError as exc:
+        failure_reasons.append(str(exc))
+
     evaluated["failure_reasons"] = failure_reasons
     evaluated["passed"] = len(failure_reasons) == 0
     return evaluated
