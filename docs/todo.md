@@ -377,7 +377,7 @@
 - [x] 实现 WebM sample 到 VP8 payload。
 - [x] 实现 RTP VP8 payload descriptor parser。
 - [x] 实现 RTP packet reassembly。
-- [ ] 实现 decoder library API。
+- [x] 实现 decoder library API。
 - [ ] 实现 encoder library API。
 - [ ] 增加 C ABI 是否需要的设计讨论；默认不实现。
 - [ ] 增加 examples。

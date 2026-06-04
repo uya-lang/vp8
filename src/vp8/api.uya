@@ -1,0 +1,276 @@
+use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.SimdLevel;
+use vp8.common.cpu.simd_detect_capabilities;
+use vp8.common.cpu.simd_level_available;
+use vp8.common.decode_context.DecoderContext;
+use vp8.common.decode_context.DecoderFramePerformanceStats;
+use vp8.common.decode_context.allocate_decoder_context_with_thread_scratch;
+use vp8.common.decode_context.empty_decoder_context;
+use vp8.common.decode_context.empty_decoder_frame_performance_stats;
+use vp8.common.decode_context.free_decoder_context;
+use vp8.common.frame.DecodedFrame;
+use vp8.common.frame.FrameVisibleView;
+use vp8.common.frame.decoded_frame_release;
+use vp8.common.frame.empty_decoded_frame;
+use vp8.common.frame.empty_frame_visible_view;
+use vp8.common.scratch.token_decode_row_output_bytes;
+use vp8.common.scratch.token_decode_row_scratch_bytes;
+use vp8.decoder.scalar.Decoder;
+use vp8.decoder.scalar.DecoderFrameResult;
+use vp8.decoder.scalar.decoder_decode_frame;
+use vp8.decoder.scalar.make_decoder_with_kernel_table;
+use vp8.kernels.dispatch.KernelFunctionTable;
+use vp8.kernels.dispatch.make_forced_simd_kernel_table;
+use vp8.kernels.dispatch.make_scalar_kernel_table;
+
+error ErrVp8DecoderInvalidOptions;
+error ErrVp8DecoderInvalidState;
+error ErrVp8DecoderUnsupportedSimdLevel;
+
+export const VP8_DECODER_DEFAULT_BORDER: usize = 32;
+export const VP8_DECODER_DEFAULT_ALIGNMENT: usize = 32;
+export const VP8_DECODER_MIN_ROW_SCRATCH_CAPACITY: usize = 65536;
+
+export struct Vp8DecoderOptions {
+    width: usize,
+    height: usize,
+    border: usize,
+    alignment: usize,
+    row_scratch_capacity: usize,
+    thread_count: usize,
+    simd_level: SimdLevel
+}
+
+export struct Vp8DecoderStats {
+    decoded_frame_count: u64,
+    output_frame_count: u64,
+    last_performance: DecoderFramePerformanceStats
+}
+
+export struct Vp8DecodedFrame {
+    has_output: bool,
+    frame_index: u64,
+    key_frame: bool,
+    show_frame: bool,
+    view: FrameVisibleView,
+    borrowed: DecodedFrame,
+    released: bool,
+    performance: DecoderFramePerformanceStats
+}
+
+export struct Vp8Decoder {
+    context: DecoderContext,
+    scalar: Decoder,
+    initialized: bool,
+    frame_index: u64,
+    stats: Vp8DecoderStats
+}
+
+export fn empty_vp8_decoder_stats() Vp8DecoderStats {
+    return Vp8DecoderStats{
+        decoded_frame_count: 0 as u64,
+        output_frame_count: 0 as u64,
+        last_performance: empty_decoder_frame_performance_stats()
+    };
+}
+
+fn empty_scalar_decoder() Decoder {
+    const kernels: KernelFunctionTable = make_scalar_kernel_table();
+    return Decoder{
+        context: null as &DecoderContext,
+        kernels: kernels,
+        coeff_probs: [],
+        mv_probs: [],
+        y_mode_probs: [ 0, 0, 0, 0 ],
+        uv_mode_probs: [ 0, 0, 0 ]
+    };
+}
+
+export fn empty_vp8_decoder() Vp8Decoder {
+    return Vp8Decoder{
+        context: empty_decoder_context(),
+        scalar: empty_scalar_decoder(),
+        initialized: false,
+        frame_index: 0 as u64,
+        stats: empty_vp8_decoder_stats()
+    };
+}
+
+export fn empty_vp8_decoded_frame() Vp8DecodedFrame {
+    return Vp8DecodedFrame{
+        has_output: false,
+        frame_index: 0 as u64,
+        key_frame: false,
+        show_frame: false,
+        view: empty_frame_visible_view(),
+        borrowed: empty_decoded_frame(),
+        released: true,
+        performance: empty_decoder_frame_performance_stats()
+    };
+}
+
+fn vp8_decoder_checked_add(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrVp8DecoderInvalidOptions;
+    }
+    return value;
+}
+
+export fn vp8_decoder_default_row_scratch_capacity(width: usize) !usize {
+    if width == 0 {
+        return error.ErrVp8DecoderInvalidOptions;
+    }
+
+    const mb_cols: usize = (width + 15) / (16 as usize);
+    if mb_cols == 0 {
+        return error.ErrVp8DecoderInvalidOptions;
+    }
+
+    const row_output_bytes: usize = try token_decode_row_output_bytes(mb_cols);
+    const temp_bytes: usize = token_decode_row_scratch_bytes();
+    var needed: usize = try vp8_decoder_checked_add(row_output_bytes, temp_bytes);
+    needed = try vp8_decoder_checked_add(needed, 64);
+    if needed < VP8_DECODER_MIN_ROW_SCRATCH_CAPACITY {
+        return VP8_DECODER_MIN_ROW_SCRATCH_CAPACITY;
+    }
+    return needed;
+}
+
+export fn make_vp8_decoder_options(width: usize, height: usize) !Vp8DecoderOptions {
+    return Vp8DecoderOptions{
+        width: width,
+        height: height,
+        border: VP8_DECODER_DEFAULT_BORDER,
+        alignment: VP8_DECODER_DEFAULT_ALIGNMENT,
+        row_scratch_capacity: try vp8_decoder_default_row_scratch_capacity(width),
+        thread_count: 1,
+        simd_level: SimdLevel.scalar
+    };
+}
+
+fn vp8_decoder_kernel_table_for_level(level: SimdLevel) !KernelFunctionTable {
+    if level == SimdLevel.scalar {
+        return make_scalar_kernel_table();
+    }
+    if level == SimdLevel.vector128 {
+        const capabilities: SimdCapabilities = simd_detect_capabilities();
+        if simd_level_available(level, &capabilities) {
+            return make_forced_simd_kernel_table(&capabilities);
+        }
+    }
+    return error.ErrVp8DecoderUnsupportedSimdLevel;
+}
+
+fn vp8_decoder_validate_options(options: &Vp8DecoderOptions) !void {
+    if options.width == 0 || options.height == 0 {
+        return error.ErrVp8DecoderInvalidOptions;
+    }
+    if options.border == 0 || options.alignment == 0 {
+        return error.ErrVp8DecoderInvalidOptions;
+    }
+    if options.row_scratch_capacity == 0 || options.thread_count == 0 {
+        return error.ErrVp8DecoderInvalidOptions;
+    }
+    _ = try vp8_decoder_kernel_table_for_level(options.simd_level);
+}
+
+fn vp8_decoder_bind_context(decoder: &Vp8Decoder) void {
+    decoder.scalar.context = &decoder.context;
+}
+
+export fn vp8_decoder_init(options: &Vp8DecoderOptions) !Vp8Decoder {
+    try vp8_decoder_validate_options(options);
+    const kernels: KernelFunctionTable = try vp8_decoder_kernel_table_for_level(options.simd_level);
+    var api_decoder: Vp8Decoder = empty_vp8_decoder();
+    api_decoder.context = allocate_decoder_context_with_thread_scratch(
+        options.width,
+        options.height,
+        options.border,
+        options.alignment,
+        options.row_scratch_capacity,
+        options.thread_count
+    ) catch {
+        return error.ErrVp8DecoderInvalidOptions;
+    };
+    api_decoder.scalar = make_decoder_with_kernel_table(&api_decoder.context, &kernels);
+    api_decoder.initialized = true;
+    vp8_decoder_bind_context(&api_decoder);
+    return api_decoder;
+}
+
+export fn vp8_decoder_deinit(decoder: &Vp8Decoder) void {
+    if decoder.initialized {
+        free_decoder_context(&decoder.context);
+    }
+    decoder.context = empty_decoder_context();
+    decoder.scalar = empty_scalar_decoder();
+    decoder.initialized = false;
+    decoder.frame_index = 0 as u64;
+    decoder.stats = empty_vp8_decoder_stats();
+}
+
+export fn vp8_decoder_set_simd_level(decoder: &Vp8Decoder, level: SimdLevel) !void {
+    if !decoder.initialized {
+        return error.ErrVp8DecoderInvalidState;
+    }
+    const kernels: KernelFunctionTable = try vp8_decoder_kernel_table_for_level(level);
+    vp8_decoder_bind_context(decoder);
+    decoder.scalar.kernels = kernels;
+}
+
+export fn vp8_decoder_flush(decoder: &Vp8Decoder) void {
+    if !decoder.initialized {
+        return;
+    }
+    vp8_decoder_bind_context(decoder);
+    const kernels: KernelFunctionTable = decoder.scalar.kernels;
+    decoder.scalar = make_decoder_with_kernel_table(&decoder.context, &kernels);
+    vp8_decoder_bind_context(decoder);
+}
+
+export fn vp8_decoder_stats(decoder: &Vp8Decoder) Vp8DecoderStats {
+    return decoder.stats;
+}
+
+fn vp8_decoded_frame_from_result(result: &DecoderFrameResult, frame_index: u64) Vp8DecodedFrame {
+    var decoded: Vp8DecodedFrame = empty_vp8_decoded_frame();
+    decoded.has_output = result.has_output;
+    decoded.frame_index = frame_index;
+    decoded.key_frame = result.header.frame_type == (0 as u8);
+    decoded.show_frame = result.header.show_frame;
+    decoded.performance = result.performance;
+    if result.has_output {
+        decoded.view = result.output.view;
+        decoded.borrowed = result.output;
+        decoded.released = false;
+    }
+    return decoded;
+}
+
+export fn vp8_decoder_decode_frame(decoder: &Vp8Decoder, data: &byte, len: usize) !Vp8DecodedFrame {
+    if !decoder.initialized {
+        return error.ErrVp8DecoderInvalidState;
+    }
+
+    vp8_decoder_bind_context(decoder);
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder.scalar, data, len);
+    const frame_index: u64 = decoder.frame_index;
+    decoder.frame_index = decoder.frame_index + (1 as u64);
+    decoder.stats.decoded_frame_count = decoder.stats.decoded_frame_count + (1 as u64);
+    if result.has_output {
+        decoder.stats.output_frame_count = decoder.stats.output_frame_count + (1 as u64);
+    }
+    decoder.stats.last_performance = result.performance;
+    return vp8_decoded_frame_from_result(&result, frame_index);
+}
+
+export fn vp8_decoded_frame_release(frame: &Vp8DecodedFrame) !void {
+    if frame.released {
+        return;
+    }
+    if frame.has_output {
+        try decoded_frame_release(&frame.borrowed);
+    }
+    frame.released = true;
+}
