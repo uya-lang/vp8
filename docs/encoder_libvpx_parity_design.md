@@ -23,6 +23,8 @@ Date: 2026-06-04
 
 后续实现必须另起目标，再按 TODO 逐项推进。
 
+本文档中的 CLI、脚本、manifest、Makefile target、JSON/Markdown 报告均为未来设计，不代表本轮已经实现或生成。
+
 ## 2. 目标结论
 
 ### 2.1 不追 MD5 一致
