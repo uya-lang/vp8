@@ -104,6 +104,8 @@ error declaration under `src/`.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.
+The current decoder conformance snapshot lives in
+`docs/decoder_conformance_report.md`.
 
 `bench/` is reserved for benchmark harnesses and baseline records. Benchmarks
 must keep scalar and SIMD paths comparable and must not become correctness

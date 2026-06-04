@@ -41,6 +41,9 @@ exits.
 compares `vp8uya` output with `vpxdec`; it also compares any compatible
 manifest samples. It skips cleanly when libvpx tools are unavailable.
 
+The current decoder conformance snapshot is recorded in
+`docs/decoder_conformance_report.md`.
+
 Future tests should keep external codec tools optional. Built-in tests must run
 without libvpx, FFmpeg, or network access; differential tests may live behind
 separate make targets.
