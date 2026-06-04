@@ -61,8 +61,9 @@ Date: 2026-06-04
 
 - [x] 创建真实样本 manifest。
   - 产物：`fixtures/encoder_libvpx_real_samples.json`。
-- [ ] 添加 `akiyo_qcif` 样本。
+- [f] 添加 `akiyo_qcif` 样本。
   - 验收：manifest 记录 URL、width、height、frames、fps、sha256、groups。
+  - blocked: 2026-06-04 `curl --max-time 120` 只下载 1039913/11406644 字节并返回 28；`aria2c -x 8 -s 8` 仍只有约 12KiB/s，被手动停止并清理半截文件。Xiph `MD5SUMS.txt` 有 `akiyo_qcif.y4m` 的 MD5，但未提供 sha256；本项不能诚实填入 sha256。
 - [ ] 添加 `foreman_qcif` 样本。
   - 验收：manifest 记录 URL、width、height、frames、fps、sha256、groups。
 - [ ] 添加 `coastguard_qcif` 样本。
