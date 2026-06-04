@@ -49,8 +49,9 @@ Date: 2026-06-04
   - 验收命令：`apt-get download vpx-tools` 在 `build/deps/` 下生成 `.deb`。
 - [x] 支持解包 `vpx-tools`。
   - 验收命令：`dpkg-deb -x build/deps/vpx-tools_*.deb build/deps/vpx-tools-root`。
-- [ ] 校验工具可执行。
-  - 验收：`build/deps/vpx-tools-root/usr/bin/vpxenc --version` 和 `vpxdec --version` 返回 0。
+- [x] 校验工具可执行。
+  - 验收：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `probe_returncode=0`。
+  - 证据：Deepin/Debian `vpx-tools 1.12.0` 的 `vpxenc --version`、`vpxdec --version` 返回 1；脚本保留 `version_returncode`，并使用 `--help` 作为可执行性 probe。
 - [ ] 记录工具版本。
   - 验收：后续 `summary.json` 包含 `vpxenc_version` 和 `vpxdec_version`。
 - [ ] 工具缺失时给出明确错误。

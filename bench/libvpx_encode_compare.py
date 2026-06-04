@@ -89,6 +89,48 @@ def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[st
     )
 
 
+def attach_tool_metadata(lookup: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(lookup)
+    path = enriched.get("path")
+    if path is None:
+        enriched["version_returncode"] = None
+        enriched["version_stdout"] = ""
+        enriched["version_stderr"] = ""
+        enriched["version"] = None
+        enriched["probe_command"] = []
+        enriched["probe_returncode"] = None
+        enriched["probe_stdout"] = ""
+        enriched["probe_stderr"] = ""
+        return enriched
+
+    version_completed = run_command([str(path), "--version"], REPO_ROOT)
+    stdout = version_completed.stdout.strip()
+    stderr = version_completed.stderr.strip()
+    version_lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not version_lines:
+        version_lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    enriched["version_returncode"] = version_completed.returncode
+    enriched["version_stdout"] = stdout
+    enriched["version_stderr"] = stderr
+    enriched["version"] = version_lines[0] if version_lines else ""
+
+    if version_completed.returncode == 0:
+        enriched["probe_command"] = [str(path), "--version"]
+        enriched["probe_returncode"] = 0
+        enriched["probe_stdout"] = stdout
+        enriched["probe_stderr"] = stderr
+        return enriched
+
+    help_completed = run_command([str(path), "--help"], REPO_ROOT)
+    enriched["probe_command"] = [str(path), "--help"]
+    enriched["probe_returncode"] = help_completed.returncode
+    enriched["probe_stdout"] = help_completed.stdout.strip()
+    enriched["probe_stderr"] = help_completed.stderr.strip()
+    if help_completed.returncode != 0:
+        enriched["error"] = f"{path} --help failed with exit {help_completed.returncode}"
+    return enriched
+
+
 def find_vpx_tool(
     name: str,
     env_var: str,
@@ -237,10 +279,15 @@ def metric_contract() -> dict[str, Any]:
 
 
 def probe_tools(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
-    vpxenc = find_vpx_tool("vpxenc", "VPXENC", env=env)
-    vpxdec = find_vpx_tool("vpxdec", "VPXDEC", env=env)
+    vpxenc = attach_tool_metadata(find_vpx_tool("vpxenc", "VPXENC", env=env))
+    vpxdec = attach_tool_metadata(find_vpx_tool("vpxdec", "VPXDEC", env=env))
     return {
-        "ok": vpxenc["path"] is not None and vpxdec["path"] is not None,
+        "ok": (
+            vpxenc["path"] is not None
+            and vpxdec["path"] is not None
+            and vpxenc["probe_returncode"] == 0
+            and vpxdec["probe_returncode"] == 0
+        ),
         "vpxenc": vpxenc,
         "vpxdec": vpxdec,
     }

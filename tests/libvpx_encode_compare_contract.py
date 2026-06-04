@@ -191,8 +191,12 @@ def assert_probe_tools_path_lookup() -> None:
         report = json.loads(completed.stdout)
         assert report["vpxenc"]["source"] == "PATH"
         assert report["vpxenc"]["path"] == str(tmp_path / "vpxenc")
+        assert report["vpxenc"]["version_returncode"] == 0
+        assert report["vpxenc"]["probe_returncode"] == 0
         assert report["vpxdec"]["source"] == "PATH"
         assert report["vpxdec"]["path"] == str(tmp_path / "vpxdec")
+        assert report["vpxdec"]["version_returncode"] == 0
+        assert report["vpxdec"]["probe_returncode"] == 0
 
 
 def assert_extracted_dir_lookup(module: object) -> None:
