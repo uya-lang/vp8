@@ -517,6 +517,69 @@ def sample_frames(sample: Mapping[str, Any]) -> int:
     return frames
 
 
+def sample_dimension(sample: Mapping[str, Any], field: str) -> int:
+    value = sample.get(field)
+    if not isinstance(value, int) or value <= 0:
+        raise ValueError(f"sample {field} must be a positive integer")
+    return value
+
+
+def i420_frame_size(width: int, height: int) -> int:
+    if width <= 0 or height <= 0:
+        raise ValueError("I420 width and height must be positive")
+    chroma_width = (width + 1) // 2
+    chroma_height = (height + 1) // 2
+    return (width * height) + (2 * chroma_width * chroma_height)
+
+
+def validate_i420_sample_size(
+    sample: Mapping[str, Any],
+    *,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+) -> dict[str, Any]:
+    try:
+        output_path = sample_i420_path(sample, i420_dir)
+        width = sample_dimension(sample, "width")
+        height = sample_dimension(sample, "height")
+        frames = sample_frames(sample)
+        expected = i420_frame_size(width, height) * frames
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "expected_bytes": 0,
+            "actual_bytes": 0,
+            "error": str(exc),
+        }
+
+    if not output_path.exists():
+        return {
+            "ok": False,
+            "path": str(output_path),
+            "expected_bytes": expected,
+            "actual_bytes": 0,
+            "error": f"missing I420 output: {output_path}",
+        }
+
+    actual = output_path.stat().st_size
+    if actual != expected:
+        return {
+            "ok": False,
+            "path": str(output_path),
+            "expected_bytes": expected,
+            "actual_bytes": actual,
+            "error": f"I420 size mismatch for {output_path}: expected {expected} got {actual}",
+        }
+
+    return {
+        "ok": True,
+        "path": str(output_path),
+        "expected_bytes": expected,
+        "actual_bytes": actual,
+        "error": None,
+    }
+
+
 def convert_y4m_to_i420(
     sample: Mapping[str, Any],
     *,

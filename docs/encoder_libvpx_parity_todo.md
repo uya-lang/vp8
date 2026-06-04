@@ -82,7 +82,7 @@ Date: 2026-06-04
   - 验收：第二次运行同一 sha256 样本不重新下载。
 - [x] 实现 Y4M 到 I420 转换。
   - 验收命令：`ffmpeg -y -i <sample>.y4m -frames:v 60 -pix_fmt yuv420p -f rawvideo <sample>.i420`。
-- [ ] 校验 I420 文件大小。
+- [x] 校验 I420 文件大小。
   - 验收：`stat -c %s <sample>.i420` 等于 `frame_size * frames`。
 
 ## Phase 4: `encode --frames N --fps NUM/DEN`

@@ -491,6 +491,40 @@ def assert_convert_y4m_to_i420(module: object) -> None:
         )]
 
 
+def assert_i420_size_validation(module: object) -> None:
+    assert module.i420_frame_size(16, 16) == 384
+    assert module.i420_frame_size(17, 17) == 451
+
+    with tempfile.TemporaryDirectory() as tmp:
+        i420_dir = Path(tmp)
+        sample = {
+            "name": "size_ok",
+            "width": 16,
+            "height": 16,
+            "frames": 3,
+        }
+        path = i420_dir / "size_ok.i420"
+        path.write_bytes(bytes(384 * 3))
+        ok = module.validate_i420_sample_size(sample, i420_dir=i420_dir)
+        assert ok["ok"] is True
+        assert ok["expected_bytes"] == 384 * 3
+        assert ok["actual_bytes"] == 384 * 3
+
+        sample_bad = {
+            "name": "size_bad",
+            "width": 16,
+            "height": 16,
+            "frames": 3,
+        }
+        bad_path = i420_dir / "size_bad.i420"
+        bad_path.write_bytes(bytes(384 * 2))
+        bad = module.validate_i420_sample_size(sample_bad, i420_dir=i420_dir)
+        assert bad["ok"] is False
+        assert bad["expected_bytes"] == 384 * 3
+        assert bad["actual_bytes"] == 384 * 2
+        assert "I420 size mismatch" in bad["error"]
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -511,6 +545,7 @@ def main() -> int:
     assert_verify_y4m_sha256(module)
     assert_y4m_cache_reuse(module)
     assert_convert_y4m_to_i420(module)
+    assert_i420_size_validation(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],
