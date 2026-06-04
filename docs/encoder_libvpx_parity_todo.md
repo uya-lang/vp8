@@ -66,7 +66,7 @@ Date: 2026-06-04
 
 ## Phase 3: Xiph Derf 真实样本
 
-- [ ] 新增真实样本 manifest。
+- [x] 新增真实样本 manifest。
   - 产物：`fixtures/encoder_libvpx_real_samples.json`。
 - [ ] 在 manifest 中添加 `akiyo_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `low-motion`。
