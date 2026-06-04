@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -308,6 +309,81 @@ def prepare_sample_dirs(
         "y4m_cache_dir": str(y4m_dir),
         "i420_cache_dir": str(i420_dir),
     }
+
+
+def http_download(url: str, dest: Path) -> None:
+    with urllib.request.urlopen(url, timeout=60) as response:
+        with dest.open("wb") as out:
+            shutil.copyfileobj(response, out)
+
+
+def sample_y4m_path(sample: Mapping[str, Any], y4m_dir: Path) -> Path:
+    name = sample.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("sample name must be a non-empty string")
+    return y4m_dir / f"{name}.y4m"
+
+
+def download_y4m_sample(
+    sample: Mapping[str, Any],
+    *,
+    y4m_dir: Path = DEFAULT_Y4M_CACHE_DIR,
+    downloader: Callable[[str, Path], None] = http_download,
+) -> dict[str, Any]:
+    y4m_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        url = sample["url"]
+        if not isinstance(url, str) or not url:
+            raise ValueError("sample url must be a non-empty string")
+        final_path = sample_y4m_path(sample, y4m_dir)
+    except (KeyError, ValueError) as exc:
+        return {
+            "ok": False,
+            "cached": False,
+            "path": "",
+            "partial_path": "",
+            "url": "",
+            "error": str(exc),
+        }
+
+    partial_path = final_path.with_name(final_path.name + ".part")
+    if final_path.exists():
+        return {
+            "ok": True,
+            "cached": True,
+            "path": str(final_path),
+            "partial_path": str(partial_path),
+            "url": url,
+            "error": None,
+        }
+
+    if partial_path.exists():
+        partial_path.unlink()
+
+    try:
+        downloader(url, partial_path)
+        if not partial_path.exists() or partial_path.stat().st_size <= 0:
+            raise RuntimeError("download produced an empty file")
+        partial_path.replace(final_path)
+        return {
+            "ok": True,
+            "cached": False,
+            "path": str(final_path),
+            "partial_path": str(partial_path),
+            "url": url,
+            "error": None,
+        }
+    except Exception as exc:
+        if partial_path.exists():
+            partial_path.unlink()
+        return {
+            "ok": False,
+            "cached": False,
+            "path": str(final_path),
+            "partial_path": str(partial_path),
+            "url": url,
+            "error": str(exc),
+        }
 
 
 def require_number(result: dict[str, Any], field: str) -> float:

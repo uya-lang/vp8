@@ -351,6 +351,43 @@ def assert_prepare_sample_dirs(module: object) -> None:
         assert (root / "cli-fixtures").is_dir()
 
 
+def assert_download_y4m_sample(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        y4m_dir = Path(tmp)
+        sample = {
+            "name": "unit_sample",
+            "url": "https://example.test/unit_sample.y4m",
+        }
+
+        def ok_downloader(url: str, dest: Path) -> None:
+            assert url == sample["url"]
+            dest.write_bytes(b"YUV4MPEG2\nFRAME\n")
+
+        ok_report = module.download_y4m_sample(sample, y4m_dir=y4m_dir, downloader=ok_downloader)
+        y4m_path = y4m_dir / "unit_sample.y4m"
+        assert ok_report["ok"] is True
+        assert ok_report["cached"] is False
+        assert ok_report["path"] == str(y4m_path)
+        assert y4m_path.read_bytes() == b"YUV4MPEG2\nFRAME\n"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        y4m_dir = Path(tmp)
+        sample = {
+            "name": "broken_sample",
+            "url": "https://example.test/broken_sample.y4m",
+        }
+
+        def failing_downloader(url: str, dest: Path) -> None:
+            dest.write_bytes(b"partial")
+            raise RuntimeError("network broke")
+
+        failed = module.download_y4m_sample(sample, y4m_dir=y4m_dir, downloader=failing_downloader)
+        assert failed["ok"] is False
+        assert "network broke" in failed["error"]
+        assert not (y4m_dir / "broken_sample.y4m").exists()
+        assert not (y4m_dir / "broken_sample.y4m.part").exists()
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
@@ -367,6 +404,7 @@ def main() -> int:
     assert_fetch_vpx_tools_download(module)
     assert_extract_vpx_tools(module)
     assert_prepare_sample_dirs(module)
+    assert_download_y4m_sample(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

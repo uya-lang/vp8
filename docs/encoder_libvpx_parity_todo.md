@@ -74,7 +74,7 @@ Date: 2026-06-04
   - blocked: 2026-06-04 两者与 `akiyo_qcif`/`foreman_qcif` 同属 `media.xiph.org/media/video/derf/y4m/`；rsync 列表显示 `coastguard_qcif.y4m` 为 11406644 字节、`mobile_cif.y4m` 为 45621054 字节。当前公网链路无法在可接受时间内下载 11MiB 样本并计算 sha256，Xiph `MD5SUMS.txt` 未提供 sha256；继续下载更大样本没有新的成功假设。
 - [x] 实现样本缓存目录。
   - 产物：`build/real-y4m/`。
-- [ ] 实现 Y4M 下载。
+- [x] 实现 Y4M 下载。
   - 验收：下载成功后 `<sample>.y4m` 存在；下载失败时不把半截文件当作成功缓存。
 - [ ] 实现 sha256 校验。
   - 验收：sha256 不匹配时返回非 0，并删除或隔离坏缓存。
