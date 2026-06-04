@@ -375,7 +375,7 @@
 - [x] 实现 minimal WebM VP8 demux。
 - [x] 实现 WebM track/timecode 解析。
 - [x] 实现 WebM sample 到 VP8 payload。
-- [ ] 实现 RTP VP8 payload descriptor parser。
+- [x] 实现 RTP VP8 payload descriptor parser。
 - [ ] 实现 RTP packet reassembly。
 - [ ] 实现 decoder library API。
 - [ ] 实现 encoder library API。

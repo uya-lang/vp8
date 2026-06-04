@@ -1,0 +1,103 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.container.rtp_vp8.RtpVp8PayloadDescriptor;
+use vp8.container.rtp_vp8.parse_rtp_vp8_payload_descriptor;
+
+fn dummy_descriptor(data: &byte) RtpVp8PayloadDescriptor {
+    return RtpVp8PayloadDescriptor{
+        extended: false,
+        non_reference: false,
+        start_of_partition: false,
+        partition_id: 0 as byte,
+        picture_id_present: false,
+        picture_id: 0 as u16,
+        picture_id_15bit: false,
+        tl0picidx_present: false,
+        tl0picidx: 0 as byte,
+        tid_present: false,
+        temporal_layer_id: 0 as byte,
+        layer_sync: false,
+        keyidx_present: false,
+        keyidx: 0 as byte,
+        descriptor_size: 0,
+        payload: BoundedSlice{ data: data, len: 0 }
+    };
+}
+
+test "RTP VP8 payload descriptor parses basic partition header" {
+    var data: [byte: 4] = [0x35, 0x9d, 0x01, 0x2a];
+
+    const descriptor: RtpVp8PayloadDescriptor = try parse_rtp_vp8_payload_descriptor(&data[0] as &byte, 4);
+
+    try assert_eq_i32(descriptor.extended as i32, false as i32);
+    try assert_eq_i32(descriptor.non_reference as i32, true as i32);
+    try assert_eq_i32(descriptor.start_of_partition as i32, true as i32);
+    try assert_eq_i32(descriptor.partition_id as i32, 5);
+    try assert_eq_i32(descriptor.descriptor_size as i32, 1);
+    try assert_eq_i32(descriptor.payload.len as i32, 3);
+    try assert_eq_i32(descriptor.payload.data[0] as i32, 0x9d);
+}
+
+test "RTP VP8 payload descriptor parses extended control fields" {
+    var data: [byte: 7] = [
+        0x90,
+        0xf0,
+        0x92, 0x34,
+        0x56,
+        0xb1,
+        0xaa
+    ];
+
+    const descriptor: RtpVp8PayloadDescriptor = try parse_rtp_vp8_payload_descriptor(&data[0] as &byte, 7);
+
+    try assert_eq_i32(descriptor.extended as i32, true as i32);
+    try assert_eq_i32(descriptor.start_of_partition as i32, true as i32);
+    try assert_eq_i32(descriptor.picture_id_present as i32, true as i32);
+    try assert_eq_i32(descriptor.picture_id_15bit as i32, true as i32);
+    try assert_eq_i32(descriptor.picture_id as i32, 0x1234);
+    try assert_eq_i32(descriptor.tl0picidx_present as i32, true as i32);
+    try assert_eq_i32(descriptor.tl0picidx as i32, 0x56);
+    try assert_eq_i32(descriptor.tid_present as i32, true as i32);
+    try assert_eq_i32(descriptor.temporal_layer_id as i32, 2);
+    try assert_eq_i32(descriptor.layer_sync as i32, true as i32);
+    try assert_eq_i32(descriptor.keyidx_present as i32, true as i32);
+    try assert_eq_i32(descriptor.keyidx as i32, 17);
+    try assert_eq_i32(descriptor.descriptor_size as i32, 6);
+    try assert_eq_i32(descriptor.payload.len as i32, 1);
+    try assert_eq_i32(descriptor.payload.data[0] as i32, 0xaa);
+}
+
+test "RTP VP8 payload descriptor rejects reserved bits and truncation" {
+    var first_reserved: [byte: 2] = [0x40, 0x9d];
+    var extension_reserved: [byte: 3] = [0x80, 0x01, 0x9d];
+    var truncated_picture_id: [byte: 3] = [0x90, 0x80, 0x80];
+    var no_payload: [byte: 1] = [0x10];
+
+    var first_reserved_failed: i32 = 0;
+    var extension_reserved_failed: i32 = 0;
+    var truncated_picture_id_failed: i32 = 0;
+    var no_payload_failed: i32 = 0;
+
+    _ = parse_rtp_vp8_payload_descriptor(&first_reserved[0] as &byte, 2) catch {
+        first_reserved_failed = 1;
+        dummy_descriptor(&first_reserved[0] as &byte);
+    };
+    _ = parse_rtp_vp8_payload_descriptor(&extension_reserved[0] as &byte, 3) catch {
+        extension_reserved_failed = 1;
+        dummy_descriptor(&extension_reserved[0] as &byte);
+    };
+    _ = parse_rtp_vp8_payload_descriptor(&truncated_picture_id[0] as &byte, 3) catch {
+        truncated_picture_id_failed = 1;
+        dummy_descriptor(&truncated_picture_id[0] as &byte);
+    };
+    _ = parse_rtp_vp8_payload_descriptor(&no_payload[0] as &byte, 1) catch {
+        no_payload_failed = 1;
+        dummy_descriptor(&no_payload[0] as &byte);
+    };
+
+    try assert_eq_i32(first_reserved_failed, 1);
+    try assert_eq_i32(extension_reserved_failed, 1);
+    try assert_eq_i32(truncated_picture_id_failed, 1);
+    try assert_eq_i32(no_payload_failed, 1);
+}

@@ -1,0 +1,127 @@
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.bitstream.readers.read_slice_at;
+
+error ErrRtpVp8PayloadDescriptorTooShort;
+error ErrRtpVp8ReservedBitSet;
+error ErrRtpVp8MissingPayload;
+
+export struct RtpVp8PayloadDescriptor {
+    extended: bool,
+    non_reference: bool,
+    start_of_partition: bool,
+    partition_id: byte,
+    picture_id_present: bool,
+    picture_id: u16,
+    picture_id_15bit: bool,
+    tl0picidx_present: bool,
+    tl0picidx: byte,
+    tid_present: bool,
+    temporal_layer_id: byte,
+    layer_sync: bool,
+    keyidx_present: bool,
+    keyidx: byte,
+    descriptor_size: usize,
+    payload: BoundedSlice
+}
+
+fn rtp_vp8_read_byte(data: &byte, len: usize, offset: usize) !byte {
+    if offset >= len {
+        return error.ErrRtpVp8PayloadDescriptorTooShort;
+    }
+    return data[offset];
+}
+
+fn rtp_vp8_empty_descriptor(data: &byte) RtpVp8PayloadDescriptor {
+    return RtpVp8PayloadDescriptor{
+        extended: false,
+        non_reference: false,
+        start_of_partition: false,
+        partition_id: 0 as byte,
+        picture_id_present: false,
+        picture_id: 0 as u16,
+        picture_id_15bit: false,
+        tl0picidx_present: false,
+        tl0picidx: 0 as byte,
+        tid_present: false,
+        temporal_layer_id: 0 as byte,
+        layer_sync: false,
+        keyidx_present: false,
+        keyidx: 0 as byte,
+        descriptor_size: 0,
+        payload: BoundedSlice{ data: data, len: 0 }
+    };
+}
+
+export fn parse_rtp_vp8_payload_descriptor(data: &byte, len: usize) !RtpVp8PayloadDescriptor {
+    if len == 0 {
+        return error.ErrRtpVp8PayloadDescriptorTooShort;
+    }
+
+    var descriptor: RtpVp8PayloadDescriptor = rtp_vp8_empty_descriptor(data);
+    const first: byte = try rtp_vp8_read_byte(data, len, 0);
+    if (first & (0x48 as byte)) != (0 as byte) {
+        return error.ErrRtpVp8ReservedBitSet;
+    }
+
+    descriptor.extended = (first & (0x80 as byte)) != (0 as byte);
+    descriptor.non_reference = (first & (0x20 as byte)) != (0 as byte);
+    descriptor.start_of_partition = (first & (0x10 as byte)) != (0 as byte);
+    descriptor.partition_id = first & (0x07 as byte);
+
+    var offset: usize = 1;
+    if descriptor.extended {
+        const extension: byte = try rtp_vp8_read_byte(data, len, offset);
+        offset = offset + 1;
+        if (extension & (0x0f as byte)) != (0 as byte) {
+            return error.ErrRtpVp8ReservedBitSet;
+        }
+
+        const has_picture_id: bool = (extension & (0x80 as byte)) != (0 as byte);
+        const has_tl0picidx: bool = (extension & (0x40 as byte)) != (0 as byte);
+        const has_tid: bool = (extension & (0x20 as byte)) != (0 as byte);
+        const has_keyidx: bool = (extension & (0x10 as byte)) != (0 as byte);
+
+        if has_picture_id {
+            const picture_first: byte = try rtp_vp8_read_byte(data, len, offset);
+            offset = offset + 1;
+            descriptor.picture_id_present = true;
+            if (picture_first & (0x80 as byte)) != (0 as byte) {
+                const picture_second: byte = try rtp_vp8_read_byte(data, len, offset);
+                offset = offset + 1;
+                descriptor.picture_id_15bit = true;
+                descriptor.picture_id = (((picture_first & (0x7f as byte)) as u16) << 8) |
+                    (picture_second as u16);
+            } else {
+                descriptor.picture_id = picture_first as u16;
+            }
+        }
+
+        if has_tl0picidx {
+            descriptor.tl0picidx_present = true;
+            descriptor.tl0picidx = try rtp_vp8_read_byte(data, len, offset);
+            offset = offset + 1;
+        }
+
+        if has_tid || has_keyidx {
+            const temporal_key: byte = try rtp_vp8_read_byte(data, len, offset);
+            offset = offset + 1;
+            if has_tid {
+                descriptor.tid_present = true;
+                descriptor.temporal_layer_id = (temporal_key >> 6) & (0x03 as byte);
+                descriptor.layer_sync = (temporal_key & (0x20 as byte)) != (0 as byte);
+            }
+            if has_keyidx {
+                descriptor.keyidx_present = true;
+                descriptor.keyidx = temporal_key & (0x1f as byte);
+            }
+        }
+    }
+
+    if offset >= len {
+        return error.ErrRtpVp8MissingPayload;
+    }
+
+    descriptor.descriptor_size = offset;
+    descriptor.payload = try read_slice_at(data, len, offset, len - offset);
+    return descriptor;
+}
