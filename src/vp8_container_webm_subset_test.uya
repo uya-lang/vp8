@@ -1,0 +1,100 @@
+use std.testing.assert_eq_i32;
+
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.container.webm_subset.WebmElement;
+use vp8.container.webm_subset.WebmElementIterator;
+use vp8.container.webm_subset.WebmSubsetDemuxer;
+use vp8.container.webm_subset.WEBM_ID_DOC_TYPE;
+use vp8.container.webm_subset.WEBM_ID_INFO;
+use vp8.container.webm_subset.WEBM_ID_SEGMENT;
+use vp8.container.webm_subset.make_webm_element_iterator;
+use vp8.container.webm_subset.parse_webm_subset;
+use vp8.container.webm_subset.parse_webm_element;
+use vp8.container.webm_subset.webm_element_iterator_has_next;
+use vp8.container.webm_subset.webm_element_iterator_next;
+
+fn dummy_element(data: &byte) WebmElement {
+    return WebmElement{
+        id: 0,
+        header_offset: 0,
+        payload_offset: 0,
+        header_size: 0,
+        total_size: 0,
+        payload: BoundedSlice{ data: data, len: 0 }
+    };
+}
+
+fn dummy_demux(data: &byte) WebmSubsetDemuxer {
+    return WebmSubsetDemuxer{
+        ebml_header: BoundedSlice{ data: data, len: 0 },
+        segment: BoundedSlice{ data: data, len: 0 }
+    };
+}
+
+test "minimal WebM demux validates EBML doctype and finds segment payload" {
+    var data: [byte: 17] = [
+        0x1a, 0x45, 0xdf, 0xa3, 0x87,
+        0x42, 0x82, 0x84, 'w' as byte, 'e' as byte, 'b' as byte, 'm' as byte,
+        0x18, 0x53, 0x80, 0x67, 0x80
+    ];
+
+    const demux: WebmSubsetDemuxer = try parse_webm_subset(&data[0] as &byte, 17);
+    try assert_eq_i32(demux.ebml_header.len as i32, 7);
+    try assert_eq_i32(demux.ebml_header.data[0] as i32, 0x42);
+    try assert_eq_i32(demux.segment.len as i32, 0);
+}
+
+test "WebM element iterator reads EBML IDs and bounded payloads" {
+    var data: [byte: 12] = [
+        0x42, 0x82, 0x84, 'w' as byte, 'e' as byte, 'b' as byte, 'm' as byte,
+        0x15, 0x49, 0xa9, 0x66, 0x80
+    ];
+
+    var iterator: WebmElementIterator = try make_webm_element_iterator(&data[0] as &byte, 12);
+    try assert_eq_i32(webm_element_iterator_has_next(&iterator) as i32, true as i32);
+
+    const doc_type: WebmElement = try webm_element_iterator_next(&iterator);
+    try assert_eq_i32(doc_type.id as i32, WEBM_ID_DOC_TYPE as i32);
+    try assert_eq_i32(doc_type.header_offset as i32, 0);
+    try assert_eq_i32(doc_type.payload_offset as i32, 3);
+    try assert_eq_i32(doc_type.header_size as i32, 3);
+    try assert_eq_i32(doc_type.total_size as i32, 7);
+    try assert_eq_i32(doc_type.payload.len as i32, 4);
+    try assert_eq_i32(doc_type.payload.data[3] as i32, 'm' as i32);
+
+    const info: WebmElement = try webm_element_iterator_next(&iterator);
+    try assert_eq_i32(info.id as i32, WEBM_ID_INFO as i32);
+    try assert_eq_i32(info.payload.len as i32, 0);
+    try assert_eq_i32(webm_element_iterator_has_next(&iterator) as i32, false as i32);
+}
+
+test "WebM demux rejects unsupported doctype and malformed element sizes" {
+    var bad_doc_type: [byte: 17] = [
+        0x1a, 0x45, 0xdf, 0xa3, 0x87,
+        0x42, 0x82, 0x84, 'm' as byte, 'a' as byte, 't' as byte, 'r' as byte,
+        0x18, 0x53, 0x80, 0x67, 0x80
+    ];
+    var unknown_size: [byte: 5] = [0x18, 0x53, 0x80, 0x67, 0xff];
+    var truncated_payload: [byte: 5] = [0x18, 0x53, 0x80, 0x67, 0x81];
+
+    var bad_doc_failed: i32 = 0;
+    var unknown_failed: i32 = 0;
+    var truncated_failed: i32 = 0;
+
+    _ = parse_webm_subset(&bad_doc_type[0] as &byte, 17) catch {
+        bad_doc_failed = 1;
+        dummy_demux(&bad_doc_type[0] as &byte);
+    };
+    _ = parse_webm_element(&unknown_size[0] as &byte, 5, 0) catch {
+        unknown_failed = 1;
+        dummy_element(&unknown_size[0] as &byte);
+    };
+    _ = parse_webm_element(&truncated_payload[0] as &byte, 5, 0) catch {
+        truncated_failed = 1;
+        dummy_element(&truncated_payload[0] as &byte);
+    };
+
+    try assert_eq_i32(bad_doc_failed, 1);
+    try assert_eq_i32(unknown_failed, 1);
+    try assert_eq_i32(truncated_failed, 1);
+}

@@ -372,7 +372,7 @@
 
 ## Phase 16: WebM/RTP 与库 API
 
-- [ ] 实现 minimal WebM VP8 demux。
+- [x] 实现 minimal WebM VP8 demux。
 - [ ] 实现 WebM track/timecode 解析。
 - [ ] 实现 WebM sample 到 VP8 payload。
 - [ ] 实现 RTP VP8 payload descriptor parser。

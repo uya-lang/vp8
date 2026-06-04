@@ -1,0 +1,241 @@
+use vp8.bitstream.readers.BoundedSlice;
+use vp8.bitstream.readers.read_slice_at;
+
+error ErrWebmInvalidElementId;
+error ErrWebmInvalidElementSize;
+error ErrWebmUnknownElementSize;
+error ErrWebmElementOutOfBounds;
+error ErrWebmMissingEbmlHeader;
+error ErrWebmUnsupportedDocType;
+error ErrWebmMissingSegment;
+
+export const WEBM_ID_EBML: u32 = 0x1a45dfa3 as u32;
+export const WEBM_ID_SEGMENT: u32 = 0x18538067 as u32;
+export const WEBM_ID_INFO: u32 = 0x1549a966 as u32;
+export const WEBM_ID_TRACKS: u32 = 0x1654ae6b as u32;
+export const WEBM_ID_CLUSTER: u32 = 0x1f43b675 as u32;
+export const WEBM_ID_DOC_TYPE: u32 = 0x4282 as u32;
+
+struct WebmVint {
+    value: u64,
+    width: usize
+}
+
+export struct WebmElement {
+    id: u32,
+    header_offset: usize,
+    payload_offset: usize,
+    header_size: usize,
+    total_size: usize,
+    payload: BoundedSlice
+}
+
+export struct WebmElementIterator {
+    data: &byte,
+    len: usize,
+    next_offset: usize
+}
+
+export struct WebmSubsetDemuxer {
+    ebml_header: BoundedSlice,
+    segment: BoundedSlice
+}
+
+fn webm_checked_add(left: usize, right: usize) !usize {
+    const value: usize = left + right;
+    if value < left {
+        return error.ErrWebmElementOutOfBounds;
+    }
+    return value;
+}
+
+fn webm_element_id_width(first: byte) !usize {
+    if (first & (0x80 as byte)) != (0 as byte) {
+        return 1 as usize;
+    }
+    if (first & (0x40 as byte)) != (0 as byte) {
+        return 2 as usize;
+    }
+    if (first & (0x20 as byte)) != (0 as byte) {
+        return 3 as usize;
+    }
+    if (first & (0x10 as byte)) != (0 as byte) {
+        return 4 as usize;
+    }
+    return error.ErrWebmInvalidElementId;
+}
+
+fn webm_size_width(first: byte) !usize {
+    if (first & (0x80 as byte)) != (0 as byte) {
+        return 1 as usize;
+    }
+    if (first & (0x40 as byte)) != (0 as byte) {
+        return 2 as usize;
+    }
+    if (first & (0x20 as byte)) != (0 as byte) {
+        return 3 as usize;
+    }
+    if (first & (0x10 as byte)) != (0 as byte) {
+        return 4 as usize;
+    }
+    if (first & (0x08 as byte)) != (0 as byte) {
+        return 5 as usize;
+    }
+    if (first & (0x04 as byte)) != (0 as byte) {
+        return 6 as usize;
+    }
+    if (first & (0x02 as byte)) != (0 as byte) {
+        return 7 as usize;
+    }
+    if (first & (0x01 as byte)) != (0 as byte) {
+        return 8 as usize;
+    }
+    return error.ErrWebmInvalidElementSize;
+}
+
+fn webm_read_element_id(data: &byte, len: usize, offset: usize) !WebmVint {
+    const first_slice: BoundedSlice = try read_slice_at(data, len, offset, 1);
+    const width: usize = try webm_element_id_width(first_slice.data[0]);
+    _ = try read_slice_at(data, len, offset, width);
+
+    var value: u64 = 0 as u64;
+    var index: usize = 0;
+    while index < width {
+        value = (value << 8) | (data[offset + index] as u64);
+        index = index + 1;
+    }
+    return WebmVint{
+        value: value,
+        width: width
+    };
+}
+
+fn webm_size_unknown_value(width: usize) u64 {
+    var value: u64 = 0 as u64;
+    var bits: usize = 0;
+    const total_bits: usize = width * (7 as usize);
+    while bits < total_bits {
+        value = (value << 1) | (1 as u64);
+        bits = bits + 1;
+    }
+    return value;
+}
+
+fn webm_read_element_size(data: &byte, len: usize, offset: usize) !WebmVint {
+    const first_slice: BoundedSlice = try read_slice_at(data, len, offset, 1);
+    const first: byte = first_slice.data[0];
+    const width: usize = try webm_size_width(first);
+    _ = try read_slice_at(data, len, offset, width);
+
+    const marker: byte = (0x80 as byte) >> ((width - 1) as i32);
+    var value: u64 = (first & (marker - (1 as byte))) as u64;
+    var index: usize = 1;
+    while index < width {
+        value = (value << 8) | (data[offset + index] as u64);
+        index = index + 1;
+    }
+    if value == webm_size_unknown_value(width) {
+        return error.ErrWebmUnknownElementSize;
+    }
+    return WebmVint{
+        value: value,
+        width: width
+    };
+}
+
+export fn parse_webm_element(data: &byte, len: usize, offset: usize) !WebmElement {
+    const id_vint: WebmVint = try webm_read_element_id(data, len, offset);
+    const size_offset: usize = try webm_checked_add(offset, id_vint.width);
+    const size_vint: WebmVint = try webm_read_element_size(data, len, size_offset);
+    const header_size: usize = id_vint.width + size_vint.width;
+    const payload_offset: usize = try webm_checked_add(offset, header_size);
+    const payload_len: usize = size_vint.value as usize;
+    if (payload_len as u64) != size_vint.value {
+        return error.ErrWebmElementOutOfBounds;
+    }
+    const total_size: usize = try webm_checked_add(header_size, payload_len);
+    const payload: BoundedSlice = try read_slice_at(data, len, payload_offset, payload_len);
+
+    return WebmElement{
+        id: id_vint.value as u32,
+        header_offset: offset,
+        payload_offset: payload_offset,
+        header_size: header_size,
+        total_size: total_size,
+        payload: payload
+    };
+}
+
+export fn make_webm_element_iterator(data: &byte, len: usize) !WebmElementIterator {
+    _ = try read_slice_at(data, len, 0, len);
+    return WebmElementIterator{
+        data: data,
+        len: len,
+        next_offset: 0
+    };
+}
+
+export fn webm_element_iterator_has_next(iterator: &WebmElementIterator) bool {
+    return iterator.next_offset < iterator.len;
+}
+
+export fn webm_element_iterator_next(iterator: &WebmElementIterator) !WebmElement {
+    const element: WebmElement = try parse_webm_element(iterator.data, iterator.len, iterator.next_offset);
+    iterator.next_offset = try webm_checked_add(iterator.next_offset, element.total_size);
+    if iterator.next_offset > iterator.len {
+        return error.ErrWebmElementOutOfBounds;
+    }
+    return element;
+}
+
+fn webm_payload_is_doc_type_webm(payload: &BoundedSlice) bool {
+    if payload.len != 4 {
+        return false;
+    }
+    return payload.data[0] == ('w' as byte) &&
+        payload.data[1] == ('e' as byte) &&
+        payload.data[2] == ('b' as byte) &&
+        payload.data[3] == ('m' as byte);
+}
+
+fn webm_validate_ebml_header(header: &BoundedSlice) !void {
+    var iterator: WebmElementIterator = try make_webm_element_iterator(header.data, header.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_DOC_TYPE {
+            if webm_payload_is_doc_type_webm(&element.payload) {
+                return;
+            }
+            return error.ErrWebmUnsupportedDocType;
+        }
+    }
+    return error.ErrWebmUnsupportedDocType;
+}
+
+export fn parse_webm_subset(data: &byte, len: usize) !WebmSubsetDemuxer {
+    var iterator: WebmElementIterator = try make_webm_element_iterator(data, len);
+    var saw_ebml: bool = false;
+    var ebml_header: BoundedSlice = BoundedSlice{ data: data, len: 0 };
+
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_EBML {
+            try webm_validate_ebml_header(&element.payload);
+            saw_ebml = true;
+            ebml_header = element.payload;
+        } else if element.id == WEBM_ID_SEGMENT {
+            if !saw_ebml {
+                return error.ErrWebmMissingEbmlHeader;
+            }
+            return WebmSubsetDemuxer{
+                ebml_header: ebml_header,
+                segment: element.payload
+            };
+        }
+    }
+
+    if !saw_ebml {
+        return error.ErrWebmMissingEbmlHeader;
+    }
+    return error.ErrWebmMissingSegment;
+}
