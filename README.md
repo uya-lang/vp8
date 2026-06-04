@@ -95,6 +95,8 @@ containers with random VP8 payloads, accepting only success or controlled error
 exits.
 `make test-webm-subset-decode` generates a minimal WebM VP8 subset sample,
 decodes it through the CLI, and checks the YUV MD5.
+`make test-error-codes-doc` verifies `docs/error_codes.md` lists every UYA
+error declaration under `src/`.
 `make test-examples` builds and runs the library API examples.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips

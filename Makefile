@@ -38,6 +38,8 @@ FUZZ_SMOKE_DIR := $(BUILD_DIR)/fuzz-smoke
 FUZZ_SMOKE_SCRIPT := tests/fuzz_smoke.py
 WEBM_SUBSET_DIR := $(BUILD_DIR)/webm-subset
 WEBM_SUBSET_SCRIPT := tests/webm_subset_decode.py
+ERROR_CODES_DOC := docs/error_codes.md
+ERROR_CODES_DOC_SCRIPT := tests/error_codes_doc.py
 VPXDIFF_DIR := $(BUILD_DIR)/vpxdiff
 VPXDIFF_SCRIPT := tests/vpxdiff.py
 ENCODE_CLI_DIR := $(BUILD_DIR)/encode-cli
@@ -56,7 +58,7 @@ SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds test test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -98,8 +100,12 @@ check-simd-codegen: require-uya
 check-kernel-thresholds:
 	python3 $(KERNEL_THRESHOLDS_SCRIPT) $(KERNEL_THRESHOLDS)
 
+test-error-codes-doc:
+	python3 $(ERROR_CODES_DOC_SCRIPT) $(ERROR_CODES_DOC) src
+
 test: build check-toolchain $(SAMPLE_IVF)
 	$(MAKE) check-kernel-thresholds
+	$(MAKE) test-error-codes-doc
 	$(MAKE) test-decoder-scalar
 	$(MAKE) test-examples
 	test -x $(BIN)
