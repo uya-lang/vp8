@@ -92,6 +92,12 @@ HELPERS = (
         "kind": "helper",
         "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
     },
+    {
+        "name": "sad_u8x16",
+        "symbol": "vp8_kernels_simd_sad_u8x16",
+        "kind": "helper",
+        "vector_structs": ("struct uya_simd_vector_uint8_t_16",),
+    },
 )
 
 SIMD_KERNELS = (

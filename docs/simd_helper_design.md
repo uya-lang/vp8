@@ -145,3 +145,28 @@ Fallback and testing:
 - Scalar fallback is sixteen unsigned pixel differences.
 - `src/vp8_kernels_simd_test.uya` covers equal lanes, increasing differences,
   decreasing differences, and 0/255 extremes.
+
+## `sad_u8x16`
+
+Purpose: compute the sum of absolute differences for two `u8x16` vectors. This
+is the row-level building block for VP8 16-pixel-wide SAD and a reusable
+primitive for mode-search and motion-search cost functions.
+
+Contract:
+
+- The result is `sum(abs(a[N] - b[N]))` for lanes `0..15`.
+- Inputs are interpreted as unsigned pixels.
+- The maximum result is `16 * 255 = 4080`, so `u32` is used for easy accumulation
+  into larger block SAD totals.
+- Lane order does not matter for the final sum, but the helper delegates lane
+  difference semantics to `absdiff_u8x16`.
+- Current implementation stores the absdiff vector into a local lane array and
+  accumulates in scalar `u32`. A future horizontal reduce or target intrinsic
+  may replace this if it preserves the same unsigned-pixel sum.
+
+Fallback and testing:
+
+- Scalar fallback is `absdiff_u8x16` followed by sixteen `u32` additions.
+- `src/vp8_kernels_simd_test.uya` checks a mixed high/low input vector with a
+  known total.
+- `sad_row_16_u8x16` now uses this helper for the 16-wide row case.

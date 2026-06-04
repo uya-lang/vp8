@@ -104,6 +104,7 @@ use vp8.kernels.simd.predict_y4x4_vertical_right_u8x16;
 use vp8.kernels.simd.sad_4x4_u8x16;
 use vp8.kernels.simd.sad_8x8_u8x16;
 use vp8.kernels.simd.sad_16x16_u8x16;
+use vp8.kernels.simd.sad_u8x16;
 use vp8.kernels.simd.satd_4x4_u8x16;
 use vp8.kernels.simd.satd_8x8_u8x16;
 use vp8.kernels.simd.satd_16x16_u8x16;
@@ -318,6 +319,21 @@ test "SIMD helper computes u8x16 absolute differences" {
         try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
     }
+}
+
+test "SIMD helper computes u8x16 SAD" {
+    var a: [u8: 16] = [
+        0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8,
+        128u8, 129u8, 200u8, 201u8, 252u8, 253u8, 254u8, 255u8
+    ];
+    var b: [u8: 16] = [
+        0u8, 2u8, 1u8, 30u8, 4u8, 50u8, 60u8, 7u8,
+        255u8, 0u8, 199u8, 255u8, 0u8, 250u8, 1u8, 128u8
+    ];
+
+    const av: TestU8x16 = load_u8x16(&a[0] as &u8);
+    const bv: TestU8x16 = load_u8x16(&b[0] as &u8);
+    try assert_eq_i32(sad_u8x16(av, bv) as i32, 1074);
 }
 
 test "SIMD plane copy u8x16 copies rows with scalar tails" {
