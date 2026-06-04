@@ -45,9 +45,44 @@ def assert_contract(contract: dict[str, object]) -> None:
     assert contract["libvpx_preset"] == "vpxenc --best"
 
 
+def make_result(**overrides: object) -> dict[str, object]:
+    result: dict[str, object] = {
+        "sample": "unit",
+        "width": 16,
+        "height": 16,
+        "frames": 1,
+        "fps": "30/1",
+        "vp8uya_bits_per_pixel": 1.0,
+        "libvpx_bits_per_pixel": 1.0,
+        "vp8uya_psnr_all_db": 40.0,
+        "libvpx_psnr_all_db": 40.0,
+        "vp8uya_fps": 100.0,
+        "libvpx_fps": 100.0,
+    }
+    result.update(overrides)
+    return result
+
+
+def assert_bitrate_threshold(module: object) -> None:
+    passing = module.evaluate_thresholds(
+        make_result(vp8uya_bits_per_pixel=1.10, libvpx_bits_per_pixel=1.0)
+    )
+    assert passing["passed"] is True
+    assert passing["bitrate_ratio"] == 1.10
+    assert passing["failure_reasons"] == []
+
+    failing = module.evaluate_thresholds(
+        make_result(vp8uya_bits_per_pixel=1.11, libvpx_bits_per_pixel=1.0)
+    )
+    assert failing["passed"] is False
+    assert failing["bitrate_ratio"] == 1.11
+    assert any("bitrate_ratio" in reason for reason in failing["failure_reasons"])
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
+    assert_bitrate_threshold(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

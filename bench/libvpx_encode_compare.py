@@ -55,6 +55,13 @@ THRESHOLDS = {
 }
 
 
+def require_number(result: dict[str, Any], field: str) -> float:
+    value = result.get(field)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field} must be numeric")
+    return float(value)
+
+
 def metric_contract() -> dict[str, Any]:
     return {
         "libvpx_preset": LIBVPX_PRESET,
@@ -62,6 +69,32 @@ def metric_contract() -> dict[str, Any]:
         "hard_threshold_fields": list(HARD_THRESHOLD_FIELDS),
         "thresholds": dict(THRESHOLDS),
     }
+
+
+def evaluate_thresholds(result: dict[str, Any]) -> dict[str, Any]:
+    evaluated = dict(result)
+    failure_reasons: list[str] = []
+
+    try:
+        vp8uya_bpp = require_number(evaluated, "vp8uya_bits_per_pixel")
+        libvpx_bpp = require_number(evaluated, "libvpx_bits_per_pixel")
+        if libvpx_bpp <= 0.0:
+            evaluated["bitrate_ratio"] = float("inf")
+            failure_reasons.append("libvpx_bits_per_pixel must be positive")
+        else:
+            bitrate_ratio = vp8uya_bpp / libvpx_bpp
+            evaluated["bitrate_ratio"] = bitrate_ratio
+            if bitrate_ratio > THRESHOLDS["max_bitrate_ratio"]:
+                failure_reasons.append(
+                    "bitrate_ratio "
+                    f"{bitrate_ratio:.6f} exceeds max {THRESHOLDS['max_bitrate_ratio']:.6f}"
+                )
+    except ValueError as exc:
+        failure_reasons.append(str(exc))
+
+    evaluated["failure_reasons"] = failure_reasons
+    evaluated["passed"] = len(failure_reasons) == 0
+    return evaluated
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
