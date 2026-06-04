@@ -121,9 +121,14 @@ def assert_threshold_cli_return_codes() -> None:
         tmp_path = Path(tmp)
         passing_path = tmp_path / "passing.json"
         failing_path = tmp_path / "failing.json"
+        psnr_failing_path = tmp_path / "psnr_failing.json"
         passing_path.write_text(json.dumps(make_result()), encoding="utf-8")
         failing_path.write_text(
             json.dumps(make_result(vp8uya_bits_per_pixel=1.11, libvpx_bits_per_pixel=1.0)),
+            encoding="utf-8",
+        )
+        psnr_failing_path.write_text(
+            json.dumps(make_result(vp8uya_psnr_all_db=39.49, libvpx_psnr_all_db=40.0)),
             encoding="utf-8",
         )
 
@@ -153,6 +158,20 @@ def assert_threshold_cli_return_codes() -> None:
         assert failing_report["passed"] is False
         assert failing_report["bitrate_ratio"] == 1.11
         assert any("bitrate_ratio" in reason for reason in failing_report["failure_reasons"])
+
+        psnr_failing = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--evaluate-result-json", str(psnr_failing_path)],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert psnr_failing.returncode != 0
+        psnr_report = json.loads(psnr_failing.stdout)
+        assert psnr_report["passed"] is False
+        assert psnr_report["psnr_all_delta_db"] == -0.51
+        assert any("psnr_all_delta_db" in reason for reason in psnr_report["failure_reasons"])
 
 
 def assert_ssim_is_record_only(module: object) -> None:
