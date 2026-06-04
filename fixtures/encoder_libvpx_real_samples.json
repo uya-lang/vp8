@@ -7,5 +7,16 @@
   "default_fps": "30/1",
   "cache_dir": "build/real-y4m",
   "i420_cache_dir": "build/libvpx-encode-compare/fixtures",
-  "samples": []
+  "samples": [
+    {
+      "name": "akiyo_qcif",
+      "url": "https://media.xiph.org/video/derf/y4m/akiyo_qcif.y4m",
+      "width": 176,
+      "height": 144,
+      "frames": 60,
+      "fps": "30000/1001",
+      "sha256": "df88d83cbf6d99f3ec41f2c1fd2e67665d2a71ff8caa08f8b6bc46bf4567ea2e",
+      "groups": ["real", "qcif", "low-motion"]
+    }
+  ]
 }
