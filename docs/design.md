@@ -747,7 +747,28 @@ Encoder.stats() -> EncoderStats
 - thread count。
 - simd level。
 
-### 12.3 CLI
+### 12.3 C ABI 决策
+
+默认不实现稳定 C ABI。当前库 API 的第一使用对象是 UYA 调用方，C 侧互操作先通过 CLI、IVF/WebM/RTP container 边界和测试工具完成。这样可以让 decoder borrowed frame 生命周期、encoder packet buffer 归属、错误传播、SIMD runtime dispatch、线程 scratch 配置先在 UYA API 内稳定下来。
+
+不默认暴露 C ABI 的原因：
+
+- UYA struct layout、错误联合和枚举 ABI 还不是本项目要承诺的跨编译器稳定契约。
+- decoder 默认返回 borrowed frame view，需要明确 release/lease 语义；直接导出 C 指针容易把 frame pool 生命周期错误变成 use-after-release。
+- encoder 当前 packet 由调用方提供输出 buffer，后续 raw VP8/IVF/WebM 输出格式和多帧 inter pipeline 仍可能调整。
+- allocator ownership、thread scratch 和 SIMD level 选择需要一个统一的 C handle 层；过早导出会固定尚未验证的资源模型。
+- C ABI 一旦承诺，需要版本号、符号前缀、header、visibility、error code table、ABI tests 和 release notes 同步维护。
+
+未来只有在以下条件满足时才增加 C ABI：
+
+- UYA `Vp8Decoder`/`Vp8Encoder` API 已稳定至少一个 release cycle。
+- 需要被非 UYA 宿主嵌入，而 CLI/container 交互不足以覆盖真实用例。
+- 能提供 opaque handle API，例如 `vp8uya_decoder_create/destroy/decode/release_frame`，不暴露内部 struct layout。
+- 有 C header golden、ABI smoke test、allocator/error-code 文档和跨版本兼容策略。
+
+因此 Phase 16 默认只完成 UYA library API 和 examples；C ABI 保持 backlog/设计备忘，不作为当前发布阻塞项。
+
+### 12.4 CLI
 
 建议命令：
 
