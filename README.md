@@ -83,6 +83,8 @@ deterministic fuzz smoke pass.
 `VP8UYA_FORCE_SCALAR=1` and is the scalar reference regression gate.
 `make ci-scalar-only` runs the scalar-only CI gate for decoder goldens and
 controlled-error CLI corpus checks.
+`make ci-simd-enabled` runs the forced-SIMD CI gate for decoder goldens,
+scalar-vs-SIMD comparisons, SIMD CLI smoke, and controlled-error corpora.
 Tiny fixture metadata lives in `fixtures/manifest.json`; binary IVF and YUV
 outputs are generated under `build/tiny-md5/`.
 `make test-keyframe-md5` runs only manifest samples in the `key` group.

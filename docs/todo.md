@@ -398,7 +398,7 @@
 - [x] Fuzz corpus 最小化。
 - [x] CI: build/test/bench smoke。
 - [x] CI: scalar-only。
-- [ ] CI: SIMD enabled。
+- [x] CI: SIMD enabled。
 - [ ] CI: optional libvpx diff。
 - [ ] 版本号和 changelog。
 

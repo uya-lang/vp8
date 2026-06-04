@@ -14,6 +14,9 @@ smoke.
 `VP8UYA_FORCE_SCALAR=1` as the scalar reference gate.
 `make ci-scalar-only` runs the scalar-only CI gate for decoder goldens, WebM
 subset decode, malformed-input corpora, and minimized fuzz representatives.
+`make ci-simd-enabled` runs the forced-SIMD CI gate for decoder goldens,
+scalar-vs-SIMD output comparisons, SIMD CLI smoke, malformed-input corpora,
+and minimized fuzz representatives.
 `make test-scalar-vs-simd` decodes the built-in IVF samples with
 `--force-scalar` and `--force-simd`, then compares YUV MD5 values and writes a
 manifest under `build/scalar-vs-simd/`.
