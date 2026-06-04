@@ -205,9 +205,9 @@ fn write_four_token_then_eob(writer: &BoolWriter, coeff_probs: &byte, block_type
     try bool_writer_write(writer, 1 as u8, coeff_probs[offset]);
     try bool_writer_write(writer, 1 as u8, coeff_probs[offset + 1]);
     try bool_writer_write(writer, 1 as u8, coeff_probs[offset + 2]);
-    try bool_writer_write(writer, 1 as u8, coeff_probs[offset + 3]);
+    try bool_writer_write(writer, 0 as u8, coeff_probs[offset + 3]);
     try bool_writer_write(writer, 1 as u8, coeff_probs[offset + 4]);
-    try bool_writer_write(writer, 0 as u8, coeff_probs[offset + 5]);
+    try bool_writer_write(writer, 1 as u8, coeff_probs[offset + 5]);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try write_eob_token(writer, coeff_probs, block_type, position + 1, 2 as byte);
 }

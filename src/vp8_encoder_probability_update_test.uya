@@ -28,7 +28,7 @@ test "encoder probability update estimates VP8 zero probability from branch coun
     try assert_eq_i32((try encoder_coeff_probability_from_counts(20 as u32, 0 as u32)) as i32, 255);
 }
 
-test "encoder probability update selects only useful coefficient updates" {
+test "encoder probability update keeps coefficient updates disabled by default" {
     const defaults: Vp8Probs = vp8_default_probs();
     var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
 
@@ -42,14 +42,14 @@ test "encoder probability update selects only useful coefficient updates" {
 
     const decision: EncoderCoeffProbabilityUpdateDecision = try make_encoder_coeff_probability_update_decision(&defaults, &stats);
 
-    try assert_eq_i32(decision.update_count as i32, 1);
-    try assert_eq_i32(decision.update_flags[strong_offset] as i32, 1);
-    try assert_eq_i32(decision.coeff_probs[strong_offset] as i32, 192);
+    try assert_eq_i32(decision.update_count as i32, 0);
+    try assert_eq_i32(decision.update_flags[strong_offset] as i32, 0);
+    try assert_eq_i32(decision.coeff_probs[strong_offset] as i32, defaults.coeff_probs[strong_offset] as i32);
     try assert_eq_i32(decision.update_flags[sparse_offset] as i32, 0);
     try assert_eq_i32(decision.coeff_probs[sparse_offset] as i32, defaults.coeff_probs[sparse_offset] as i32);
 }
 
-test "encoder probability update writer roundtrips through VP8 parser" {
+test "encoder probability update writer preserves defaults when updates are disabled" {
     const defaults: Vp8Probs = vp8_default_probs();
     var stats: EncoderTokenProbabilityStats = make_encoder_token_probability_stats();
     const offset: usize = 33;
@@ -85,8 +85,8 @@ test "encoder probability update writer roundtrips through VP8 parser" {
     var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
     try parse_vp8_coeff_probability_updates(&reader, &probs);
 
-    try assert_eq_i32(decision.update_count as i32, 1);
-    try assert_eq_i32(probs.coeff_probs[offset] as i32, 64);
+    try assert_eq_i32(decision.update_count as i32, 0);
+    try assert_eq_i32(probs.coeff_probs[offset] as i32, defaults.coeff_probs[offset] as i32);
     try assert_eq_i32(probs.coeff_probs[offset + 1] as i32, defaults.coeff_probs[offset + 1] as i32);
 }
 

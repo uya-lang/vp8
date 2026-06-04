@@ -2259,12 +2259,12 @@ fn inverse_transform_4x4_one_i32x4(input: &i16, output: &i16) void {
 
     const a1: I32x4 = in0 + in2;
     const b1: I32x4 = in0 - in2;
-    const c1_cos: I32x4 = idct_mul_shift_i32x4(in1, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
-    const c1_sin: I32x4 = idct_mul_shift_i32x4(in3, SIMD_VP8_SINPI8_SQRT2);
-    const c1: I32x4 = (c1_cos - in3) + c1_sin;
-    const d1_sin: I32x4 = idct_mul_shift_i32x4(in1, SIMD_VP8_SINPI8_SQRT2);
-    const d1_cos: I32x4 = idct_mul_shift_i32x4(in3, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
-    const d1: I32x4 = ((in1 + d1_sin) + in3) + d1_cos;
+    const c1_sin: I32x4 = idct_mul_shift_i32x4(in1, SIMD_VP8_SINPI8_SQRT2);
+    const c1_cos: I32x4 = idct_mul_shift_i32x4(in3, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const c1: I32x4 = c1_sin - (in3 + c1_cos);
+    const d1_cos: I32x4 = idct_mul_shift_i32x4(in1, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const d1_sin: I32x4 = idct_mul_shift_i32x4(in3, SIMD_VP8_SINPI8_SQRT2);
+    const d1: I32x4 = (in1 + d1_cos) + d1_sin;
 
     var tmp0: [i32: 4] = [];
     var tmp1: [i32: 4] = [];
@@ -2282,12 +2282,12 @@ fn inverse_transform_4x4_one_i32x4(input: &i16, output: &i16) void {
 
     const a2: I32x4 = t0 + t2;
     const b2: I32x4 = t0 - t2;
-    const c2_cos: I32x4 = idct_mul_shift_i32x4(t1, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
-    const c2_sin: I32x4 = idct_mul_shift_i32x4(t3, SIMD_VP8_SINPI8_SQRT2);
-    const c2: I32x4 = (c2_cos - t3) + c2_sin;
-    const d2_sin: I32x4 = idct_mul_shift_i32x4(t1, SIMD_VP8_SINPI8_SQRT2);
-    const d2_cos: I32x4 = idct_mul_shift_i32x4(t3, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
-    const d2: I32x4 = ((t1 + d2_sin) + t3) + d2_cos;
+    const c2_sin: I32x4 = idct_mul_shift_i32x4(t1, SIMD_VP8_SINPI8_SQRT2);
+    const c2_cos: I32x4 = idct_mul_shift_i32x4(t3, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const c2: I32x4 = c2_sin - (t3 + c2_cos);
+    const d2_cos: I32x4 = idct_mul_shift_i32x4(t1, SIMD_VP8_COSPI8_SQRT2_MINUS_1);
+    const d2_sin: I32x4 = idct_mul_shift_i32x4(t3, SIMD_VP8_SINPI8_SQRT2);
+    const d2: I32x4 = (t1 + d2_cos) + d2_sin;
 
     var out0: [i32: 4] = [];
     var out1: [i32: 4] = [];

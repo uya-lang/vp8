@@ -73,59 +73,85 @@ fn encoder_token_stats_record_branch(stats: &EncoderTokenProbabilityStats, block
     return error.ErrEncoderTokenStatsInvalidInput;
 }
 
-fn encoder_token_stats_terminal_zero_index(token: byte) !usize {
-    if token == VP8_COEFF_TOKEN_EOB {
-        return 0 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_ZERO {
-        return 1 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_ONE {
-        return 2 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_TWO {
-        return 3 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_THREE {
-        return 4 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_FOUR {
-        return 5 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_CAT1 {
-        return 6 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_CAT2 {
-        return 7 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_CAT3 {
-        return 8 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_CAT4 {
-        return 9 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_CAT5 {
-        return 10 as usize;
-    }
-    if token == VP8_COEFF_TOKEN_CAT6 {
-        return 11 as usize;
-    }
-    return error.ErrEncoderTokenStatsInvalidInput;
-}
-
-export fn encoder_token_stats_record_token(stats: &EncoderTokenProbabilityStats, block_type: usize, position: usize, context: byte, token: byte) !void {
+export fn encoder_token_stats_record_token_after_zero(stats: &EncoderTokenProbabilityStats, block_type: usize, position: usize, context: byte, token: byte, previous_was_zero: bool) !void {
     if stats == null {
         return error.ErrEncoderTokenStatsInvalidInput;
     }
 
-    const terminal_zero_index: usize = try encoder_token_stats_terminal_zero_index(token);
-    var tree_index: usize = 0;
-    while tree_index < terminal_zero_index {
-        try encoder_token_stats_record_branch(stats, block_type, position, context, tree_index, 1 as u8);
-        tree_index = tree_index + 1;
-    }
-    if terminal_zero_index < 11 {
-        try encoder_token_stats_record_branch(stats, block_type, position, context, terminal_zero_index, 0 as u8);
+    if token == VP8_COEFF_TOKEN_EOB {
+        if previous_was_zero {
+            return error.ErrEncoderTokenStatsInvalidInput;
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 0 as u8);
+    } else if token == VP8_COEFF_TOKEN_ZERO {
+        if !previous_was_zero {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 1 as u8);
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 1, 0 as u8);
+    } else if token == VP8_COEFF_TOKEN_ONE {
+        if !previous_was_zero {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 1 as u8);
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 1, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 2, 0 as u8);
+    } else if token == VP8_COEFF_TOKEN_TWO {
+        if !previous_was_zero {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 1 as u8);
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 1, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 2, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 3, 0 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 4, 0 as u8);
+    } else if token == VP8_COEFF_TOKEN_THREE {
+        if !previous_was_zero {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 1 as u8);
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 1, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 2, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 3, 0 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 4, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 5, 0 as u8);
+    } else if token == VP8_COEFF_TOKEN_FOUR {
+        if !previous_was_zero {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 1 as u8);
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 1, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 2, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 3, 0 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 4, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 5, 1 as u8);
+    } else {
+        if !previous_was_zero {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 0, 1 as u8);
+        }
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 1, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 2, 1 as u8);
+        try encoder_token_stats_record_branch(stats, block_type, position, context, 3, 1 as u8);
+        if token == VP8_COEFF_TOKEN_CAT1 {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 6, 0 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 7, 0 as u8);
+        } else if token == VP8_COEFF_TOKEN_CAT2 {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 6, 0 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 7, 1 as u8);
+        } else if token == VP8_COEFF_TOKEN_CAT3 {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 6, 1 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 8, 0 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 9, 0 as u8);
+        } else if token == VP8_COEFF_TOKEN_CAT4 {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 6, 1 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 8, 0 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 9, 1 as u8);
+        } else if token == VP8_COEFF_TOKEN_CAT5 {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 6, 1 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 8, 1 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 10, 0 as u8);
+        } else if token == VP8_COEFF_TOKEN_CAT6 {
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 6, 1 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 8, 1 as u8);
+            try encoder_token_stats_record_branch(stats, block_type, position, context, 10, 1 as u8);
+        } else {
+            return error.ErrEncoderTokenStatsInvalidInput;
+        }
     }
 
     stats.total_tokens = try encoder_token_stats_increment(stats.total_tokens);
@@ -136,4 +162,8 @@ export fn encoder_token_stats_record_token(stats: &EncoderTokenProbabilityStats,
     if token != VP8_COEFF_TOKEN_ZERO {
         stats.nonzero_tokens = try encoder_token_stats_increment(stats.nonzero_tokens);
     }
+}
+
+export fn encoder_token_stats_record_token(stats: &EncoderTokenProbabilityStats, block_type: usize, position: usize, context: byte, token: byte) !void {
+    try encoder_token_stats_record_token_after_zero(stats, block_type, position, context, token, false);
 }

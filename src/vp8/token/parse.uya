@@ -96,6 +96,10 @@ export fn parse_coefficient_token(reader: &BoolReader, probs: &byte) !Coefficien
     if (try read_bit_with_probability(reader, probs[0])) == 0 {
         return CoefficientToken{ token: VP8_COEFF_TOKEN_EOB, coefficient: 0 as i16 };
     }
+    return try parse_coefficient_token_without_eob(reader, probs);
+}
+
+export fn parse_coefficient_token_without_eob(reader: &BoolReader, probs: &byte) !CoefficientToken {
     if (try read_bit_with_probability(reader, probs[1])) == 0 {
         return CoefficientToken{ token: VP8_COEFF_TOKEN_ZERO, coefficient: 0 as i16 };
     }
@@ -103,24 +107,24 @@ export fn parse_coefficient_token(reader: &BoolReader, probs: &byte) !Coefficien
         return try make_token(reader, VP8_COEFF_TOKEN_ONE, 1 as i16);
     }
     if (try read_bit_with_probability(reader, probs[3])) == 0 {
-        return try make_token(reader, VP8_COEFF_TOKEN_TWO, 2 as i16);
-    }
-    if (try read_bit_with_probability(reader, probs[4])) == 0 {
-        return try make_token(reader, VP8_COEFF_TOKEN_THREE, 3 as i16);
-    }
-    if (try read_bit_with_probability(reader, probs[5])) == 0 {
+        if (try read_bit_with_probability(reader, probs[4])) == 0 {
+            return try make_token(reader, VP8_COEFF_TOKEN_TWO, 2 as i16);
+        }
+        if (try read_bit_with_probability(reader, probs[5])) == 0 {
+            return try make_token(reader, VP8_COEFF_TOKEN_THREE, 3 as i16);
+        }
         return try make_token(reader, VP8_COEFF_TOKEN_FOUR, 4 as i16);
     }
     if (try read_bit_with_probability(reader, probs[6])) == 0 {
-        return try make_token(reader, VP8_COEFF_TOKEN_CAT1, (5 + (try read_extra_bits(reader, &VP8_CAT1_PROBS[0] as &byte, 1))) as i16);
-    }
-    if (try read_bit_with_probability(reader, probs[7])) == 0 {
+        if (try read_bit_with_probability(reader, probs[7])) == 0 {
+            return try make_token(reader, VP8_COEFF_TOKEN_CAT1, (5 + (try read_extra_bits(reader, &VP8_CAT1_PROBS[0] as &byte, 1))) as i16);
+        }
         return try make_token(reader, VP8_COEFF_TOKEN_CAT2, (7 + (try read_extra_bits(reader, &VP8_CAT2_PROBS[0] as &byte, 2))) as i16);
     }
     if (try read_bit_with_probability(reader, probs[8])) == 0 {
-        return try make_token(reader, VP8_COEFF_TOKEN_CAT3, (11 + (try read_extra_bits(reader, &VP8_CAT3_PROBS[0] as &byte, 3))) as i16);
-    }
-    if (try read_bit_with_probability(reader, probs[9])) == 0 {
+        if (try read_bit_with_probability(reader, probs[9])) == 0 {
+            return try make_token(reader, VP8_COEFF_TOKEN_CAT3, (11 + (try read_extra_bits(reader, &VP8_CAT3_PROBS[0] as &byte, 3))) as i16);
+        }
         return try make_token(reader, VP8_COEFF_TOKEN_CAT4, (19 + (try read_extra_bits(reader, &VP8_CAT4_PROBS[0] as &byte, 4))) as i16);
     }
     if (try read_bit_with_probability(reader, probs[10])) == 0 {
@@ -148,8 +152,14 @@ export fn parse_coefficient_block_summary(reader: &BoolReader, probs: &byte, coe
     };
 
     var position: usize = 0;
+    var previous_was_zero: bool = false;
     while position < 16 {
-        const token: CoefficientToken = try parse_coefficient_token(reader, probs);
+        var token: CoefficientToken = CoefficientToken{ token: VP8_COEFF_TOKEN_EOB, coefficient: 0 as i16 };
+        if previous_was_zero {
+            token = try parse_coefficient_token_without_eob(reader, probs);
+        } else {
+            token = try parse_coefficient_token(reader, probs);
+        }
         if token.token == VP8_COEFF_TOKEN_EOB {
             summary.eob_position = position as byte;
             summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16) && position == 1;
@@ -162,6 +172,7 @@ export fn parse_coefficient_block_summary(reader: &BoolReader, probs: &byte, coe
             summary.has_coeff = true;
             summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
         }
+        previous_was_zero = token.token == VP8_COEFF_TOKEN_ZERO;
         position = position + 1;
     }
 

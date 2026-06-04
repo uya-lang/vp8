@@ -255,7 +255,7 @@ test "encoder keyframe rejects missing predictor cost kernel entry" {
     try assert_eq_i32(failed, 1);
 }
 
-test "encoder keyframe writes coefficient probability updates from token stats" {
+test "encoder keyframe keeps coefficient probabilities browser-compatible by default" {
     var input: [byte: 1536] = [];
     var out: [byte: 32768] = [];
     const config: EncoderConfig = make_default_encoder_config(16, 64);
@@ -282,7 +282,7 @@ test "encoder keyframe writes coefficient probability updates from token stats" 
         index = index + 1;
     }
 
-    try assert_eq_i32(changed as i32, true as i32);
+    try assert_eq_i32(changed as i32, false as i32);
 }
 
 test "encoder keyframe IVF output is deterministic for fixed input" {

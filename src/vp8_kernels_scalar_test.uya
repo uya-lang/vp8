@@ -136,13 +136,13 @@ test "scalar 4x4 inverse DCT matches deterministic VP8 golden blocks" {
     try assert_eq_4x4(&out[0] as &i16, &dc_expected[0] as &i16);
 
     var horizontal_input: [i16: 16] = [ 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
-    var horizontal_expected: [i16: 16] = [ 3, 1, 0, -3, 3, 1, 0, -3, 3, 1, 0, -3, 3, 1, 0, -3 ];
+    var horizontal_expected: [i16: 16] = [ 3, 1, -1, -2, 3, 1, -1, -2, 3, 1, -1, -2, 3, 1, -1, -2 ];
 
     inverse_transform_4x4(&horizontal_input[0] as &i16, &out[0] as &i16);
     try assert_eq_4x4(&out[0] as &i16, &horizontal_expected[0] as &i16);
 
     var mixed_input: [i16: 16] = [ 16, -8, 4, -2, 3, -6, 9, -12, 5, 7, -10, 11, -13, 14, -15, 6 ];
-    var mixed_expected: [i16: 16] = [ 0, 2, 3, -1, -2, -1, -1, 13, -1, 0, 0, 4, 6, 3, 6, 3 ];
+    var mixed_expected: [i16: 16] = [ 1, 3, 2, 3, 1, 1, -3, 16, -1, 1, 0, -3, 3, 1, 8, 1 ];
 
     inverse_transform_4x4(&mixed_input[0] as &i16, &out[0] as &i16);
     try assert_eq_4x4(&out[0] as &i16, &mixed_expected[0] as &i16);

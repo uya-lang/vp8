@@ -1394,8 +1394,8 @@ export fn inverse_transform_4x4(input: &i16, output: &i16) void {
 
         const a1: i32 = in0 + in2;
         const b1: i32 = in0 - in2;
-        const c1: i32 = ((in1 * VP8_COSPI8_SQRT2_MINUS_1) >> 16) - in3 + ((in3 * VP8_SINPI8_SQRT2) >> 16);
-        const d1: i32 = in1 + ((in1 * VP8_SINPI8_SQRT2) >> 16) + in3 + ((in3 * VP8_COSPI8_SQRT2_MINUS_1) >> 16);
+        const c1: i32 = ((in1 * VP8_SINPI8_SQRT2) >> 16) - (in3 + ((in3 * VP8_COSPI8_SQRT2_MINUS_1) >> 16));
+        const d1: i32 = in1 + ((in1 * VP8_COSPI8_SQRT2_MINUS_1) >> 16) + ((in3 * VP8_SINPI8_SQRT2) >> 16);
 
         tmp[base] = a1 + d1;
         tmp[base + 3] = a1 - d1;
@@ -1413,8 +1413,8 @@ export fn inverse_transform_4x4(input: &i16, output: &i16) void {
 
         const a1: i32 = t0 + t2;
         const b1: i32 = t0 - t2;
-        const c1: i32 = ((t1 * VP8_COSPI8_SQRT2_MINUS_1) >> 16) - t3 + ((t3 * VP8_SINPI8_SQRT2) >> 16);
-        const d1: i32 = t1 + ((t1 * VP8_SINPI8_SQRT2) >> 16) + t3 + ((t3 * VP8_COSPI8_SQRT2_MINUS_1) >> 16);
+        const c1: i32 = ((t1 * VP8_SINPI8_SQRT2) >> 16) - (t3 + ((t3 * VP8_COSPI8_SQRT2_MINUS_1) >> 16));
+        const d1: i32 = t1 + ((t1 * VP8_COSPI8_SQRT2_MINUS_1) >> 16) + ((t3 * VP8_SINPI8_SQRT2) >> 16);
 
         output[col] = ((a1 + d1 + 4) >> 3) as i16;
         output[12 + col] = ((a1 - d1 + 4) >> 3) as i16;

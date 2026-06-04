@@ -25,10 +25,10 @@ test "encoder local reconstruct applies full inverse transform residual over pre
         -13, 14, -15, 6
     ];
     var expected: [byte: 24] = [
-        100, 102, 103, 99, 77, 77,
-        98, 99, 99, 113, 77, 77,
-        99, 100, 100, 104, 77, 77,
-        106, 103, 106, 103, 77, 77
+        101, 103, 102, 103, 77, 77,
+        101, 101, 97, 116, 77, 77,
+        99, 101, 100, 97, 77, 77,
+        103, 101, 108, 101, 77, 77
     ];
 
     try reconstruct_quantized_block_4x4(&qcoeff[0] as &i16, 1 as i16, 1 as i16, &dst[0] as &byte, 6, false);
@@ -81,10 +81,10 @@ test "encoder local reconstruct supports luma y2 dc and optional ac coefficients
         100, 100, 100, 100, 44, 44
     ];
     var ac_expected: [byte: 24] = [
-        103, 101, 100, 97, 44, 44,
-        103, 101, 100, 97, 44, 44,
-        103, 101, 100, 97, 44, 44,
-        103, 101, 100, 97, 44, 44
+        103, 101, 99, 98, 44, 44,
+        103, 101, 99, 98, 44, 44,
+        103, 101, 99, 98, 44, 44,
+        103, 101, 99, 98, 44, 44
     ];
 
     try reconstruct_y_block_with_y2_dc(&qcoeff[0] as &i16, 0 as i16, 16 as i16, &ac_dst[0] as &byte, 6, true);

@@ -36,13 +36,16 @@ test "encoder token stats record category token tree path" {
 
     try encoder_token_stats_record_token(&stats, 3, 7, 1 as byte, VP8_COEFF_TOKEN_CAT3);
     const base: usize = try encoder_token_stats_branch_offset(3, 7, 1 as byte, 0);
-    var index: usize = 0;
-    while index < 8 {
-        try assert_eq_i32(stats.branches[base + index].one_count as i32, 1);
-        index = index + 1;
-    }
+    try assert_eq_i32(stats.branches[base + 0].one_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 1].one_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 2].one_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 3].one_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 4].one_count as i32, 0);
+    try assert_eq_i32(stats.branches[base + 5].one_count as i32, 0);
+    try assert_eq_i32(stats.branches[base + 6].one_count as i32, 1);
+    try assert_eq_i32(stats.branches[base + 7].one_count as i32, 0);
     try assert_eq_i32(stats.branches[base + 8].zero_count as i32, 1);
-    try assert_eq_i32(stats.branches[base + 9].zero_count as i32, 0);
+    try assert_eq_i32(stats.branches[base + 9].zero_count as i32, 1);
     try assert_eq_i32(stats.total_tokens as i32, 1);
     try assert_eq_i32(stats.nonzero_tokens as i32, 1);
 }

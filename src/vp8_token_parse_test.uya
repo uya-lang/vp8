@@ -31,14 +31,14 @@ fn write_token_path(writer: &BoolWriter, bits: &u8, count: usize, probs: &byte) 
     }
 }
 
-fn parse_token_from_script(bits: &u8, count: usize, probs: &byte) !CoefficientToken {
+fn parse_token_from_script(bits: &u8, count: usize, script_probs: &byte, parse_probs: &byte) !CoefficientToken {
     var encoded: [byte: 32] = [];
     var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
-    try write_token_path(&writer, bits, count, probs);
+    try write_token_path(&writer, bits, count, script_probs);
     try bool_writer_flush(&writer);
 
     var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
-    return try parse_coefficient_token(&reader, probs);
+    return try parse_coefficient_token(&reader, parse_probs);
 }
 
 test "parse coefficient token tree leaves" {
@@ -48,31 +48,32 @@ test "parse coefficient token tree leaves" {
     var eob_bits: [u8: 1] = [ 0 ];
     var zero_bits: [u8: 2] = [ 1, 0 ];
     var one_bits: [u8: 4] = [ 1, 1, 0, 1 ];
-    var four_bits: [u8: 7] = [ 1, 1, 1, 1, 1, 0, 0 ];
+    var four_bits: [u8: 7] = [ 1, 1, 1, 0, 1, 1, 0 ];
 
-    const eob: CoefficientToken = try parse_token_from_script(&eob_bits[0] as &u8, 1, &probs[0] as &byte);
+    const eob: CoefficientToken = try parse_token_from_script(&eob_bits[0] as &u8, 1, &probs[0] as &byte, &probs[0] as &byte);
     try assert_eq_i32(eob.token as i32, VP8_COEFF_TOKEN_EOB as i32);
     try assert_eq_i32(eob.coefficient as i32, 0);
 
-    const zero: CoefficientToken = try parse_token_from_script(&zero_bits[0] as &u8, 2, &probs[0] as &byte);
+    const zero: CoefficientToken = try parse_token_from_script(&zero_bits[0] as &u8, 2, &probs[0] as &byte, &probs[0] as &byte);
     try assert_eq_i32(zero.token as i32, VP8_COEFF_TOKEN_ZERO as i32);
     try assert_eq_i32(zero.coefficient as i32, 0);
 
-    const one: CoefficientToken = try parse_token_from_script(&one_bits[0] as &u8, 4, &one_probs[0] as &byte);
+    const one: CoefficientToken = try parse_token_from_script(&one_bits[0] as &u8, 4, &one_probs[0] as &byte, &one_probs[0] as &byte);
     try assert_eq_i32(one.token as i32, VP8_COEFF_TOKEN_ONE as i32);
     try assert_eq_i32(one.coefficient as i32, -1);
 
-    const four: CoefficientToken = try parse_token_from_script(&four_bits[0] as &u8, 7, &four_probs[0] as &byte);
+    const four: CoefficientToken = try parse_token_from_script(&four_bits[0] as &u8, 7, &four_probs[0] as &byte, &four_probs[0] as &byte);
     try assert_eq_i32(four.token as i32, VP8_COEFF_TOKEN_FOUR as i32);
     try assert_eq_i32(four.coefficient as i32, 4);
 }
 
 test "parse coefficient category token extra bits and sign" {
     var probs: [byte: 11] = [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110 ];
-    var cat3_bits: [u8: 13] = [ 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1 ];
-    var cat3_probs: [byte: 13] = [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 173, 148, 140, 128 ];
+    var cat3_bits: [u8: 11] = [ 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1 ];
+    var cat3_script_probs: [byte: 11] = [ 10, 20, 30, 40, 70, 90, 100, 173, 148, 140, 128 ];
+    var cat3_parse_probs: [byte: 11] = [ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110 ];
 
-    const cat3: CoefficientToken = try parse_token_from_script(&cat3_bits[0] as &u8, 13, &cat3_probs[0] as &byte);
+    const cat3: CoefficientToken = try parse_token_from_script(&cat3_bits[0] as &u8, 11, &cat3_script_probs[0] as &byte, &cat3_parse_probs[0] as &byte);
     try assert_eq_i32(cat3.token as i32, VP8_COEFF_TOKEN_CAT3 as i32);
     try assert_eq_i32(cat3.coefficient as i32, -16);
 }
@@ -125,16 +126,17 @@ test "coefficient block summary fast paths eob zero and dc only" {
 
 test "parse y2 coefficient block tokens into scan order" {
     var coeffs: [i16: 16] = [];
-    var bits: [u8: 8] = [ 1, 0, 1, 1, 0, 0, 0, 0 ];
-    var probs: [byte: 8] = [ 10, 20, 10, 20, 30, 128, 10, 20 ];
+    var bits: [u8: 6] = [ 1, 0, 1, 0, 0, 0 ];
+    var script_probs: [byte: 6] = [ 10, 20, 20, 10, 128, 10 ];
+    var parse_probs: [byte: 3] = [ 10, 20, 10 ];
 
     var encoded: [byte: 32] = [];
     var writer: BoolWriter = make_bool_writer(&encoded[0] as &byte, 32);
-    try write_token_path(&writer, &bits[0] as &u8, 8, &probs[0] as &byte);
+    try write_token_path(&writer, &bits[0] as &u8, 6, &script_probs[0] as &byte);
     try bool_writer_flush(&writer);
 
     var reader: BoolReader = try make_bool_reader(&encoded[0] as &byte, 32);
-    const summary: CoefficientBlockSummary = try parse_y2_coefficient_block_summary(&reader, &probs[0] as &byte, &coeffs[0] as &i16);
+    const summary: CoefficientBlockSummary = try parse_y2_coefficient_block_summary(&reader, &parse_probs[0] as &byte, &coeffs[0] as &i16);
 
     try assert_eq_i32(summary.has_coeff as i32, 1);
     try assert_eq_i32(summary.dc_only as i32, 0);

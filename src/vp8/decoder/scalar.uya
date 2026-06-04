@@ -152,6 +152,7 @@ use vp8.token.parse.coefficient_eob_context;
 use vp8.token.parse.coefficient_scan_index;
 use vp8.token.parse.parse_coefficient_block_summary;
 use vp8.token.parse.parse_coefficient_token;
+use vp8.token.parse.parse_coefficient_token_without_eob;
 use vp8.token.parse.VP8_COEFF_TOKEN_EOB;
 use vp8.token.parse.VP8_COEFF_TOKEN_ONE;
 use vp8.token.parse.VP8_COEFF_TOKEN_ZERO;
@@ -400,9 +401,15 @@ fn parse_block_coefficients_with_context(reader: &BoolReader, coeff_probs: &byte
 
     var position: usize = start_position;
     var context: byte = coefficient_eob_context(above_has_coeff, left_has_coeff);
+    var previous_was_zero: bool = false;
     while position < 16 {
         const prob_offset: usize = try coeff_prob_offset(block_type, position, context);
-        const token: CoefficientToken = try parse_coefficient_token(reader, &coeff_probs[prob_offset] as &byte);
+        var token: CoefficientToken = CoefficientToken{ token: VP8_COEFF_TOKEN_EOB, coefficient: 0 as i16 };
+        if previous_was_zero {
+            token = try parse_coefficient_token_without_eob(reader, &coeff_probs[prob_offset] as &byte);
+        } else {
+            token = try parse_coefficient_token(reader, &coeff_probs[prob_offset] as &byte);
+        }
         if token.token == VP8_COEFF_TOKEN_EOB {
             summary.eob_position = position as byte;
             summary.dc_only = summary.coefficient_count == (1 as byte) && coefficients[0] != (0 as i16) && position == 1;
@@ -415,6 +422,7 @@ fn parse_block_coefficients_with_context(reader: &BoolReader, coeff_probs: &byte
             summary.has_coeff = true;
             summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
         }
+        previous_was_zero = token.token == VP8_COEFF_TOKEN_ZERO;
         context = token_context_after(token.token);
         position = position + 1;
     }
@@ -1209,7 +1217,7 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     }
 
     var token_readers: [BoolReader: 8] = [];
-    try parse_vp8_token_partition_readers(data, len, first_partition_reader_offset, tag.first_partition_size, token_partition_count, &token_readers[0] as &BoolReader);
+    try parse_vp8_token_partition_readers(data, len, first_partition_reader_offset, first_partition_reader_len as u32, token_partition_count, &token_readers[0] as &BoolReader);
 
     const current: &FrameBuffer = try frame_pool_get_slot(&decoder.context.frame_pool, decoder.context.frame_pool.current_slot);
     var border_extension_count: usize = 0;

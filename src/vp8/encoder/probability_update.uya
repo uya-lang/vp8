@@ -9,6 +9,7 @@ error ErrEncoderProbabilityUpdateInvalidInput;
 
 const ENCODER_PROBABILITY_UPDATE_MIN_SAMPLES: u32 = 16 as u32;
 const ENCODER_PROBABILITY_UPDATE_MIN_DELTA: u32 = 8 as u32;
+const ENCODER_COEFF_PROBABILITY_UPDATES_ENABLED: bool = false;
 
 export struct EncoderCoeffProbabilityUpdateDecision {
     update_flags: [byte: 1056] = [],
@@ -41,6 +42,9 @@ fn encoder_probability_abs_diff(left: byte, right: byte) u32 {
 
 export fn encoder_coeff_probability_should_update(old_prob: byte, candidate_prob: byte, zero_count: u32, one_count: u32) bool {
     const total: u32 = (zero_count + one_count) as u32;
+    if !ENCODER_COEFF_PROBABILITY_UPDATES_ENABLED {
+        return false;
+    }
     if total < ENCODER_PROBABILITY_UPDATE_MIN_SAMPLES {
         return false;
     }

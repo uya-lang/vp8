@@ -55,7 +55,7 @@ use vp8.encoder.rd_cost.EncoderRdCostModel;
 use vp8.encoder.rd_cost.make_encoder_quantizer_rd_cost_model;
 use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
 use vp8.encoder.token_stats.EncoderTokenProbabilityStats;
-use vp8.encoder.token_stats.encoder_token_stats_record_token;
+use vp8.encoder.token_stats.encoder_token_stats_record_token_after_zero;
 use vp8.encoder.token_stats.make_encoder_token_probability_stats;
 use vp8.encoder.token_partition_packing.write_encoder_token_partition_count;
 use vp8.kernels.scalar.DequantFactors;
@@ -496,13 +496,17 @@ fn encoder_keyframe_write_token_sign(writer: &BoolWriter, token: &EncoderCoeffic
     }
 }
 
-fn encoder_keyframe_write_coefficient_token(writer: &BoolWriter, probs: &byte, token: &EncoderCoefficientToken) !void {
-    if token.token == VP8_COEFF_TOKEN_EOB {
-        try bool_writer_write(writer, 0 as u8, probs[0]);
-        return;
+fn encoder_keyframe_write_coefficient_token(writer: &BoolWriter, probs: &byte, token: &EncoderCoefficientToken, previous_was_zero: bool) !void {
+    if !previous_was_zero {
+        if token.token == VP8_COEFF_TOKEN_EOB {
+            try bool_writer_write(writer, 0 as u8, probs[0]);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[0]);
+    } else if token.token == VP8_COEFF_TOKEN_EOB {
+        return error.ErrEncoderKeyframeInvalidInput;
     }
 
-    try bool_writer_write(writer, 1 as u8, probs[0]);
     if token.token == VP8_COEFF_TOKEN_ZERO {
         try bool_writer_write(writer, 0 as u8, probs[1]);
         return;
@@ -516,68 +520,63 @@ fn encoder_keyframe_write_coefficient_token(writer: &BoolWriter, probs: &byte, t
     }
 
     try bool_writer_write(writer, 1 as u8, probs[2]);
-    if token.token == VP8_COEFF_TOKEN_TWO {
+    if token.token == VP8_COEFF_TOKEN_TWO || token.token == VP8_COEFF_TOKEN_THREE || token.token == VP8_COEFF_TOKEN_FOUR {
         try bool_writer_write(writer, 0 as u8, probs[3]);
+        if token.token == VP8_COEFF_TOKEN_TWO {
+            try bool_writer_write(writer, 0 as u8, probs[4]);
+            try encoder_keyframe_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[4]);
+        if token.token == VP8_COEFF_TOKEN_THREE {
+            try bool_writer_write(writer, 0 as u8, probs[5]);
+            try encoder_keyframe_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[5]);
         try encoder_keyframe_write_token_sign(writer, token);
         return;
     }
 
     try bool_writer_write(writer, 1 as u8, probs[3]);
-    if token.token == VP8_COEFF_TOKEN_THREE {
-        try bool_writer_write(writer, 0 as u8, probs[4]);
-        try encoder_keyframe_write_token_sign(writer, token);
-        return;
-    }
-
-    try bool_writer_write(writer, 1 as u8, probs[4]);
-    if token.token == VP8_COEFF_TOKEN_FOUR {
-        try bool_writer_write(writer, 0 as u8, probs[5]);
-        try encoder_keyframe_write_token_sign(writer, token);
-        return;
-    }
-
-    try bool_writer_write(writer, 1 as u8, probs[5]);
-    if token.token == VP8_COEFF_TOKEN_CAT1 {
+    if token.token == VP8_COEFF_TOKEN_CAT1 || token.token == VP8_COEFF_TOKEN_CAT2 {
         try bool_writer_write(writer, 0 as u8, probs[6]);
-        try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT1_PROBS_ENC[0] as &byte);
-        try encoder_keyframe_write_token_sign(writer, token);
-        return;
-    }
-
-    try bool_writer_write(writer, 1 as u8, probs[6]);
-    if token.token == VP8_COEFF_TOKEN_CAT2 {
-        try bool_writer_write(writer, 0 as u8, probs[7]);
+        if token.token == VP8_COEFF_TOKEN_CAT1 {
+            try bool_writer_write(writer, 0 as u8, probs[7]);
+            try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT1_PROBS_ENC[0] as &byte);
+            try encoder_keyframe_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[7]);
         try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT2_PROBS_ENC[0] as &byte);
         try encoder_keyframe_write_token_sign(writer, token);
         return;
     }
 
-    try bool_writer_write(writer, 1 as u8, probs[7]);
-    if token.token == VP8_COEFF_TOKEN_CAT3 {
+    try bool_writer_write(writer, 1 as u8, probs[6]);
+    if token.token == VP8_COEFF_TOKEN_CAT3 || token.token == VP8_COEFF_TOKEN_CAT4 {
         try bool_writer_write(writer, 0 as u8, probs[8]);
-        try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT3_PROBS_ENC[0] as &byte);
-        try encoder_keyframe_write_token_sign(writer, token);
-        return;
-    }
-
-    try bool_writer_write(writer, 1 as u8, probs[8]);
-    if token.token == VP8_COEFF_TOKEN_CAT4 {
-        try bool_writer_write(writer, 0 as u8, probs[9]);
+        if token.token == VP8_COEFF_TOKEN_CAT3 {
+            try bool_writer_write(writer, 0 as u8, probs[9]);
+            try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT3_PROBS_ENC[0] as &byte);
+            try encoder_keyframe_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[9]);
         try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT4_PROBS_ENC[0] as &byte);
         try encoder_keyframe_write_token_sign(writer, token);
         return;
     }
 
-    try bool_writer_write(writer, 1 as u8, probs[9]);
-    if token.token == VP8_COEFF_TOKEN_CAT5 {
-        try bool_writer_write(writer, 0 as u8, probs[10]);
-        try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT5_PROBS_ENC[0] as &byte);
-        try encoder_keyframe_write_token_sign(writer, token);
-        return;
-    }
-
-    try bool_writer_write(writer, 1 as u8, probs[10]);
-    if token.token == VP8_COEFF_TOKEN_CAT6 {
+    try bool_writer_write(writer, 1 as u8, probs[8]);
+    if token.token == VP8_COEFF_TOKEN_CAT5 || token.token == VP8_COEFF_TOKEN_CAT6 {
+        if token.token == VP8_COEFF_TOKEN_CAT5 {
+            try bool_writer_write(writer, 0 as u8, probs[10]);
+            try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT5_PROBS_ENC[0] as &byte);
+            try encoder_keyframe_write_token_sign(writer, token);
+            return;
+        }
+        try bool_writer_write(writer, 1 as u8, probs[10]);
         try encoder_keyframe_write_extra_bits(writer, token.extra_bits, token.extra_bit_count, &VP8_CAT6_PROBS_ENC[0] as &byte);
         try encoder_keyframe_write_token_sign(writer, token);
         return;
@@ -606,14 +605,15 @@ fn encoder_keyframe_write_quantized_block_tokens(
         eob_position: 0 as byte
     };
     var context: byte = coefficient_eob_context(above_has_coeff, left_has_coeff);
+    var previous_was_zero: bool = false;
     var index: usize = 0;
     while index < token_count {
         const token: &EncoderCoefficientToken = &tokens[index] as &EncoderCoefficientToken;
         const prob_offset: usize = try encoder_keyframe_coeff_prob_offset(block_type, token.position as usize, context);
         if token_stats != null {
-            try encoder_token_stats_record_token(token_stats, block_type, token.position as usize, context, token.token);
+            try encoder_token_stats_record_token_after_zero(token_stats, block_type, token.position as usize, context, token.token, previous_was_zero);
         }
-        try encoder_keyframe_write_coefficient_token(writer, &probs.coeff_probs[prob_offset] as &byte, token);
+        try encoder_keyframe_write_coefficient_token(writer, &probs.coeff_probs[prob_offset] as &byte, token, previous_was_zero);
         if token.token == VP8_COEFF_TOKEN_EOB {
             summary.eob_position = token.position;
         } else {
@@ -621,6 +621,7 @@ fn encoder_keyframe_write_quantized_block_tokens(
                 summary.has_coeff = true;
                 summary.coefficient_count = (summary.coefficient_count + (1 as byte)) as byte;
             }
+            previous_was_zero = token.token == VP8_COEFF_TOKEN_ZERO;
             context = encoder_keyframe_token_context_after(token.token);
         }
         index = index + 1;

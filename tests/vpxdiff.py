@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,16 @@ TESTS_DIR = REPO_ROOT / "tests"
 
 sys.path.insert(0, str(TESTS_DIR))
 import tiny_ivf_md5  # noqa: E402
+
+
+def find_vpx_tool(name: str) -> str | None:
+    path = shutil.which(name)
+    if path is not None:
+        return path
+    extracted = REPO_ROOT / "build" / "deps" / "vpx-tools-root" / "usr" / "bin" / name
+    if extracted.exists():
+        return str(extracted)
+    return None
 
 
 def load_vpxdec_compatible_samples() -> list[dict[str, object]]:
@@ -60,10 +71,45 @@ def run_vp8uya_decode(vp8uya: Path, ivf_path: Path, yuv_path: Path) -> None:
     run_checked(command, label=f"vp8uya decode {ivf_path.name}")
 
 
+def run_vp8uya_encode(vp8uya: Path, yuv_path: Path, width: int, height: int, ivf_path: Path) -> None:
+    command = [
+        str(vp8uya),
+        "encode",
+        str(yuv_path),
+        "--width",
+        str(width),
+        "--height",
+        str(height),
+        "--out",
+        str(ivf_path),
+    ]
+    run_checked(command, label=f"vp8uya encode {yuv_path.name}")
+
+
 def write_gray_i420(path: Path, width: int, height: int) -> None:
     y_size = width * height
     uv_size = (width // 2) * (height // 2)
     path.write_bytes(bytes([128]) * (y_size + uv_size + uv_size))
+
+
+def write_gradient_i420(path: Path, width: int, height: int) -> None:
+    y = bytes((((x * 13) + (y * 17) + 16) % 224 + 16) for y in range(height) for x in range(width))
+    uv_size = (width // 2) * (height // 2)
+    path.write_bytes(y + bytes([128]) * uv_size + bytes([128]) * uv_size)
+
+
+def y_plane_psnr(reference: bytes, decoded: bytes, width: int, height: int) -> float:
+    y_size = width * height
+    if len(reference) < y_size or len(decoded) < y_size:
+        return 0.0
+    mse = 0.0
+    for index in range(y_size):
+        diff = reference[index] - decoded[index]
+        mse += diff * diff
+    mse /= y_size
+    if mse == 0.0:
+        return math.inf
+    return 10.0 * math.log10((255.0 * 255.0) / mse)
 
 
 def run_vpxenc_gray_sample(vpxenc: str, out_dir: Path, failures: list[str]) -> None:
@@ -103,13 +149,31 @@ def run_vpxenc_gray_sample(vpxenc: str, out_dir: Path, failures: list[str]) -> N
         failures.append(str(exc))
 
 
+def run_vp8uya_gradient_encode_sample(vpxdec: str, vp8uya: Path, out_dir: Path, failures: list[str]) -> None:
+    name = "vp8uya-gradient-16x16"
+    yuv_path = out_dir / f"{name}.i420"
+    ivf_path = out_dir / f"{name}.ivf"
+    vpx_yuv_path = out_dir / f"{name}.vpxdec.yuv"
+    write_gradient_i420(yuv_path, 16, 16)
+    try:
+        run_vp8uya_encode(vp8uya, yuv_path, 16, 16, ivf_path)
+        run_vpxdec(vpxdec, ivf_path, vpx_yuv_path)
+        psnr = y_plane_psnr(yuv_path.read_bytes(), vpx_yuv_path.read_bytes(), 16, 16)
+        if psnr < 25.0:
+            failures.append(f"{name}: expected y-psnr >= 25.0 got {psnr:.2f}")
+        else:
+            print(f"{name} y_psnr={psnr:.2f}")
+    except RuntimeError as exc:
+        failures.append(str(exc))
+
+
 def main(argv: list[str]) -> int:
     if len(argv) not in (2, 3):
         print("usage: vpxdiff.py <out-dir> [vp8uya-bin]", file=sys.stderr)
         return 2
 
-    vpxdec = shutil.which("vpxdec")
-    vpxenc = shutil.which("vpxenc")
+    vpxdec = find_vpx_tool("vpxdec")
+    vpxenc = find_vpx_tool("vpxenc")
     if vpxdec is None or vpxenc is None:
         missing = "vpxdec" if vpxdec is None else "vpxenc"
         print(f"skip: {missing} not found")
@@ -128,6 +192,7 @@ def main(argv: list[str]) -> int:
 
     failures = []
     run_vpxenc_gray_sample(vpxenc, out_dir, failures)
+    run_vp8uya_gradient_encode_sample(vpxdec, vp8uya, out_dir, failures)
     if not failures:
         ivf_path = out_dir / "vpxenc-gray-16x16.ivf"
         uya_yuv_path = out_dir / "vpxenc-gray-16x16.vp8uya.yuv"
