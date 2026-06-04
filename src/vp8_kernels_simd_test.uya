@@ -68,6 +68,7 @@ use vp8.kernels.simd.loop_filter_normal_mb_vertical_edge_u8x16;
 use vp8.kernels.simd.loop_filter_normal_vertical_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_horizontal_edge_u8x16;
 use vp8.kernels.simd.loop_filter_simple_vertical_edge_u8x16;
+use vp8.kernels.simd.narrow_i16x16_to_u8x16_sat;
 use vp8.kernels.simd.extend_plane_border_u8x16;
 use vp8.kernels.simd.forward_dct_4x4_i32x4;
 use vp8.kernels.simd.forward_walsh_hadamard_y2_4x4_i32x4;
@@ -125,6 +126,7 @@ use vp8.token.parse.CoefficientBlockSummary;
 
 type TestU8x16 = @vector(u8, 16);
 type TestI16x8 = @vector(i16, 8);
+type TestI16x16 = @vector(i16, 16);
 type TestI32x4 = @vector(i32, 4);
 
 fn assert_i16_block_eq(actual: &i16, expected: &i16) !void {
@@ -264,6 +266,28 @@ test "SIMD helper widens u8x16 into ordered i16x8 pair" {
     while index < 8 {
         try assert_eq_i32(low[index] as i32, src[index] as i32);
         try assert_eq_i32(hi[index] as i32, src[index + 8] as i32);
+        index = index + 1;
+    }
+}
+
+test "SIMD helper narrows i16x16 to saturated u8x16" {
+    var src: [i16: 16] = [
+        -300, -1, 0, 1, 2, 127, 128, 254,
+        255, 256, 300, 511, 1024, -128, 42, 99
+    ];
+    var expected: [u8: 16] = [
+        0u8, 0u8, 0u8, 1u8, 2u8, 127u8, 128u8, 254u8,
+        255u8, 255u8, 255u8, 255u8, 255u8, 0u8, 42u8, 99u8
+    ];
+
+    const values: TestI16x16 = @vector.load(&src[0] as &i16);
+    const narrowed: TestU8x16 = narrow_i16x16_to_u8x16_sat(values);
+    var actual: [u8: 16] = [];
+    store_u8x16(&actual[0] as &u8, narrowed);
+
+    var index: usize = 0;
+    while index < 16 {
+        try assert_eq_i32(actual[index] as i32, expected[index] as i32);
         index = index + 1;
     }
 }

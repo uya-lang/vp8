@@ -77,6 +77,15 @@ HELPERS = (
             "struct uya_simd_vector_int16_t_8",
         ),
     },
+    {
+        "name": "narrow_i16x16_to_u8x16_sat",
+        "symbol": "vp8_kernels_simd_narrow_i16x16_to_u8x16_sat",
+        "kind": "helper",
+        "vector_structs": (
+            "struct uya_simd_vector_int16_t_16",
+            "struct uya_simd_vector_uint8_t_16",
+        ),
+    },
 )
 
 SIMD_KERNELS = (

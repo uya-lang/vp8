@@ -26,7 +26,7 @@ export type U8x16 = @vector(u8, 16);
 export type U8Mask16 = @mask(16);
 export type I16x8 = @vector(i16, 8);
 export type I16Mask8 = @mask(8);
-type I16x16 = @vector(i16, 16);
+export type I16x16 = @vector(i16, 16);
 type I16Mask16 = @mask(16);
 export type I32x4 = @vector(i32, 4);
 export type I32Mask4 = @mask(4);
@@ -119,6 +119,20 @@ fn simd_clip_i16_to_u8(value: i16) byte {
         return 255 as byte;
     }
     return value as byte;
+}
+
+export fn narrow_i16x16_to_u8x16_sat(values: I16x16) U8x16 {
+    var input: [i16: 16] = [];
+    var output: [u8: 16] = [];
+    @vector.store(&input[0] as &i16, values);
+
+    var index: usize = 0;
+    while index < 16 {
+        output[index] = simd_clip_i16_to_u8(input[index]);
+        index = index + 1;
+    }
+
+    return load_u8x16(&output[0] as &u8);
 }
 
 fn simd_clip_i32_to_u8(value: i32) byte {
@@ -446,14 +460,8 @@ export fn variance_4x4_u8x16(src: &byte, src_stride: usize, reference: &byte, re
 }
 
 fn store_clipped_i16x16_to_u8(dst: &byte, values: I16x16) void {
-    var lanes: [i16: 16] = [];
-    @vector.store(&lanes[0] as &i16, values);
-
-    var index: usize = 0;
-    while index < 16 {
-        dst[index] = simd_clip_i16_to_u8(lanes[index]);
-        index = index + 1;
-    }
+    const clipped: U8x16 = narrow_i16x16_to_u8x16_sat(values);
+    store_u8x16_unaligned(dst as &u8, clipped);
 }
 
 fn write_4x4_values_u8x16(dst: &byte, dst_stride: usize, values: &byte) void {

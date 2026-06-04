@@ -90,3 +90,31 @@ Fallback and testing:
 - `docs/simd_gaps.md` still records native vector widening as an upstream UYA
   compiler gap; replacing this helper with a builtin must preserve the same
   zero-extension contract.
+
+## `narrow_i16x16_to_u8x16_sat`
+
+Purpose: convert one `i16x16` value into one `u8x16` value with VP8 pixel clamp
+semantics. This is the vector-value counterpart to the scalar `clip_u8` path
+used after prediction, inverse transform residual addition, and loop-filter
+updates.
+
+Contract:
+
+- Each input lane is independently clamped to `[0, 255]`.
+- Negative values become `0u8`.
+- Values in `[0, 255]` preserve their numeric value.
+- Values above `255` become `255u8`.
+- Lane order is unchanged: input lane `N` becomes output lane `N`.
+- The helper takes and returns vector values. Storing the result is a separate
+  operation so callers can choose aligned, unaligned, or scatter writes.
+- Current implementation stores `i16x16` lanes to a local array, applies the
+  scalar clamp per lane, and reloads `u8x16`. This captures the contract while
+  UYA lacks direct narrow/convert and unsigned saturation builtins.
+
+Fallback and testing:
+
+- Scalar fallback is sixteen independent clamp-and-cast operations.
+- `src/vp8_kernels_simd_test.uya` verifies negative, in-range, boundary, and
+  above-range values.
+- Existing `store_clipped_i16x16_to_u8` now reuses this helper before doing an
+  unaligned 16-byte store.
