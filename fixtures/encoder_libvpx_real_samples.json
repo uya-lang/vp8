@@ -17,6 +17,16 @@
       "fps": "30000/1001",
       "sha256": "df88d83cbf6d99f3ec41f2c1fd2e67665d2a71ff8caa08f8b6bc46bf4567ea2e",
       "groups": ["real", "qcif", "low-motion"]
+    },
+    {
+      "name": "foreman_qcif",
+      "url": "https://media.xiph.org/video/derf/y4m/foreman_qcif.y4m",
+      "width": 176,
+      "height": 144,
+      "frames": 60,
+      "fps": "30000/1001",
+      "sha256": "9b37e95ae2d06b3b173d6130965f450009216084bae12b2025248814baf057af",
+      "groups": ["real", "qcif", "motion"]
     }
   ]
 }

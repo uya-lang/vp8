@@ -23,20 +23,42 @@ def sample_by_name(manifest: dict[str, object], name: str) -> dict[str, object]:
     raise AssertionError(f"missing sample: {name}")
 
 
+def assert_qcif_sample(
+    manifest: dict[str, object],
+    *,
+    name: str,
+    sha256: str,
+    group: str,
+) -> None:
+    sample = sample_by_name(manifest, name)
+    assert sample["url"] == f"https://media.xiph.org/video/derf/y4m/{name}.y4m"
+    assert sample["width"] == 176
+    assert sample["height"] == 144
+    assert sample["frames"] == 60
+    assert sample["fps"] == "30000/1001"
+    assert sample["sha256"] == sha256
+    assert SHA256_RE.match(sample["sha256"])
+    assert {"real", "qcif", group}.issubset(set(sample["groups"]))
+
+
 def main() -> int:
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert manifest["schema_version"] == 1
     assert manifest["source"] == "Xiph Derf"
     assert isinstance(manifest["samples"], list)
 
-    akiyo = sample_by_name(manifest, "akiyo_qcif")
-    assert akiyo["url"] == "https://media.xiph.org/video/derf/y4m/akiyo_qcif.y4m"
-    assert akiyo["width"] == 176
-    assert akiyo["height"] == 144
-    assert akiyo["frames"] == 60
-    assert akiyo["fps"] == "30000/1001"
-    assert SHA256_RE.match(akiyo["sha256"])
-    assert {"real", "qcif", "low-motion"}.issubset(set(akiyo["groups"]))
+    assert_qcif_sample(
+        manifest,
+        name="akiyo_qcif",
+        sha256="df88d83cbf6d99f3ec41f2c1fd2e67665d2a71ff8caa08f8b6bc46bf4567ea2e",
+        group="low-motion",
+    )
+    assert_qcif_sample(
+        manifest,
+        name="foreman_qcif",
+        sha256="9b37e95ae2d06b3b173d6130965f450009216084bae12b2025248814baf057af",
+        group="motion",
+    )
     return 0
 
 

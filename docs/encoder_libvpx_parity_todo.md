@@ -70,7 +70,7 @@ Date: 2026-06-04
   - 产物：`fixtures/encoder_libvpx_real_samples.json`。
 - [x] 在 manifest 中添加 `akiyo_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `low-motion`。
-- [ ] 在 manifest 中添加 `foreman_qcif`。
+- [x] 在 manifest 中添加 `foreman_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `motion`。
 - [ ] 在 manifest 中添加 `coastguard_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `pan`。
