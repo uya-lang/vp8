@@ -110,3 +110,34 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
 - `make test-non16-md5`
 - `VP8UYA_FORCE_SIMD=1 make test-non16-md5`
+
+## Segmentation And Quant Delta Signs
+
+Status: passed.
+
+Evidence:
+
+- `read_signed_value` reads magnitude bits followed by a sign bit and returns
+  `-magnitude` when the sign bit is set.
+- `parse_vp8_segmentation` uses 7-bit signed values for segment quantizer
+  deltas and 6-bit signed values for segment loop-filter deltas.
+- `src/vp8_bitstream_header_test.uya` now encodes a segmentation update-data
+  header with mixed positive, negative, and omitted quant/filter deltas, then
+  verifies the parser preserves `-7`, `9`, `-63`, `-5`, `12`, and `-31` in the
+  expected slots.
+- Existing quant-header parsing tests cover 4-bit signed frame quant deltas,
+  including negative Y1 and UV deltas, while scalar dequant-factor tests cover
+  signed delta application and clamping in the quant lookup path.
+- Encoder segmentation policy tests preserve configured negative flat deltas
+  and positive noisy deltas in `Vp8Segmentation`; current keyframe encoding
+  writes segmentation disabled, so there is no encoder bitstream serialization
+  path for non-zero segmentation deltas to audit yet.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_bool_reader_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_segmentation_policy_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_quantizer_delta_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
+- `make test-segmentation-md5`

@@ -74,11 +74,15 @@ fn write_literal_for_header(writer: &BoolWriter, value: u32, bit_count: u8) !voi
 }
 
 fn write_signed_delta_for_header(writer: &BoolWriter, value: i32) !void {
+    try write_signed_value_for_header(writer, value, 4 as u8);
+}
+
+fn write_signed_value_for_header(writer: &BoolWriter, value: i32, bit_count: u8) !void {
     if value < 0 {
-        try write_literal_for_header(writer, (0 - value) as u32, 4 as u8);
+        try write_literal_for_header(writer, (0 - value) as u32, bit_count);
         try bool_writer_write(writer, 1 as u8, 128 as byte);
     } else {
-        try write_literal_for_header(writer, value as u32, 4 as u8);
+        try write_literal_for_header(writer, value as u32, bit_count);
         try bool_writer_write(writer, 0 as u8, 128 as byte);
     }
 }
@@ -516,6 +520,52 @@ test "parse VP8 segmentation enabled update data and map probabilities" {
     try assert_eq_i32(segmentation.loop_filter_delta[2] as i32, 0);
     try assert_eq_i32(segmentation.loop_filter_delta[3] as i32, 0);
     try assert_eq_i32(segmentation.segment_prob[0] as i32, 200);
+    try assert_eq_i32(segmentation.segment_prob[1] as i32, 255);
+    try assert_eq_i32(segmentation.segment_prob[2] as i32, 255);
+}
+
+test "parse VP8 segmentation update data preserves signed deltas" {
+    var out: [byte: 64] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 64);
+
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_value_for_header(&writer, -7, 7 as u8);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_value_for_header(&writer, 9, 7 as u8);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_value_for_header(&writer, -63, 7 as u8);
+
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_value_for_header(&writer, -5, 6 as u8);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_value_for_header(&writer, 12, 6 as u8);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try write_signed_value_for_header(&writer, -31, 6 as u8);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    const segmentation: Vp8Segmentation = try parse_vp8_segmentation(&reader);
+
+    try assert_eq_i32(segmentation.enabled as i32, true as i32);
+    try assert_eq_i32(segmentation.update_map as i32, false as i32);
+    try assert_eq_i32(segmentation.update_data as i32, true as i32);
+    try assert_eq_i32(segmentation.absolute_delta as i32, true as i32);
+    try assert_eq_i32(segmentation.quantizer_delta[0] as i32, -7);
+    try assert_eq_i32(segmentation.quantizer_delta[1] as i32, 9);
+    try assert_eq_i32(segmentation.quantizer_delta[2] as i32, 0);
+    try assert_eq_i32(segmentation.quantizer_delta[3] as i32, -63);
+    try assert_eq_i32(segmentation.loop_filter_delta[0] as i32, -5);
+    try assert_eq_i32(segmentation.loop_filter_delta[1] as i32, 0);
+    try assert_eq_i32(segmentation.loop_filter_delta[2] as i32, 12);
+    try assert_eq_i32(segmentation.loop_filter_delta[3] as i32, -31);
+    try assert_eq_i32(segmentation.segment_prob[0] as i32, 255);
     try assert_eq_i32(segmentation.segment_prob[1] as i32, 255);
     try assert_eq_i32(segmentation.segment_prob[2] as i32, 255);
 }
