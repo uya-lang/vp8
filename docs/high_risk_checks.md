@@ -315,3 +315,36 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_simd_test.uya`
 - `make test-inter-md5`
+
+## SIMD Extreme Inputs Match Scalar
+
+Status: passed.
+
+Evidence:
+
+- `src/vp8_kernels_simd_test.uya` compares current SIMD kernels against scalar
+  kernels for helpers, border extension, residual add/clamp, transforms,
+  intra/inter predictors, SAD/SSE/variance/SATD, sub-pixel filters, loop
+  filters, quant/dequant, and token scan.
+- Existing helper tests already cover unsigned byte widening, saturated
+  narrowing below 0 and above 255, 0/255 absolute differences, and VP8 six-tap
+  filter lanes with negative coefficients and clipping endpoints.
+- The SIMD residual-add regression includes large positive and negative
+  residuals (`30000`, `-30000`, `512`, `-512`) over 0/255 destination samples
+  and verifies byte-exact scalar clipping.
+- The quant/dequant regression now includes high signed coefficients
+  (`32767`, `-32768`, `30000`, `-30000`) with a large factor, and checks SIMD
+  qcoeff, dqcoeff, and coefficient summary against scalar.
+- The new byte-extreme regression drives true-motion predictors for Y16, Y4,
+  and UV with alternating 0/255 edges, runs combined luma sub-pixel filtering
+  over a 0/255 checkerboard at offset 7, and checks max-difference 16x16,
+  8x8, and 4x4 SAD/SSE/variance/SATD against scalar.
+- Forced SIMD dispatch is exercised separately by the scalar-vs-SIMD CLI
+  regression, which decodes the tracked tiny fixtures through both modes and
+  compares visible output hashes.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_simd_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_dispatch_test.uya`
+- `make test-scalar-vs-simd`

@@ -437,7 +437,7 @@
 - [x] Y2 block 只在对应 y mode 下使用。
 - [x] EOB context 更新正确。
 - [x] MV clamp 和 sub-pixel reference border 正确。
-- [ ] SIMD 路径所有极值输入与 scalar 一致。
+- [x] SIMD 路径所有极值输入与 scalar 一致。
 - [ ] SIMD 默认路径没有未审计的逐 lane 临时对象风暴或多余 `memcpy`。
 - [ ] coefficient scratch 没有整帧无界 materialization。
 - [ ] reference refresh 没有正常路径整帧 copy。
