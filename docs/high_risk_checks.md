@@ -460,3 +460,43 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_refresh_policy_test.uya`
 - `make test-keyframe-md5`
 - `make test-inter-md5`
+
+## Borrowed DecodedFrame Lifetime Avoids Implicit Copies
+
+Status: passed.
+
+Evidence:
+
+- `frame_pool_borrow_current_decoded_frame(...)` increments the current slot's
+  lease count and returns a `DecodedFrame` whose `FrameVisibleView` points at
+  the frame buffer plane origins. It does not allocate or copy an owned output
+  frame.
+- `decoded_frame_release(...)` only decrements the borrowed slot lease count and
+  marks the handle released; repeated release is idempotent.
+- `frame_pool_begin_frame(...)` treats leased slots as unavailable for current
+  decode. It reuses/switches to an unreferenced, unleased slot and returns
+  `ErrFramePoolNoFreeSlot` if no such slot exists, rather than copying a leased
+  output to free storage.
+- Decoder `decoder_decode_frame(...)` borrows the current frame only when
+  `show_frame` is true. Hidden frames return `has_output=false` and take no
+  output lease.
+- The public API preserves the same ownership model: `Vp8DecodedFrame` stores
+  the borrowed `DecodedFrame`, exposes its borrowed `FrameVisibleView`, and
+  releases the internal lease through `vp8_decoded_frame_release(...)`.
+- The new public API regression decodes two shown key frames while keeping the
+  first output unreleased. The decoder switches from slot 0 to slot 1, both
+  slot leases remain active, the two output views point at different frame
+  slots, and `bytes_copied_for_ref_refresh` remains zero.
+- CLI decode writes YUV from the borrowed view and releases the decoded frame
+  immediately after writing output/stats. The temporary output buffer used for
+  file I/O is not a decoder lifetime workaround and does not change the default
+  decode ownership model.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_api_decoder_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_common_frame_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `make test-examples`
+- `make test-keyframe-md5`
+- `make test-inter-md5`

@@ -168,6 +168,51 @@ test "public decoder API decodes a borrowed frame and exposes stats" {
     vp8_decoder_flush(&decoder);
 }
 
+test "public decoder API keeps outstanding borrowed frames without implicit copies" {
+    var frame: [byte: 330] = [];
+    const frame_len: usize = try build_api_test_key_frame(&frame[0] as &byte);
+
+    var options: Vp8DecoderOptions = try make_vp8_decoder_options(16, 16);
+    options.simd_level = SimdLevel.scalar;
+
+    var decoder: Vp8Decoder = try vp8_decoder_init(&options);
+    defer vp8_decoder_deinit(&decoder);
+
+    var first: Vp8DecodedFrame = try vp8_decoder_decode_frame(&decoder, &frame[0] as &byte, frame_len);
+    try assert_eq_i32(first.has_output as i32, true as i32);
+    try assert_eq_i32(first.released as i32, false as i32);
+    try assert_eq_i32(decoder.context.frame_pool.current_slot as i32, 0);
+    try assert_eq_i32(decoder.context.frame_pool.slot_lease_count0 as i32, 1);
+    try assert_eq_i32(first.performance.bytes_copied_for_ref_refresh as i32, 0);
+    const first_y_origin: &byte = first.view.y.origin;
+
+    var second: Vp8DecodedFrame = try vp8_decoder_decode_frame(&decoder, &frame[0] as &byte, frame_len);
+    try assert_eq_i32(second.has_output as i32, true as i32);
+    try assert_eq_i32(second.released as i32, false as i32);
+    try assert_eq_i32(decoder.context.frame_pool.current_slot as i32, 1);
+    try assert_eq_i32(decoder.context.frame_pool.slot_lease_count0 as i32, 1);
+    try assert_eq_i32(decoder.context.frame_pool.slot_lease_count1 as i32, 1);
+    try expect(first.view.y.origin == first_y_origin);
+    try expect(first.view.y.origin != second.view.y.origin);
+    try assert_eq_i32(first.view.y.origin[0] as i32, 128);
+    try assert_eq_i32(second.view.y.origin[0] as i32, 128);
+    try assert_eq_i32(second.performance.bytes_copied_for_ref_refresh as i32, 0);
+
+    const stats: Vp8DecoderStats = vp8_decoder_stats(&decoder);
+    try assert_eq_i32(stats.decoded_frame_count as i32, 2);
+    try assert_eq_i32(stats.output_frame_count as i32, 2);
+    try assert_eq_i32(stats.last_performance.bytes_copied_for_ref_refresh as i32, 0);
+
+    try vp8_decoded_frame_release(&first);
+    try assert_eq_i32(first.released as i32, true as i32);
+    try assert_eq_i32(decoder.context.frame_pool.slot_lease_count0 as i32, 0);
+    try assert_eq_i32(decoder.context.frame_pool.slot_lease_count1 as i32, 1);
+
+    try vp8_decoded_frame_release(&second);
+    try assert_eq_i32(second.released as i32, true as i32);
+    try assert_eq_i32(decoder.context.frame_pool.slot_lease_count1 as i32, 0);
+}
+
 test "public decoder API validates options before allocating" {
     var bad: Vp8DecoderOptions = try make_vp8_decoder_options(16, 16);
     bad.thread_count = 0;
