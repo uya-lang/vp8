@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "description": "Real Y4M samples used for future VP8 encoder comparisons against libvpx. Media files are cached under build/ and are not tracked.",
+  "source": "Xiph Derf",
+  "source_base_url": "https://media.xiph.org/video/derf/y4m/",
+  "default_frames": 60,
+  "default_fps": "30/1",
+  "cache_dir": "build/real-y4m",
+  "i420_cache_dir": "build/libvpx-encode-compare/fixtures",
+  "samples": []
+}
