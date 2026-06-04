@@ -169,3 +169,36 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_level_test.uya`
+
+## Simple Vs Normal Loop Filter Selection
+
+Status: passed.
+
+Evidence:
+
+- `parse_vp8_loop_filter_header` reads the VP8 loop-filter type bit into
+  `Vp8LoopFilterHeader.filter_type`, while header tests cover both type 0 and
+  type 1 parsing.
+- Decoder row-delayed filtering enables the normal dispatcher only when
+  thresholds are enabled and `filter_type == 0`, and enables the simple
+  dispatcher only when thresholds are enabled and `filter_type != 0`.
+- Encoder key-frame filtering uses the same type split before dispatch:
+  type 0 runs the normal Y/UV macroblock and subblock filters, while type 1
+  runs the simple Y-only dispatcher.
+- `src/vp8_decoder_scalar_test.uya` proves the row-delayed decoder normal path
+  filters luma and chroma edges, and the simple path filters luma while leaving
+  U/V edge samples untouched.
+- `src/vp8_encoder_loop_filter_test.uya` compares encoder key-frame filtering
+  against decoder row-delayed filtering for both filter types. The normal test
+  observes changed Y/U/V edge samples; the simple test observes changed Y
+  samples and untouched chroma samples.
+- Encoder loop-filter level tests cover the selector that emits type 0 for the
+  default path and type 1 when high quantizer simple filtering is preferred.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_decoder_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_bitstream_header_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_level_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
