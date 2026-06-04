@@ -54,3 +54,57 @@ Fallback status in this repository:
 - `docs/simd_helper_design.md` records the current scalar-lane helper contracts.
 - `docs/simd_codegen.md` records that these helpers generate stable symbols but
   are not default-dispatch evidence by themselves.
+
+## Vector Widening / Narrowing
+
+Requested capability:
+
+- Unsigned widen from narrow pixel lanes to wider signed or unsigned lanes, for
+  example `u8x16 -> i16x16` or low/high `u8x16 -> i16x8` halves.
+- Signed widen for transform and residual paths, for example `i16x8 -> i32x8`
+  or low/high `i16x16 -> i32x8` halves.
+- Narrow or pack operations that explicitly state whether they truncate, clamp,
+  or saturate. VP8 needs the non-wrapping saturating forms for final pixel
+  writes, but a separate truncating builtin can still be useful when callers
+  have already proven range.
+- A type-directed syntax such as `@vector.widen(Tout, value)` and
+  `@vector.narrow(Tout, value)`, or named unsigned/signed variants if that is
+  easier for type checking.
+
+VP8 blockers:
+
+- `widen_u8x16_to_i16x8_pair` currently stores the input vector to a local array
+  and manually zero-extends each lane into two `i16x8` halves.
+- `filter6_u8x16` and loop-filter helpers need `u8 -> i16/i32` intermediates
+  before subtracting or multiplying by signed coefficients.
+- `narrow_i16x16_to_u8x16_sat` currently performs scalar lane clamps and reloads
+  a `u8x16` value before storing.
+- Residual add and transform output paths cannot express a native vector pack
+  back to pixels.
+
+Expected semantics:
+
+- Unsigned widen must preserve high-bit pixels: `255u8` becomes `255i16`, not
+  `-1i16`.
+- Signed widen must sign-extend negative transform lanes.
+- Narrow/truncate and narrow/saturate must be distinct operations or distinct
+  modes; silent wraparound is not acceptable for VP8 pixel writes.
+- Low/high half widening must preserve memory lane order so helper contracts can
+  be swapped to native builtins without changing tests.
+
+Suggested VP8 regression tests:
+
+- `u8x16` values `0, 1, 127, 128, 255` widen to positive `i16` lanes.
+- `i16x16` values below zero, in range, and above 255 narrow to `u8x16` only
+  through the saturating form.
+- `widen_u8x16_to_i16x8_pair` low/high lane order matches the existing helper
+  test in `src/vp8_kernels_simd_test.uya`.
+- Residual add clamp can replace scalar lane stores without changing byte-exact
+  output.
+
+Fallback status in this repository:
+
+- `widen_u8x16_to_i16x8_pair` and `narrow_i16x16_to_u8x16_sat` define the current
+  portable helper contracts.
+- `bench/kernel_thresholds.json` keeps widening/narrowing helper-backed targets
+  disabled until codegen and benchmark evidence pass.
