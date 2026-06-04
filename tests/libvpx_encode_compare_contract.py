@@ -56,6 +56,8 @@ def make_result(**overrides: object) -> dict[str, object]:
         "libvpx_bits_per_pixel": 1.0,
         "vp8uya_psnr_all_db": 40.0,
         "libvpx_psnr_all_db": 40.0,
+        "vp8uya_ssim_all": 0.99,
+        "libvpx_ssim_all": 0.99,
         "vp8uya_fps": 100.0,
         "libvpx_fps": 100.0,
     }
@@ -111,12 +113,29 @@ def assert_fps_threshold(module: object) -> None:
     assert any("fps_ratio" in reason for reason in failing["failure_reasons"])
 
 
+def assert_ssim_is_record_only(module: object) -> None:
+    contract = module.metric_contract()
+    fields = set(contract["required_result_fields"])
+    hard_threshold_fields = set(contract["hard_threshold_fields"])
+    assert "vp8uya_ssim_all" in fields
+    assert "libvpx_ssim_all" in fields
+    assert "vp8uya_ssim_all" not in hard_threshold_fields
+    assert "libvpx_ssim_all" not in hard_threshold_fields
+
+    evaluated = module.evaluate_thresholds(
+        make_result(vp8uya_ssim_all=0.10, libvpx_ssim_all=0.99)
+    )
+    assert evaluated["passed"] is True
+    assert not any("ssim" in reason.lower() for reason in evaluated["failure_reasons"])
+
+
 def main() -> int:
     module = load_module()
     assert_contract(module.metric_contract())
     assert_bitrate_threshold(module)
     assert_psnr_threshold(module)
     assert_fps_threshold(module)
+    assert_ssim_is_record_only(module)
 
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--print-metric-contract"],

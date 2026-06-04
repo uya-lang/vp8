@@ -32,7 +32,7 @@ Date: 2026-06-04
   - 验收：`vp8uya_psnr_all_db < libvpx_psnr_all_db - 0.50` 时样本判定失败。
 - [x] 固化 fps 硬阈值。
   - 验收：`vp8uya_fps < libvpx_fps * 0.80` 时样本判定失败。
-- [ ] 明确 `SSIM-all` 第一版只记录。
+- [x] 明确 `SSIM-all` 第一版只记录。
   - 验收：报告包含 `SSIM-all`，但 SSIM 不影响 hard threshold 返回码。
 
 ## Phase 2: libvpx 工具链获取
