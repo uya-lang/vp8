@@ -122,6 +122,7 @@ def assert_threshold_cli_return_codes() -> None:
         passing_path = tmp_path / "passing.json"
         failing_path = tmp_path / "failing.json"
         psnr_failing_path = tmp_path / "psnr_failing.json"
+        fps_failing_path = tmp_path / "fps_failing.json"
         passing_path.write_text(json.dumps(make_result()), encoding="utf-8")
         failing_path.write_text(
             json.dumps(make_result(vp8uya_bits_per_pixel=1.11, libvpx_bits_per_pixel=1.0)),
@@ -129,6 +130,10 @@ def assert_threshold_cli_return_codes() -> None:
         )
         psnr_failing_path.write_text(
             json.dumps(make_result(vp8uya_psnr_all_db=39.49, libvpx_psnr_all_db=40.0)),
+            encoding="utf-8",
+        )
+        fps_failing_path.write_text(
+            json.dumps(make_result(vp8uya_fps=79.0, libvpx_fps=100.0)),
             encoding="utf-8",
         )
 
@@ -172,6 +177,20 @@ def assert_threshold_cli_return_codes() -> None:
         assert psnr_report["passed"] is False
         assert psnr_report["psnr_all_delta_db"] == -0.51
         assert any("psnr_all_delta_db" in reason for reason in psnr_report["failure_reasons"])
+
+        fps_failing = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--evaluate-result-json", str(fps_failing_path)],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert fps_failing.returncode != 0
+        fps_report = json.loads(fps_failing.stdout)
+        assert fps_report["passed"] is False
+        assert fps_report["fps_ratio"] == 0.79
+        assert any("fps_ratio" in reason for reason in fps_report["failure_reasons"])
 
 
 def assert_ssim_is_record_only(module: object) -> None:
