@@ -14,6 +14,9 @@ error ErrWebmMissingVideoTrack;
 error ErrWebmUnsupportedCodec;
 error ErrWebmMissingCluster;
 error ErrWebmMissingClusterTimecode;
+error ErrWebmInvalidSimpleBlock;
+error ErrWebmUnsupportedLacing;
+error ErrWebmMissingSample;
 
 export const WEBM_ID_EBML: u32 = 0x1a45dfa3 as u32;
 export const WEBM_ID_SEGMENT: u32 = 0x18538067 as u32;
@@ -30,6 +33,7 @@ export const WEBM_ID_VIDEO: u32 = 0xe0 as u32;
 export const WEBM_ID_PIXEL_WIDTH: u32 = 0xb0 as u32;
 export const WEBM_ID_PIXEL_HEIGHT: u32 = 0xba as u32;
 export const WEBM_ID_TIMECODE: u32 = 0xe7 as u32;
+export const WEBM_ID_SIMPLE_BLOCK: u32 = 0xa3 as u32;
 export const WEBM_TRACK_TYPE_VIDEO: u64 = 1 as u64;
 export const WEBM_DEFAULT_TIMECODE_SCALE: u64 = 1000000 as u64;
 
@@ -75,6 +79,16 @@ export struct WebmSegmentInfo {
     timecode_scale: u64,
     video_track: WebmTrackInfo,
     first_cluster: WebmClusterInfo
+}
+
+export struct WebmVp8Sample {
+    track_number: u64,
+    cluster_timecode: u64,
+    relative_timecode: i32,
+    keyframe: bool,
+    invisible: bool,
+    discardable: bool,
+    payload: BoundedSlice
 }
 
 fn webm_checked_add(left: usize, right: usize) !usize {
@@ -259,6 +273,16 @@ fn webm_read_uint(payload: &BoundedSlice) !u64 {
     return value;
 }
 
+fn webm_read_i16_be_at(data: &byte, len: usize, offset: usize) !i32 {
+    _ = try read_slice_at(data, len, offset, 2);
+    const raw: u16 = ((data[offset] as u16) << 8) |
+        (data[offset + 1] as u16);
+    if raw >= (0x8000 as u16) {
+        return (raw as i32) - 65536;
+    }
+    return raw as i32;
+}
+
 fn webm_empty_slice(data: &byte) BoundedSlice {
     return BoundedSlice{
         data: data,
@@ -416,6 +440,64 @@ export fn parse_webm_segment_info(segment: &BoundedSlice) !WebmSegmentInfo {
         video_track: video_track,
         first_cluster: first_cluster
     };
+}
+
+export fn parse_webm_simple_block_sample(block: &BoundedSlice, cluster_timecode: u64) !WebmVp8Sample {
+    const track_vint: WebmVint = try webm_read_element_size(block.data, block.len, 0);
+    if track_vint.value == 0 {
+        return error.ErrWebmInvalidSimpleBlock;
+    }
+
+    const timecode_offset: usize = track_vint.width;
+    const flags_offset: usize = try webm_checked_add(timecode_offset, 2);
+    const payload_offset: usize = try webm_checked_add(flags_offset, 1);
+    _ = try read_slice_at(block.data, block.len, 0, payload_offset);
+
+    const flags_slice: BoundedSlice = try read_slice_at(block.data, block.len, flags_offset, 1);
+    const flags: byte = flags_slice.data[0];
+    if (flags & (0x06 as byte)) != (0 as byte) {
+        return error.ErrWebmUnsupportedLacing;
+    }
+    if payload_offset >= block.len {
+        return error.ErrWebmMissingSample;
+    }
+
+    const payload: BoundedSlice = try read_slice_at(block.data, block.len, payload_offset, block.len - payload_offset);
+    return WebmVp8Sample{
+        track_number: track_vint.value,
+        cluster_timecode: cluster_timecode,
+        relative_timecode: try webm_read_i16_be_at(block.data, block.len, timecode_offset),
+        keyframe: (flags & (0x80 as byte)) != (0 as byte),
+        invisible: (flags & (0x08 as byte)) != (0 as byte),
+        discardable: (flags & (0x01 as byte)) != (0 as byte),
+        payload: payload
+    };
+}
+
+fn webm_parse_cluster_vp8_sample(cluster: &BoundedSlice, expected_track_number: u64) !WebmVp8Sample {
+    const cluster_info: WebmClusterInfo = try webm_parse_cluster_info(cluster);
+    var iterator: WebmElementIterator = try make_webm_element_iterator(cluster.data, cluster.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_SIMPLE_BLOCK {
+            const sample: WebmVp8Sample = try parse_webm_simple_block_sample(&element.payload, cluster_info.timecode);
+            if sample.track_number == expected_track_number {
+                return sample;
+            }
+        }
+    }
+    return error.ErrWebmMissingSample;
+}
+
+export fn parse_webm_first_vp8_sample(segment: &BoundedSlice, info: &WebmSegmentInfo) !WebmVp8Sample {
+    var iterator: WebmElementIterator = try make_webm_element_iterator(segment.data, segment.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_CLUSTER {
+            return try webm_parse_cluster_vp8_sample(&element.payload, info.video_track.number);
+        }
+    }
+    return error.ErrWebmMissingCluster;
 }
 
 export fn parse_webm_subset(data: &byte, len: usize) !WebmSubsetDemuxer {
