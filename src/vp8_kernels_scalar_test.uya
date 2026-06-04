@@ -842,6 +842,9 @@ fn assert_loop_filter_thresholds(thresholds: LoopFilterThresholds, enabled: bool
 }
 
 test "scalar loop filter thresholds derive VP8 limit blimit and thresh" {
+    var zero_key: LoopFilterThresholds = build_loop_filter_thresholds(0, 0 as u8, true);
+    try assert_loop_filter_thresholds(zero_key, false, 0 as u8, 1 as u8, 5 as u8, 1 as u8, 0 as u8);
+
     var low_key: LoopFilterThresholds = build_loop_filter_thresholds(14, 0 as u8, true);
     try assert_loop_filter_thresholds(low_key, true, 14 as u8, 14 as u8, 46 as u8, 42 as u8, 0 as u8);
 

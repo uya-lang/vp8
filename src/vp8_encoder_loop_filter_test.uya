@@ -112,6 +112,40 @@ test "encoder key frame simple loop filter matches decoder and leaves chroma unt
     try assert_eq_i32(frame_buffer_border_dirty(&encoder_frame) as i32, true as i32);
 }
 
+test "loop filter level zero leaves decoder and encoder frames unchanged" {
+    var expected_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&expected_frame);
+    var decoder_normal_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&decoder_normal_frame);
+    var decoder_simple_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&decoder_simple_frame);
+    var encoder_normal_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&encoder_normal_frame);
+    var encoder_simple_frame: FrameBuffer = try allocate_frame_buffer(32, 32, 32, 32);
+    defer free_frame_buffer(&encoder_simple_frame);
+
+    write_filter_fixtures(&expected_frame);
+    write_filter_fixtures(&decoder_normal_frame);
+    write_filter_fixtures(&decoder_simple_frame);
+    write_filter_fixtures(&encoder_normal_frame);
+    write_filter_fixtures(&encoder_simple_frame);
+
+    const normal_zero: Vp8LoopFilterHeader = make_loop_filter(0 as u8, 0 as u8);
+    const simple_zero: Vp8LoopFilterHeader = make_loop_filter(1 as u8, 0 as u8);
+
+    decoder_apply_row_delayed_loop_filter(&decoder_normal_frame, 2, 2, &normal_zero, true);
+    decoder_apply_row_delayed_loop_filter(&decoder_simple_frame, 2, 2, &simple_zero, true);
+    try encoder_apply_key_frame_loop_filter(&encoder_normal_frame, &normal_zero);
+    try encoder_apply_key_frame_loop_filter(&encoder_simple_frame, &simple_zero);
+
+    try assert_same_visible_frame(&decoder_normal_frame, &expected_frame);
+    try assert_same_visible_frame(&decoder_simple_frame, &expected_frame);
+    try assert_same_visible_frame(&encoder_normal_frame, &expected_frame);
+    try assert_same_visible_frame(&encoder_simple_frame, &expected_frame);
+    try assert_eq_i32(frame_buffer_border_dirty(&encoder_normal_frame) as i32, false as i32);
+    try assert_eq_i32(frame_buffer_border_dirty(&encoder_simple_frame) as i32, false as i32);
+}
+
 test "encoder key frame loop filter rejects invalid frame and loop filter input" {
     var frame: FrameBuffer = try allocate_frame_buffer(16, 16, 32, 32);
     defer free_frame_buffer(&frame);

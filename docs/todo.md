@@ -432,7 +432,7 @@
 - [x] key frame 重置概率和 reference frame。
 - [x] 非 16 对齐尺寸的右/下边界预测正确。
 - [x] segmentation quant/filter delta 符号正确。
-- [ ] loop filter level 为 0 时完全跳过。
+- [x] loop filter level 为 0 时完全跳过。
 - [ ] simple/normal filter 选择正确。
 - [ ] Y2 block 只在对应 y mode 下使用。
 - [ ] EOB context 更新正确。

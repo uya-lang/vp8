@@ -141,3 +141,31 @@ Verification:
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_quantizer_delta_test.uya`
 - `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
 - `make test-segmentation-md5`
+
+## Loop Filter Level Zero Skip
+
+Status: passed.
+
+Evidence:
+
+- `build_loop_filter_thresholds(0, ...)` returns `enabled = false`.
+- `decoder_apply_row_delayed_loop_filter` returns before row scheduling when
+  thresholds are disabled, so neither normal nor simple row dispatchers run for
+  level 0.
+- `encoder_apply_key_frame_loop_filter` uses the same threshold helper and
+  returns before normal/simple dispatch and before marking the frame border
+  dirty when level 0 disables filtering.
+- `src/vp8_encoder_loop_filter_test.uya` now fills normal and simple filter
+  edge fixtures, applies level-0 decoder and encoder filtering, and checks the
+  visible frame data remains byte-identical to the unfiltered reference. The
+  encoder frames also remain border-clean, proving the skipped path avoids the
+  post-filter dirty mark.
+- Existing loop-filter level selection tests cover quantizer 0 producing VP8
+  loop-filter level 0, and scalar filter tests cover active normal/simple
+  filtering when the level is non-zero.
+
+Verification:
+
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_kernels_scalar_test.uya`
+- `/media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya test src/vp8_encoder_loop_filter_level_test.uya`
