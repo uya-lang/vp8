@@ -85,6 +85,8 @@ deterministic fuzz smoke pass.
 controlled-error CLI corpus checks.
 `make ci-simd-enabled` runs the forced-SIMD CI gate for decoder goldens,
 scalar-vs-SIMD comparisons, SIMD CLI smoke, and controlled-error corpora.
+`make ci-libvpx-diff` runs the optional libvpx differential CI gate; it skips
+cleanly when `vpxdec` or `vpxenc` is unavailable.
 Tiny fixture metadata lives in `fixtures/manifest.json`; binary IVF and YUV
 outputs are generated under `build/tiny-md5/`.
 `make test-keyframe-md5` runs only manifest samples in the `key` group.
@@ -112,6 +114,8 @@ error declaration under `src/`.
 
 `make test-vpxdiff` is an optional libvpx/vpxdec differential target. It skips
 cleanly when `vpxdec` is not installed or no compatible manifest samples exist.
+The CI workflow installs Ubuntu `vpx-tools` for the `libvpx-diff` job before
+running this optional gate.
 The current decoder conformance snapshot lives in
 `docs/decoder_conformance_report.md`.
 The current encoder quality snapshot lives in

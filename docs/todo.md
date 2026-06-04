@@ -399,7 +399,7 @@
 - [x] CI: build/test/bench smoke。
 - [x] CI: scalar-only。
 - [x] CI: SIMD enabled。
-- [ ] CI: optional libvpx diff。
+- [x] CI: optional libvpx diff。
 - [ ] 版本号和 changelog。
 
 验收标准：

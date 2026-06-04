@@ -92,3 +92,30 @@ jobs:
 
       - name: Run SIMD-enabled gate
         run: make ci-simd-enabled
+
+  libvpx-diff:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout vp8uya
+        uses: actions/checkout@v4
+
+      - name: Checkout UYA compiler source
+        uses: actions/checkout@v4
+        with:
+          repository: uya-lang/uya
+          path: .ci/uya-src
+
+      - name: Install optional libvpx tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends vpx-tools
+
+      - name: Build and install UYA compiler
+        run: |
+          make -C .ci/uya-src from-c
+          make -C .ci/uya-src install PREFIX="$UYA_PREFIX"
+          "$UYA" -v
+
+      - name: Run optional libvpx differential gate
+        run: make ci-libvpx-diff

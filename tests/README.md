@@ -17,6 +17,8 @@ subset decode, malformed-input corpora, and minimized fuzz representatives.
 `make ci-simd-enabled` runs the forced-SIMD CI gate for decoder goldens,
 scalar-vs-SIMD output comparisons, SIMD CLI smoke, malformed-input corpora,
 and minimized fuzz representatives.
+`make ci-libvpx-diff` runs the optional libvpx differential CI gate; it skips
+cleanly when `vpxdec` or `vpxenc` is unavailable.
 `make test-scalar-vs-simd` decodes the built-in IVF samples with
 `--force-scalar` and `--force-simd`, then compares YUV MD5 values and writes a
 manifest under `build/scalar-vs-simd/`.
@@ -47,6 +49,8 @@ exits.
 `make test-vpxdiff` optionally generates a small VP8 stream with `vpxenc` and
 compares `vp8uya` output with `vpxdec`; it also compares any compatible
 manifest samples. It skips cleanly when libvpx tools are unavailable.
+The GitHub Actions `libvpx-diff` job installs Ubuntu `vpx-tools` before
+running the optional differential target.
 
 The current decoder conformance snapshot is recorded in
 `docs/decoder_conformance_report.md`.
