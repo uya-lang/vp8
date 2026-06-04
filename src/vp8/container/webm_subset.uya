@@ -8,6 +8,12 @@ error ErrWebmElementOutOfBounds;
 error ErrWebmMissingEbmlHeader;
 error ErrWebmUnsupportedDocType;
 error ErrWebmMissingSegment;
+error ErrWebmInvalidUnsignedInt;
+error ErrWebmMissingTracks;
+error ErrWebmMissingVideoTrack;
+error ErrWebmUnsupportedCodec;
+error ErrWebmMissingCluster;
+error ErrWebmMissingClusterTimecode;
 
 export const WEBM_ID_EBML: u32 = 0x1a45dfa3 as u32;
 export const WEBM_ID_SEGMENT: u32 = 0x18538067 as u32;
@@ -15,6 +21,17 @@ export const WEBM_ID_INFO: u32 = 0x1549a966 as u32;
 export const WEBM_ID_TRACKS: u32 = 0x1654ae6b as u32;
 export const WEBM_ID_CLUSTER: u32 = 0x1f43b675 as u32;
 export const WEBM_ID_DOC_TYPE: u32 = 0x4282 as u32;
+export const WEBM_ID_TIMECODE_SCALE: u32 = 0x2ad7b1 as u32;
+export const WEBM_ID_TRACK_ENTRY: u32 = 0xae as u32;
+export const WEBM_ID_TRACK_NUMBER: u32 = 0xd7 as u32;
+export const WEBM_ID_TRACK_TYPE: u32 = 0x83 as u32;
+export const WEBM_ID_CODEC_ID: u32 = 0x86 as u32;
+export const WEBM_ID_VIDEO: u32 = 0xe0 as u32;
+export const WEBM_ID_PIXEL_WIDTH: u32 = 0xb0 as u32;
+export const WEBM_ID_PIXEL_HEIGHT: u32 = 0xba as u32;
+export const WEBM_ID_TIMECODE: u32 = 0xe7 as u32;
+export const WEBM_TRACK_TYPE_VIDEO: u64 = 1 as u64;
+export const WEBM_DEFAULT_TIMECODE_SCALE: u64 = 1000000 as u64;
 
 struct WebmVint {
     value: u64,
@@ -39,6 +56,25 @@ export struct WebmElementIterator {
 export struct WebmSubsetDemuxer {
     ebml_header: BoundedSlice,
     segment: BoundedSlice
+}
+
+export struct WebmTrackInfo {
+    number: u64,
+    track_type: u64,
+    codec_id: BoundedSlice,
+    pixel_width: u64,
+    pixel_height: u64
+}
+
+export struct WebmClusterInfo {
+    timecode: u64,
+    payload: BoundedSlice
+}
+
+export struct WebmSegmentInfo {
+    timecode_scale: u64,
+    video_track: WebmTrackInfo,
+    first_cluster: WebmClusterInfo
 }
 
 fn webm_checked_add(left: usize, right: usize) !usize {
@@ -198,6 +234,55 @@ fn webm_payload_is_doc_type_webm(payload: &BoundedSlice) bool {
         payload.data[3] == ('m' as byte);
 }
 
+fn webm_payload_is_codec_vp8(payload: &BoundedSlice) bool {
+    if payload.len != 5 {
+        return false;
+    }
+    return payload.data[0] == ('V' as byte) &&
+        payload.data[1] == ('_' as byte) &&
+        payload.data[2] == ('V' as byte) &&
+        payload.data[3] == ('P' as byte) &&
+        payload.data[4] == ('8' as byte);
+}
+
+fn webm_read_uint(payload: &BoundedSlice) !u64 {
+    if payload.len == 0 || payload.len > 8 {
+        return error.ErrWebmInvalidUnsignedInt;
+    }
+
+    var value: u64 = 0 as u64;
+    var index: usize = 0;
+    while index < payload.len {
+        value = (value << 8) | (payload.data[index] as u64);
+        index = index + 1;
+    }
+    return value;
+}
+
+fn webm_empty_slice(data: &byte) BoundedSlice {
+    return BoundedSlice{
+        data: data,
+        len: 0
+    };
+}
+
+fn webm_empty_track(data: &byte) WebmTrackInfo {
+    return WebmTrackInfo{
+        number: 0 as u64,
+        track_type: 0 as u64,
+        codec_id: webm_empty_slice(data),
+        pixel_width: 0 as u64,
+        pixel_height: 0 as u64
+    };
+}
+
+fn webm_empty_cluster(data: &byte) WebmClusterInfo {
+    return WebmClusterInfo{
+        timecode: 0 as u64,
+        payload: webm_empty_slice(data)
+    };
+}
+
 fn webm_validate_ebml_header(header: &BoundedSlice) !void {
     var iterator: WebmElementIterator = try make_webm_element_iterator(header.data, header.len);
     while webm_element_iterator_has_next(&iterator) {
@@ -210,6 +295,127 @@ fn webm_validate_ebml_header(header: &BoundedSlice) !void {
         }
     }
     return error.ErrWebmUnsupportedDocType;
+}
+
+fn webm_parse_info_timecode_scale(info: &BoundedSlice) !u64 {
+    var scale: u64 = WEBM_DEFAULT_TIMECODE_SCALE;
+    var iterator: WebmElementIterator = try make_webm_element_iterator(info.data, info.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_TIMECODE_SCALE {
+            scale = try webm_read_uint(&element.payload);
+        }
+    }
+    return scale;
+}
+
+fn webm_parse_video_settings(video: &BoundedSlice, track: &WebmTrackInfo) !void {
+    var iterator: WebmElementIterator = try make_webm_element_iterator(video.data, video.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_PIXEL_WIDTH {
+            track.pixel_width = try webm_read_uint(&element.payload);
+        } else if element.id == WEBM_ID_PIXEL_HEIGHT {
+            track.pixel_height = try webm_read_uint(&element.payload);
+        }
+    }
+}
+
+fn webm_parse_track_entry(entry: &BoundedSlice) !WebmTrackInfo {
+    var track: WebmTrackInfo = webm_empty_track(entry.data);
+    var iterator: WebmElementIterator = try make_webm_element_iterator(entry.data, entry.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_TRACK_NUMBER {
+            track.number = try webm_read_uint(&element.payload);
+        } else if element.id == WEBM_ID_TRACK_TYPE {
+            track.track_type = try webm_read_uint(&element.payload);
+        } else if element.id == WEBM_ID_CODEC_ID {
+            track.codec_id = element.payload;
+        } else if element.id == WEBM_ID_VIDEO {
+            try webm_parse_video_settings(&element.payload, &track);
+        }
+    }
+
+    if track.track_type == WEBM_TRACK_TYPE_VIDEO {
+        if track.number == 0 || track.codec_id.len == 0 || track.pixel_width == 0 || track.pixel_height == 0 {
+            return error.ErrWebmMissingVideoTrack;
+        }
+        if !webm_payload_is_codec_vp8(&track.codec_id) {
+            return error.ErrWebmUnsupportedCodec;
+        }
+    }
+    return track;
+}
+
+fn webm_parse_tracks(tracks: &BoundedSlice) !WebmTrackInfo {
+    var saw_track_entry: bool = false;
+    var iterator: WebmElementIterator = try make_webm_element_iterator(tracks.data, tracks.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_TRACK_ENTRY {
+            saw_track_entry = true;
+            const track: WebmTrackInfo = try webm_parse_track_entry(&element.payload);
+            if track.track_type == WEBM_TRACK_TYPE_VIDEO {
+                return track;
+            }
+        }
+    }
+
+    if !saw_track_entry {
+        return error.ErrWebmMissingTracks;
+    }
+    return error.ErrWebmMissingVideoTrack;
+}
+
+fn webm_parse_cluster_info(cluster: &BoundedSlice) !WebmClusterInfo {
+    var iterator: WebmElementIterator = try make_webm_element_iterator(cluster.data, cluster.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_TIMECODE {
+            return WebmClusterInfo{
+                timecode: try webm_read_uint(&element.payload),
+                payload: BoundedSlice{ data: cluster.data, len: cluster.len }
+            };
+        }
+    }
+    return error.ErrWebmMissingClusterTimecode;
+}
+
+export fn parse_webm_segment_info(segment: &BoundedSlice) !WebmSegmentInfo {
+    var timecode_scale: u64 = WEBM_DEFAULT_TIMECODE_SCALE;
+    var video_track: WebmTrackInfo = webm_empty_track(segment.data);
+    var first_cluster: WebmClusterInfo = webm_empty_cluster(segment.data);
+    var saw_tracks: bool = false;
+    var saw_cluster: bool = false;
+
+    var iterator: WebmElementIterator = try make_webm_element_iterator(segment.data, segment.len);
+    while webm_element_iterator_has_next(&iterator) {
+        const element: WebmElement = try webm_element_iterator_next(&iterator);
+        if element.id == WEBM_ID_INFO {
+            timecode_scale = try webm_parse_info_timecode_scale(&element.payload);
+        } else if element.id == WEBM_ID_TRACKS {
+            video_track = try webm_parse_tracks(&element.payload);
+            saw_tracks = true;
+        } else if element.id == WEBM_ID_CLUSTER {
+            if !saw_cluster {
+                first_cluster = try webm_parse_cluster_info(&element.payload);
+                saw_cluster = true;
+            }
+        }
+    }
+
+    if !saw_tracks {
+        return error.ErrWebmMissingTracks;
+    }
+    if !saw_cluster {
+        return error.ErrWebmMissingCluster;
+    }
+    return WebmSegmentInfo{
+        timecode_scale: timecode_scale,
+        video_track: video_track,
+        first_cluster: first_cluster
+    };
 }
 
 export fn parse_webm_subset(data: &byte, len: usize) !WebmSubsetDemuxer {

@@ -1,13 +1,18 @@
 use std.testing.assert_eq_i32;
+use std.testing.assert_eq_u64;
 
 use vp8.bitstream.readers.BoundedSlice;
+use vp8.container.webm_subset.WebmClusterInfo;
 use vp8.container.webm_subset.WebmElement;
 use vp8.container.webm_subset.WebmElementIterator;
+use vp8.container.webm_subset.WebmSegmentInfo;
 use vp8.container.webm_subset.WebmSubsetDemuxer;
+use vp8.container.webm_subset.WebmTrackInfo;
 use vp8.container.webm_subset.WEBM_ID_DOC_TYPE;
 use vp8.container.webm_subset.WEBM_ID_INFO;
 use vp8.container.webm_subset.WEBM_ID_SEGMENT;
 use vp8.container.webm_subset.make_webm_element_iterator;
+use vp8.container.webm_subset.parse_webm_segment_info;
 use vp8.container.webm_subset.parse_webm_subset;
 use vp8.container.webm_subset.parse_webm_element;
 use vp8.container.webm_subset.webm_element_iterator_has_next;
@@ -28,6 +33,23 @@ fn dummy_demux(data: &byte) WebmSubsetDemuxer {
     return WebmSubsetDemuxer{
         ebml_header: BoundedSlice{ data: data, len: 0 },
         segment: BoundedSlice{ data: data, len: 0 }
+    };
+}
+
+fn dummy_segment_info(data: &byte) WebmSegmentInfo {
+    return WebmSegmentInfo{
+        timecode_scale: 0 as u64,
+        video_track: WebmTrackInfo{
+            number: 0 as u64,
+            track_type: 0 as u64,
+            codec_id: BoundedSlice{ data: data, len: 0 },
+            pixel_width: 0 as u64,
+            pixel_height: 0 as u64
+        },
+        first_cluster: WebmClusterInfo{
+            timecode: 0 as u64,
+            payload: BoundedSlice{ data: data, len: 0 }
+        }
     };
 }
 
@@ -97,4 +119,76 @@ test "WebM demux rejects unsupported doctype and malformed element sizes" {
     try assert_eq_i32(bad_doc_failed, 1);
     try assert_eq_i32(unknown_failed, 1);
     try assert_eq_i32(truncated_failed, 1);
+}
+
+test "WebM segment info parses VP8 video track and cluster timecode" {
+    var data: [byte: 68] = [
+        0x1a, 0x45, 0xdf, 0xa3, 0x87,
+        0x42, 0x82, 0x84, 'w' as byte, 'e' as byte, 'b' as byte, 'm' as byte,
+        0x18, 0x53, 0x80, 0x67, 0xb3,
+        0x15, 0x49, 0xa9, 0x66, 0x87,
+        0x2a, 0xd7, 0xb1, 0x83, 0x0f, 0x42, 0x40,
+        0x16, 0x54, 0xae, 0x6b, 0x99,
+        0xae, 0x97,
+        0xd7, 0x81, 0x01,
+        0x83, 0x81, 0x01,
+        0x86, 0x85, 'V' as byte, '_' as byte, 'V' as byte, 'P' as byte, '8' as byte,
+        0xe0, 0x88,
+        0xb0, 0x82, 0x01, 0x40,
+        0xba, 0x82, 0x00, 0xf0,
+        0x1f, 0x43, 0xb6, 0x75, 0x84,
+        0xe7, 0x82, 0x04, 0xd2
+    ];
+
+    const demux: WebmSubsetDemuxer = try parse_webm_subset(&data[0] as &byte, 68);
+    const info: WebmSegmentInfo = try parse_webm_segment_info(&demux.segment);
+
+    try assert_eq_u64(info.timecode_scale, 1000000 as u64);
+    try assert_eq_u64(info.video_track.number, 1 as u64);
+    try assert_eq_u64(info.video_track.track_type, 1 as u64);
+    try assert_eq_i32(info.video_track.codec_id.len as i32, 5);
+    try assert_eq_i32(info.video_track.codec_id.data[4] as i32, '8' as i32);
+    try assert_eq_u64(info.video_track.pixel_width, 320 as u64);
+    try assert_eq_u64(info.video_track.pixel_height, 240 as u64);
+    try assert_eq_u64(info.first_cluster.timecode, 1234 as u64);
+    try assert_eq_i32(info.first_cluster.payload.len as i32, 4);
+}
+
+test "WebM segment info defaults scale and rejects unsupported video codec" {
+    var default_scale: [byte: 38] = [
+        0x16, 0x54, 0xae, 0x6b, 0x99,
+        0xae, 0x97,
+        0xd7, 0x81, 0x02,
+        0x83, 0x81, 0x01,
+        0x86, 0x85, 'V' as byte, '_' as byte, 'V' as byte, 'P' as byte, '8' as byte,
+        0xe0, 0x88,
+        0xb0, 0x82, 0x00, 0x10,
+        0xba, 0x82, 0x00, 0x10,
+        0x1f, 0x43, 0xb6, 0x75, 0x83,
+        0xe7, 0x81, 0x00
+    ];
+    var bad_codec: [byte: 38] = [
+        0x16, 0x54, 0xae, 0x6b, 0x99,
+        0xae, 0x97,
+        0xd7, 0x81, 0x01,
+        0x83, 0x81, 0x01,
+        0x86, 0x85, 'V' as byte, '_' as byte, 'V' as byte, 'P' as byte, '9' as byte,
+        0xe0, 0x88,
+        0xb0, 0x82, 0x00, 0x10,
+        0xba, 0x82, 0x00, 0x10,
+        0x1f, 0x43, 0xb6, 0x75, 0x83,
+        0xe7, 0x81, 0x00
+    ];
+
+    const info: WebmSegmentInfo = try parse_webm_segment_info(&BoundedSlice{ data: &default_scale[0] as &byte, len: 38 });
+    var bad_codec_failed: i32 = 0;
+    _ = parse_webm_segment_info(&BoundedSlice{ data: &bad_codec[0] as &byte, len: 38 }) catch {
+        bad_codec_failed = 1;
+        dummy_segment_info(&bad_codec[0] as &byte);
+    };
+
+    try assert_eq_u64(info.timecode_scale, 1000000 as u64);
+    try assert_eq_u64(info.video_track.number, 2 as u64);
+    try assert_eq_u64(info.first_cluster.timecode, 0 as u64);
+    try assert_eq_i32(bad_codec_failed, 1);
 }
