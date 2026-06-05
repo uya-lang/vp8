@@ -169,6 +169,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.psnr.all=' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.ssim.all=' $(ENCODE_CLI_DIR)/encode.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --frames 1 --out $(ENCODE_CLI_DIR)/out-frames1.ivf
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps 30/1 --out $(ENCODE_CLI_DIR)/out-fps.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out-repeat.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 16 --out $(ENCODE_CLI_DIR)/out-q16.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 40 --target-bitrate 11760 --out $(ENCODE_CLI_DIR)/out-vbr.ivf > $(ENCODE_CLI_DIR)/encode-vbr.log
@@ -195,6 +196,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --target-bitrate 0 --out $(ENCODE_CLI_DIR)/bad-vbr.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-frames1.ivf
+	$(BIN) info $(ENCODE_CLI_DIR)/out-fps.ivf | grep -q 'ivf.timebase=1/30'
 	cmp $(ENCODE_CLI_DIR)/out-vbr.ivf $(ENCODE_CLI_DIR)/out-vbr-repeat.ivf
 	cmp -s $(ENCODE_CLI_DIR)/out-speed-fastest.ivf $(ENCODE_CLI_DIR)/out-speed-best.ivf; test $$? -eq 1
 	cmp -s $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-q16.ivf; test $$? -eq 1

@@ -30,7 +30,7 @@ Usage:
   vp8uya info <input.ivf>
   vp8uya decode <input.ivf|input.webm> --yuv <out.yuv> [--stats <out.jsonl>]
   vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>
-  vp8uya encode <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>
+  vp8uya encode <input.yuv> --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>
 ```
 
 Global flags must appear before the command:
@@ -150,10 +150,11 @@ build/vp8uya decode-frame input.ivf --index 0 --yuv frame0.yuv
 ## `encode`
 
 ```sh
-build/vp8uya encode <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>
+build/vp8uya encode <input.yuv> --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>
 ```
 
-`encode` currently expects exactly one contiguous I420 frame:
+`encode` currently accepts `--frames 1` and expects exactly one contiguous I420
+frame:
 
 - Y plane: `W * H` bytes.
 - U plane: `ceil(W / 2) * ceil(H / 2)` bytes.
@@ -165,6 +166,8 @@ Options:
 | --- | --- |
 | `--width W` | Required positive visible width in pixels. |
 | `--height H` | Required positive visible height in pixels. |
+| `--frames N` | Optional frame count. The current CLI accepts only `1`; values above `1` return a controlled error. |
+| `--fps NUM/DEN` | Optional positive frame rate. Default is `30/1`; the IVF timebase is written as `DEN/NUM`. |
 | `--quantizer Q` | Optional VP8 qindex in `0..127`. If omitted, the default encoder config decides. |
 | `--target-bitrate BPS` | Optional target bitrate in bits per second. When present, the CLI reports bitrate error metrics. |
 | `--speed fastest|fast|balanced|best` | Optional speed preset. Default is `balanced`. |

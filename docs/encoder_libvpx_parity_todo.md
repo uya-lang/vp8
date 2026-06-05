@@ -101,7 +101,7 @@ Date: 2026-06-05
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames 0 --out out.ivf` 返回参数错误。
 - [x] 拒绝非数字 `--frames`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames abc --out out.ivf` 返回参数错误。
-- [ ] 为 `encode` 增加 `--fps NUM/DEN` 参数解析。
+- [x] 为 `encode` 增加 `--fps NUM/DEN` 参数解析。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --fps 30/1 --out out.ivf` 写入 IVF timebase。
 - [ ] 拒绝缺少值的 `--fps`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --fps --out out.ivf` 返回参数错误。

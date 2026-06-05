@@ -78,6 +78,7 @@ error ErrCliScratchCapacityOverflow;
 error ErrEncodeBitrateUnavailable;
 error ErrEncodeQualityUnavailable;
 error ErrInvalidSpeedPreset;
+error ErrInvalidCliFps;
 error ErrCliWebmGeometryOverflow;
 
 const CLI_MIN_ROW_SCRATCH_CAPACITY: usize = 65536;
@@ -103,7 +104,7 @@ fn print_help() void {
     _ = printf("  vp8uya info <input.ivf>\n");
     _ = printf("  vp8uya decode <input.ivf|input.webm> --yuv <out.yuv> [--stats <out.jsonl>]\n");
     _ = printf("  vp8uya decode-frame <input.ivf> --index N --yuv <out.yuv>\n");
-    _ = printf("  vp8uya encode <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
+    _ = printf("  vp8uya encode <input.yuv> --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
 }
 
 fn print_version() void {
@@ -306,6 +307,54 @@ fn cli_arg_is_option_like(value: &byte) bool {
         return false;
     }
     return strncmp(value as *const byte, "--\0" as *const byte, 2) == 0;
+}
+
+fn parse_positive_decimal_u32_range(value: &byte, start: usize, end: usize) !u32 {
+    if value == null || start >= end {
+        return error.ErrInvalidCliFps;
+    }
+    var parsed: u64 = 0;
+    var index: usize = start;
+    while index < end {
+        const ch: byte = value[index];
+        if ch < (48 as byte) || ch > (57 as byte) {
+            return error.ErrInvalidCliFps;
+        }
+        parsed = (parsed * (10 as u64)) + ((ch as u64) - (48 as u64));
+        if parsed > (4294967295 as u64) {
+            return error.ErrInvalidCliFps;
+        }
+        index = index + 1;
+    }
+    if parsed == 0 {
+        return error.ErrInvalidCliFps;
+    }
+    return parsed as u32;
+}
+
+fn parse_encode_fps_arg(value: &byte, numerator_out: &u32, denominator_out: &u32) !void {
+    if value == null {
+        return error.ErrInvalidCliFps;
+    }
+    var index: usize = 0;
+    var slash_index: usize = 0;
+    var saw_slash: bool = false;
+    while value[index] != (0 as byte) {
+        if value[index] == (47 as byte) {
+            if saw_slash {
+                return error.ErrInvalidCliFps;
+            }
+            saw_slash = true;
+            slash_index = index;
+        }
+        index = index + 1;
+    }
+    if !saw_slash {
+        return error.ErrInvalidCliFps;
+    }
+
+    numerator_out[0] = try parse_positive_decimal_u32_range(value, 0, slash_index);
+    denominator_out[0] = try parse_positive_decimal_u32_range(value, slash_index + 1, index);
 }
 
 fn print_encode_speed_report(speed_preset: EncoderSpeedPreset, mode_search_work_units: usize) void {
@@ -697,7 +746,7 @@ fn analyze_encoded_keyframe(reference: &YuvFrameView, encoded: &byte, encoded_le
     };
 }
 
-fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize, quantizer_override: i32, target_bitrate_bps: u32, speed_preset: EncoderSpeedPreset, output_path: &byte, force_scalar: bool, force_simd: bool) i32 {
+fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize, fps_numerator: u32, fps_denominator: u32, quantizer_override: i32, target_bitrate_bps: u32, speed_preset: EncoderSpeedPreset, output_path: &byte, force_scalar: bool, force_simd: bool) i32 {
     if width == 0 || height == 0 {
         _ = printf("error: encode width and height must be positive\n");
         return 2;
@@ -718,6 +767,8 @@ fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize
     defer free(file.data as &void);
 
     var config: EncoderConfig = make_default_encoder_config(width, height);
+    config.fps_numerator = fps_numerator;
+    config.fps_denominator = fps_denominator;
     if quantizer_override >= 0 {
         config.quantizer = quantizer_override as u8;
     }
@@ -903,12 +954,14 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
     }
     if strcmp(cmd as *const byte, "encode\0" as *const byte) == 0 {
         if (argc as usize) < command_index + 8 {
-            _ = printf("error: encode requires <input.yuv> --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
+            _ = printf("error: encode requires <input.yuv> --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
             return 2;
         }
         var width: usize = 0;
         var height: usize = 0;
         var frame_count: usize = 1;
+        var fps_numerator: u32 = 30;
+        var fps_denominator: u32 = 1;
         var quantizer: i32 = -1;
         var target_bitrate_bps: u32 = 0;
         var speed_preset: EncoderSpeedPreset = EncoderSpeedPreset.balanced;
@@ -950,6 +1003,16 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
                     return 2;
                 }
                 frame_count = parsed_frames as usize;
+                encode_arg_index = encode_arg_index + 2;
+            } else if strcmp(argv[encode_arg_index] as *const byte, "--fps\0" as *const byte) == 0 {
+                if (argc as usize) <= encode_arg_index + 1 || cli_arg_is_option_like(argv[encode_arg_index + 1]) {
+                    _ = printf("error: --fps requires NUM/DEN\n");
+                    return 2;
+                }
+                parse_encode_fps_arg(argv[encode_arg_index + 1], &fps_numerator as &u32, &fps_denominator as &u32) catch {
+                    _ = printf("error: --fps must be NUM/DEN with positive integers\n");
+                    return 2;
+                };
                 encode_arg_index = encode_arg_index + 2;
             } else if strcmp(argv[encode_arg_index] as *const byte, "--quantizer\0" as *const byte) == 0 {
                 if (argc as usize) <= encode_arg_index + 1 {
@@ -998,10 +1061,10 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
             }
         }
         if width == 0 || height == 0 || out_path == null {
-            _ = printf("error: encode requires --width W --height H [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
+            _ = printf("error: encode requires --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>\n");
             return 2;
         }
-        return run_encode(argv[command_index + 1], width, height, frame_count, quantizer, target_bitrate_bps, speed_preset, out_path, force_scalar, force_simd);
+        return run_encode(argv[command_index + 1], width, height, frame_count, fps_numerator, fps_denominator, quantizer, target_bitrate_bps, speed_preset, out_path, force_scalar, force_simd);
     }
 
     _ = printf("unknown command: %s\n", cmd);
