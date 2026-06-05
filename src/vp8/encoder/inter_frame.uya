@@ -99,6 +99,7 @@ export struct EncoderInterFrameEncodeStats {
     nonzero_coefficient_count: usize,
     zero_mv_count: usize,
     newmv_count: usize,
+    nonzero_mv_count: usize,
     mode_search_work_units: usize
 }
 
@@ -408,6 +409,7 @@ fn encoder_inter_decide_macroblocks(
     decisions: &EncoderInterMacroblockDecision,
     zero_mv_count: &usize,
     newmv_count: &usize,
+    nonzero_mv_count: &usize,
     mode_search_work_units: &usize
 ) !void {
     const rd_model: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(config.quantizer);
@@ -423,6 +425,9 @@ fn encoder_inter_decide_macroblocks(
                 newmv_count[0] = newmv_count[0] + 1;
             } else {
                 zero_mv_count[0] = zero_mv_count[0] + 1;
+            }
+            if decision.mv_x != (0 as i16) || decision.mv_y != (0 as i16) {
+                nonzero_mv_count[0] = nonzero_mv_count[0] + 1;
             }
             decisions[mb_index].inter_mv_mode = decision.inter_mv_mode;
             decisions[mb_index].mv_x = decision.mv_x;
@@ -863,6 +868,7 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
     var nonzero_coefficient_count: usize = 0;
     var zero_mv_count: usize = 0;
     var newmv_count: usize = 0;
+    var nonzero_mv_count: usize = 0;
     var mode_search_work_units: usize = 0;
 
     try encoder_inter_decide_macroblocks(
@@ -875,6 +881,7 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         decisions,
         &zero_mv_count as &usize,
         &newmv_count as &usize,
+        &nonzero_mv_count as &usize,
         &mode_search_work_units as &usize
     );
     try encoder_inter_write_fixed_header_bits(&first_writer, config);
@@ -936,6 +943,7 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         nonzero_coefficient_count: nonzero_coefficient_count,
         zero_mv_count: zero_mv_count,
         newmv_count: newmv_count,
+        nonzero_mv_count: nonzero_mv_count,
         mode_search_work_units: mode_search_work_units
     };
 }

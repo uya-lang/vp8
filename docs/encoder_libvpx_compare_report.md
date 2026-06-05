@@ -3,8 +3,8 @@
 ## Run Summary
 
 - Benchmark target: libvpx `vpxenc --best`
-- git commit: `199280192b3d66de2e426af123238fd9bf5d57ec`
-- generated at: `2026-06-05T06:35:16Z`
+- git commit: `4d53e89966091e72e552223653ee18cb79a565cf`
+- generated at: `2026-06-05T06:53:03Z`
 - sample count: 4
 - passed count: 0
 - failed count: 4
@@ -34,17 +34,27 @@
 | libvpx_bits_per_pixel | 0.261376 |
 | vp8uya_psnr_all_db | 12.311845 |
 | libvpx_psnr_all_db | 38.421882 |
-| vp8uya_fps | 53.71 |
-| libvpx_fps | 121.49 |
+| vp8uya_fps | 53.84 |
+| libvpx_fps | 122.77 |
 
 ## Sample Results
 
 | Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| akiyo_qcif |  | 60 | 0.296628 | 0.261521 | 10.811141 | 48.320138 | 0.357118 | 0.999593 | 72.31 | 269.82 | false |
-| foreman_qcif |  | 60 | 0.927141 | 0.336706 | 12.794459 | 41.488222 | 0.377962 | 0.994510 | 63.99 | 102.57 | false |
-| coastguard_qcif |  | 60 | 1.049263 | 0.342419 | 14.058654 | 36.434307 | 0.439904 | 0.990787 | 64.41 | 90.60 | false |
-| mobile_cif |  | 60 | 2.275704 | 0.104857 | 11.583125 | 27.444861 | 0.231459 | 0.976963 | 14.13 | 22.98 | false |
+| akiyo_qcif |  | 60 | 0.296628 | 0.261521 | 10.811141 | 48.320138 | 0.357118 | 0.999593 | 72.03 | 265.14 | false |
+| foreman_qcif |  | 60 | 0.927141 | 0.336706 | 12.794459 | 41.488222 | 0.377962 | 0.994510 | 64.69 | 101.33 | false |
+| coastguard_qcif |  | 60 | 1.049263 | 0.342419 | 14.058654 | 36.434307 | 0.439904 | 0.990787 | 64.48 | 98.17 | false |
+| mobile_cif |  | 60 | 2.275704 | 0.104857 | 11.583125 | 27.444861 | 0.231459 | 0.976963 | 14.16 | 26.43 | false |
+
+## VP8UYA Motion Distribution
+
+| Scope | Macroblocks | Zero MV | NEWMV | Non-zero MV |
+| --- | ---: | ---: | ---: | ---: |
+| summary | 40887 | 15990 | 24897 | 24897 |
+| akiyo_qcif | 5841 | 5792 | 49 | 49 |
+| foreman_qcif | 5841 | 2672 | 3169 | 3169 |
+| coastguard_qcif | 5841 | 1084 | 4757 | 4757 |
+| mobile_cif | 23364 | 6442 | 16922 | 16922 |
 
 ## Failed Samples
 
@@ -53,7 +63,7 @@
 Failure reasons:
 - bitrate_ratio 1.134239 exceeds max 1.100000
 - psnr_all_delta_db -37.508997 below min -0.500000
-- fps_ratio 0.268003 below min 0.800000
+- fps_ratio 0.271675 below min 0.800000
 
 ### vp8uya
 ```sh
@@ -76,7 +86,7 @@ build/vp8uya encode /media/winger/_dde_home/winger/uya/vp8/build/libvpx-encode-c
 Failure reasons:
 - bitrate_ratio 2.753566 exceeds max 1.100000
 - psnr_all_delta_db -28.693763 below min -0.500000
-- fps_ratio 0.623825 below min 0.800000
+- fps_ratio 0.638451 below min 0.800000
 
 ### vp8uya
 ```sh
@@ -99,7 +109,7 @@ build/vp8uya encode /media/winger/_dde_home/winger/uya/vp8/build/libvpx-encode-c
 Failure reasons:
 - bitrate_ratio 3.064268 exceeds max 1.100000
 - psnr_all_delta_db -22.375653 below min -0.500000
-- fps_ratio 0.710942 below min 0.800000
+- fps_ratio 0.656832 below min 0.800000
 
 ### vp8uya
 ```sh
@@ -122,7 +132,7 @@ build/vp8uya encode /media/winger/_dde_home/winger/uya/vp8/build/libvpx-encode-c
 Failure reasons:
 - bitrate_ratio 21.702891 exceeds max 1.100000
 - psnr_all_delta_db -15.861736 below min -0.500000
-- fps_ratio 0.614908 below min 0.800000
+- fps_ratio 0.535700 below min 0.800000
 
 ### vp8uya
 ```sh

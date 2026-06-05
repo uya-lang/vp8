@@ -24,6 +24,7 @@ REQUIRED_FIELDS = {
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
     "vp8uya_mode_distribution",
+    "vp8uya_motion_distribution",
     "vp8uya_encode_elapsed_ns",
     "libvpx_encode_elapsed_ns",
     "vp8uya_psnr_all_db",
@@ -52,6 +53,7 @@ REQUIRED_SUMMARY_FIELDS = {
     "vp8uya_fps",
     "libvpx_fps",
     "vp8uya_mode_distribution",
+    "vp8uya_motion_distribution",
     "vpxenc_version",
     "vpxdec_version",
 }
@@ -97,6 +99,12 @@ def make_result(**overrides: object) -> dict[str, object]:
             "encoded_frame_count": 1,
             "key_frame_count": 1,
             "inter_frame_count": 0,
+        },
+        "vp8uya_motion_distribution": {
+            "macroblock_count": 0,
+            "zero_mv_count": 0,
+            "new_mv_count": 0,
+            "nonzero_mv_count": 0,
         },
         "vp8uya_psnr_all_db": 40.0,
         "libvpx_psnr_all_db": 40.0,
@@ -469,6 +477,12 @@ def assert_vp8uya_encode_generates_ivf() -> None:
             "key_frame_count": 1,
             "inter_frame_count": 1,
         }
+        assert metadata["vp8uya_motion_distribution"] == {
+            "macroblock_count": 2,
+            "zero_mv_count": 1,
+            "new_mv_count": 1,
+            "nonzero_mv_count": 1,
+        }
 
 
 def assert_libvpx_encode_generates_ivf() -> None:
@@ -791,6 +805,12 @@ def assert_results_ndjson_records_payload_bits() -> None:
                     "key_frame_count": 1,
                     "inter_frame_count": 1,
                 },
+                "vp8uya_motion_distribution": {
+                    "macroblock_count": 2,
+                    "zero_mv_count": 1,
+                    "new_mv_count": 1,
+                    "nonzero_mv_count": 1,
+                },
                 "vp8uya_encode_elapsed_ns": 1234,
             }),
             encoding="utf-8",
@@ -853,6 +873,12 @@ def assert_results_ndjson_records_payload_bits() -> None:
             "encoded_frame_count": 2,
             "key_frame_count": 1,
             "inter_frame_count": 1,
+        }
+        assert result["vp8uya_motion_distribution"] == {
+            "macroblock_count": 2,
+            "zero_mv_count": 1,
+            "new_mv_count": 1,
+            "nonzero_mv_count": 1,
         }
         assert result["vp8uya_vpxdec_command"][0] == str(tools_dir / "vpxdec")
         assert result["libvpx_vpxdec_command"][0] == str(tools_dir / "vpxdec")
@@ -948,6 +974,12 @@ def assert_summary_json_records_core_fields() -> None:
             "encoded_frame_count": 1,
             "key_frame_count": 1,
             "inter_frame_count": 0,
+        }
+        assert summary["vp8uya_motion_distribution"] == {
+            "macroblock_count": 0,
+            "zero_mv_count": 0,
+            "new_mv_count": 0,
+            "nonzero_mv_count": 0,
         }
         assert isinstance(summary["vpxenc_version"], str)
         assert isinstance(summary["vpxdec_version"], str)
@@ -1071,7 +1103,11 @@ def write_fake_vp8uya_encoder(path: Path, log_path: Path) -> None:
         "printf 'DKIF' > \"$out\"\n"
         "echo 'encode.frames.total=2'\n"
         "echo 'encode.frames.key=1'\n"
-        "echo 'encode.frames.inter=1'\n",
+        "echo 'encode.frames.inter=1'\n"
+        "echo 'encode.motion.macroblocks=2'\n"
+        "echo 'encode.motion.zero_mv=1'\n"
+        "echo 'encode.motion.new_mv=1'\n"
+        "echo 'encode.motion.nonzero_mv=1'\n",
         encoding="utf-8",
     )
     path.chmod(path.stat().st_mode | 0o111)

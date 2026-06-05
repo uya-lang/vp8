@@ -177,6 +177,14 @@ test "public encoder API emits inter frames after the first keyframe" {
     const stats: Vp8EncoderStats = vp8_encoder_stats(&encoder);
     try assert_eq_i32(stats.encoded_frame_count as i32, 3);
     try assert_eq_i32(stats.keyframe_count as i32, 1);
+    try assert_eq_i32(stats.inter_macroblock_count as i32, 2);
+    try assert_eq_i32(stats.zero_mv_count as i32, 2);
+    try assert_eq_i32(stats.newmv_count as i32, 0);
+    try assert_eq_i32(stats.nonzero_mv_count as i32, 0);
+    try assert_eq_i32(stats.last_inter_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.last_zero_mv_count as i32, 1);
+    try assert_eq_i32(stats.last_newmv_count as i32, 0);
+    try assert_eq_i32(stats.last_nonzero_mv_count as i32, 0);
     try assert_eq_i32((stats.last_mode_search_work_units > 0) as i32, true as i32);
 }
 

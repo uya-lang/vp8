@@ -230,6 +230,7 @@ test "inter frame writer emits and decodes integer NEWMV macroblock" {
     try assert_eq_i32(decode_context.mb_info.mv_y[mb_index] as i32, -16);
     try assert_eq_i32(stats.newmv_count as i32, 1);
     try assert_eq_i32(stats.zero_mv_count as i32, 15);
+    try assert_eq_i32(stats.nonzero_mv_count as i32, 1);
     try assert_eq_i32((stats.mode_search_work_units > 0) as i32, true as i32);
     try assert_eq_i32((result.output.view.y.origin[(16 * result.output.view.y.stride) + 16] > (0 as byte)) as i32, true as i32);
     try assert_eq_i32(decode_context.mb_info.mv_x[mb_index] != (0 as i16), true as i32);
