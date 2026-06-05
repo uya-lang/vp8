@@ -247,7 +247,7 @@ Date: 2026-06-05
 
 - [x] 建立 Q ladder 对标。
   - 验收：Q=16/24/32/40/48 均输出 bpp、`PSNR-all`、fps。
-- [ ] 拟合 lambda-Q 表。
+- [x] 拟合 lambda-Q 表。
   - 产物：lambda table 文档或 JSON。
 - [ ] 替换简单 lambda 逻辑。
   - 验收：mode decision 使用新 lambda table。
