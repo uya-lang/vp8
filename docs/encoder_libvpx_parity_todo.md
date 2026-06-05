@@ -22,82 +22,82 @@ Date: 2026-06-05
 
 ## Phase 1: 指标契约
 
-- [x] 固化对标对象为 libvpx `vpxenc --best`。
+- [ ] 固化对标对象为 libvpx `vpxenc --best`。
   - 验收：设计文档和未来报告模板都出现 `vpxenc --best`。
-- [x] 固化码率指标名。
+- [ ] 固化码率指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_bits_per_pixel` 和 `libvpx_bits_per_pixel`。
-- [x] 固化码率硬阈值。
+- [ ] 固化码率硬阈值。
   - 验收：当 `vp8uya_bits_per_pixel > libvpx_bits_per_pixel * 1.10` 时，未来门禁返回非 0。
-- [x] 固化质量指标名。
+- [ ] 固化质量指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_psnr_all_db` 和 `libvpx_psnr_all_db`。
-- [x] 固化 `PSNR-all` 硬阈值。
+- [ ] 固化 `PSNR-all` 硬阈值。
   - 验收：当 `vp8uya_psnr_all_db < libvpx_psnr_all_db - 0.50` 时，未来门禁返回非 0。
-- [x] 固化速度指标名。
+- [ ] 固化速度指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_fps` 和 `libvpx_fps`。
-- [x] 固化 fps 硬阈值。
+- [ ] 固化 fps 硬阈值。
   - 验收：当 `vp8uya_fps < libvpx_fps * 0.80` 时，未来门禁返回非 0。
-- [x] 明确 `SSIM-all` 第一版只记录不设硬门禁。
+- [ ] 明确 `SSIM-all` 第一版只记录不设硬门禁。
   - 验收产物：未来报告包含 `SSIM-all`，但 SSIM 不影响 hard threshold pass/fail。
-- [x] 定义失败原因字段。
+- [ ] 定义失败原因字段。
   - 验收产物：未来 `results.ndjson` 中失败样本包含非空 `failure_reasons`。
 
 ## Phase 2: libvpx 工具链获取
 
-- [x] 新增 `vpxenc` 查找 helper。
+- [ ] 新增 `vpxenc` 查找 helper。
   - 验收命令：`VPXENC=/tmp/fake-vpxenc python3 bench/libvpx_encode_compare.py --probe-tools` 优先报告该路径。
-- [x] 新增 `vpxdec` 查找 helper。
+- [ ] 新增 `vpxdec` 查找 helper。
   - 验收命令：`VPXDEC=/tmp/fake-vpxdec python3 bench/libvpx_encode_compare.py --probe-tools` 优先报告该路径。
-- [x] 支持从 `PATH` 查找工具。
+- [ ] 支持从 `PATH` 查找工具。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 能打印 PATH 中发现的 `vpxenc` 和 `vpxdec`。
-- [x] 支持从 `build/deps/vpx-tools-root/usr/bin/` 查找工具。
+- [ ] 支持从 `build/deps/vpx-tools-root/usr/bin/` 查找工具。
   - 验收：把可执行 `vpxenc`、`vpxdec` 放入该目录后，不设置环境变量也能发现。
-- [x] 实现无 sudo 下载 `vpx-tools`。
+- [ ] 实现无 sudo 下载 `vpx-tools`。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --fetch-vpx-tools` 在 `build/deps/` 下生成 `.deb`。
-- [x] 实现解包 `vpx-tools`。
+- [ ] 实现解包 `vpx-tools`。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --extract-vpx-tools` 生成 `build/deps/vpx-tools-root/usr/bin/vpxenc`。
-- [x] 校验 `vpxenc` 可执行。
+- [ ] 校验 `vpxenc` 可执行。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxenc_probe_returncode`。
-- [x] 校验 `vpxdec` 可执行。
+- [ ] 校验 `vpxdec` 可执行。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxdec_probe_returncode`。
-- [x] 记录工具版本。
+- [ ] 记录工具版本。
   - 验收产物：未来 `summary.json` 包含 `vpxenc_version` 和 `vpxdec_version`。
-- [x] 工具缺失时输出明确修复建议。
+- [ ] 工具缺失时输出明确修复建议。
   - 验收：无工具时脚本返回非 0，stderr 包含 `VPXENC`、`VPXDEC`、`--fetch-vpx-tools`。
 
 ## Phase 3: Xiph Derf 真实样本
 
-- [x] 新增真实样本 manifest。
+- [ ] 新增真实样本 manifest。
   - 产物：`fixtures/encoder_libvpx_real_samples.json`。
-- [x] 在 manifest 中添加 `akiyo_qcif`。
+- [ ] 在 manifest 中添加 `akiyo_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `low-motion`。
-- [x] 在 manifest 中添加 `foreman_qcif`。
+- [ ] 在 manifest 中添加 `foreman_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `motion`。
-- [x] 在 manifest 中添加 `coastguard_qcif`。
+- [ ] 在 manifest 中添加 `coastguard_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `pan`。
-- [x] 在 manifest 中添加 `mobile_cif`。
+- [ ] 在 manifest 中添加 `mobile_cif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `texture`。
-- [x] 实现样本下载缓存目录。
+- [ ] 实现样本下载缓存目录。
   - 产物：`build/real-y4m/`，且该目录不进入 git。
-- [x] 实现 Y4M 原子下载。
+- [ ] 实现 Y4M 原子下载。
   - 验收：下载完成前只存在临时文件，失败时不留下可被复用的半截 `.y4m`。
-- [x] 实现 sha256 校验。
+- [ ] 实现 sha256 校验。
   - 验收：sha256 不匹配时脚本返回非 0，并拒绝生成 I420 fixture。
-- [x] 实现缓存复用。
+- [ ] 实现缓存复用。
   - 验收：第二次运行同一 sha256 样本不重新下载。
-- [x] 实现 Y4M 到 I420 转换。
+- [ ] 实现 Y4M 到 I420 转换。
   - 验收命令：`ffmpeg -y -i <sample>.y4m -frames:v 60 -pix_fmt yuv420p -f rawvideo <sample>.i420` 生成 raw I420。
-- [x] 校验 I420 文件大小。
+- [ ] 校验 I420 文件大小。
   - 验收：`stat -c %s <sample>.i420` 等于 `frame_size * frames`。
-- [x] 确认真实媒体文件不入库。
+- [ ] 确认真实媒体文件不入库。
   - 验收命令：`git status --short` 不显示 `.y4m`、`.i420`、`.ivf` 真实样本文件。
 
 ## Phase 4: `encode --frames N --fps NUM/DEN`
 
-- [x] 为 `encode` 增加 `--frames N` 参数解析。
+- [ ] 为 `encode` 增加 `--frames N` 参数解析。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames 1 --out out.ivf` 与不传 `--frames` 行为一致。
-- [x] 拒绝缺少值的 `--frames`。
+- [ ] 拒绝缺少值的 `--frames`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames --out out.ivf` 返回参数错误。
-- [x] 拒绝 `--frames 0`。
+- [ ] 拒绝 `--frames 0`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames 0 --out out.ivf` 返回参数错误。
 - [ ] 拒绝非数字 `--frames`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames abc --out out.ivf` 返回参数错误。
