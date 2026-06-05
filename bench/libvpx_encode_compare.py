@@ -16,6 +16,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,8 @@ REQUIRED_RESULT_FIELDS = (
     "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
+    "vp8uya_encode_elapsed_ns",
+    "libvpx_encode_elapsed_ns",
     "bitrate_ratio",
     "vp8uya_psnr_y_db",
     "vp8uya_psnr_u_db",
@@ -692,6 +695,13 @@ def sample_decoded_i420_path(sample: Mapping[str, Any], runs_dir: Path, encoder_
     return runs_dir / f"{name}.{encoder_label}.decoded.i420"
 
 
+def sample_encode_metadata_path(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> Path:
+    name = sample.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("sample name must be a non-empty string")
+    return runs_dir / f"{name}.{encoder_label}.encode.json"
+
+
 def sample_frames(sample: Mapping[str, Any]) -> int:
     frames = sample.get("frames", 60)
     if not isinstance(frames, int) or frames <= 0:
@@ -971,6 +981,7 @@ def encode_vp8uya_samples(
             frames = sample_frames(sample)
             fps = sample_fps(sample)
             output_path = sample_vp8uya_ivf_path(sample, runs_dir)
+            metadata_path = sample_encode_metadata_path(sample, runs_dir, "vp8uya")
         except ValueError as exc:
             results.append({
                 "sample": sample.get("name", ""),
@@ -1008,17 +1019,32 @@ def encode_vp8uya_samples(
             "--out",
             str(output_path),
         ]
+        started_ns = time.perf_counter_ns()
         try:
             completed = runner(command, REPO_ROOT)
         except OSError as exc:
             completed = subprocess.CompletedProcess(command, 127, "", str(exc))
+        elapsed_ns = time.perf_counter_ns() - started_ns
+
+        metadata_error = write_encode_metadata(
+            metadata_path,
+            elapsed_field="vp8uya_encode_elapsed_ns",
+            elapsed_ns=elapsed_ns,
+            command=command,
+            output_path=output_path,
+            ok=completed.returncode == 0 and output_path.exists(),
+            returncode=completed.returncode,
+        )
 
         results.append({
             "sample": sample["name"],
-            "ok": completed.returncode == 0 and output_path.exists(),
+            "ok": completed.returncode == 0 and output_path.exists() and metadata_error is None,
             "input": input_report,
             "output_path": str(output_path),
+            "encode_metadata_path": str(metadata_path),
+            "encode_metadata_error": metadata_error,
             "vp8uya_command": command,
+            "vp8uya_encode_elapsed_ns": elapsed_ns,
             "returncode": completed.returncode,
             "stdout": completed.stdout,
             "stderr": completed.stderr,
@@ -1079,6 +1105,7 @@ def encode_libvpx_samples(
             frames = sample_frames(sample)
             fps = sample_fps(sample)
             output_path = sample_libvpx_ivf_path(sample, runs_dir)
+            metadata_path = sample_encode_metadata_path(sample, runs_dir, "libvpx")
         except ValueError as exc:
             results.append({
                 "sample": sample.get("name", ""),
@@ -1117,17 +1144,32 @@ def encode_libvpx_samples(
             str(output_path),
             input_report["path"],
         ]
+        started_ns = time.perf_counter_ns()
         try:
             completed = runner(command, REPO_ROOT)
         except OSError as exc:
             completed = subprocess.CompletedProcess(command, 127, "", str(exc))
+        elapsed_ns = time.perf_counter_ns() - started_ns
+
+        metadata_error = write_encode_metadata(
+            metadata_path,
+            elapsed_field="libvpx_encode_elapsed_ns",
+            elapsed_ns=elapsed_ns,
+            command=command,
+            output_path=output_path,
+            ok=completed.returncode == 0 and output_path.exists(),
+            returncode=completed.returncode,
+        )
 
         results.append({
             "sample": sample["name"],
-            "ok": completed.returncode == 0 and output_path.exists(),
+            "ok": completed.returncode == 0 and output_path.exists() and metadata_error is None,
             "input": input_report,
             "output_path": str(output_path),
+            "encode_metadata_path": str(metadata_path),
+            "encode_metadata_error": metadata_error,
             "libvpx_command": command,
+            "libvpx_encode_elapsed_ns": elapsed_ns,
             "returncode": completed.returncode,
             "stdout": completed.stdout,
             "stderr": completed.stderr,
@@ -1670,6 +1712,83 @@ def bits_per_pixel(payload_bits: int | float, width: int, height: int, frames: i
     return float(payload_bits) / float(denominator)
 
 
+def write_encode_metadata(
+    path: Path,
+    *,
+    elapsed_field: str,
+    elapsed_ns: int,
+    command: list[str],
+    output_path: Path,
+    ok: bool,
+    returncode: int | None,
+) -> str | None:
+    metadata = {
+        elapsed_field: elapsed_ns,
+        "command": command,
+        "ok": ok,
+        "output_path": str(output_path),
+        "returncode": returncode,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        return f"failed to write encode metadata {path}: {exc}"
+    return None
+
+
+def read_encode_elapsed_ns(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> dict[str, Any]:
+    try:
+        path = sample_encode_metadata_path(sample, runs_dir, encoder_label)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "elapsed_ns": 0,
+            "error": str(exc),
+        }
+
+    field = f"{encoder_label}_encode_elapsed_ns"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "elapsed_ns": 0,
+            "error": f"failed to read encode metadata {path}: {exc}",
+        }
+    except json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "elapsed_ns": 0,
+            "error": f"failed to parse encode metadata {path}: {exc}",
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "elapsed_ns": 0,
+            "error": f"encode metadata {path} must contain an object",
+        }
+    elapsed_ns = data.get(field)
+    if isinstance(elapsed_ns, bool) or not isinstance(elapsed_ns, int) or elapsed_ns < 0:
+        return {
+            "ok": False,
+            "path": str(path),
+            "elapsed_ns": 0,
+            "error": f"encode metadata {path} must contain non-negative integer {field}",
+        }
+    return {
+        "ok": True,
+        "path": str(path),
+        "elapsed_ns": elapsed_ns,
+        "error": None,
+    }
+
+
 def write_results_ndjson_payload_bits(
     *,
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
@@ -1726,6 +1845,12 @@ def write_results_ndjson_payload_bits(
             failure_reasons.append(f"vp8uya: {vp8uya_payload['error']}")
         if not libvpx_payload["ok"]:
             failure_reasons.append(f"libvpx: {libvpx_payload['error']}")
+        vp8uya_elapsed = read_encode_elapsed_ns(sample, runs_dir, "vp8uya")
+        libvpx_elapsed = read_encode_elapsed_ns(sample, runs_dir, "libvpx")
+        if not vp8uya_elapsed["ok"]:
+            failure_reasons.append(f"vp8uya: {vp8uya_elapsed['error']}")
+        if not libvpx_elapsed["ok"]:
+            failure_reasons.append(f"libvpx: {libvpx_elapsed['error']}")
 
         try:
             vp8uya_bpp = bits_per_pixel(
@@ -1752,6 +1877,10 @@ def write_results_ndjson_payload_bits(
             "libvpx_payload_bits": libvpx_payload["payload_bits"],
             "vp8uya_bits_per_pixel": vp8uya_bpp,
             "libvpx_bits_per_pixel": libvpx_bpp,
+            "vp8uya_encode_elapsed_ns": vp8uya_elapsed["elapsed_ns"],
+            "libvpx_encode_elapsed_ns": libvpx_elapsed["elapsed_ns"],
+            "vp8uya_encode_metadata_path": vp8uya_elapsed["path"],
+            "libvpx_encode_metadata_path": libvpx_elapsed["path"],
             "vp8uya_payload_bytes": vp8uya_payload["payload_bytes"],
             "libvpx_payload_bytes": libvpx_payload["payload_bytes"],
             "vp8uya_ivf_frame_count": vp8uya_payload["frame_count"],

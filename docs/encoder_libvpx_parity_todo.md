@@ -176,7 +176,7 @@ Date: 2026-06-05
   - 验收产物：`results.ndjson` 包含 `vp8uya_payload_bits` 和 `libvpx_payload_bits`。
 - [x] 统计 bits per pixel。
   - 验收产物：`results.ndjson` 包含 `vp8uya_bits_per_pixel` 和 `libvpx_bits_per_pixel`。
-- [ ] 统计 encoding elapsed ns。
+- [x] 统计 encoding elapsed ns。
   - 验收产物：`results.ndjson` 包含 `vp8uya_encode_elapsed_ns` 和 `libvpx_encode_elapsed_ns`。
 - [ ] 统计 encoding fps。
   - 验收产物：`results.ndjson` 包含 `vp8uya_fps` 和 `libvpx_fps`。

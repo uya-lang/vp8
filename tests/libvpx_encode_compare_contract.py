@@ -22,6 +22,8 @@ REQUIRED_FIELDS = {
     "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
+    "vp8uya_encode_elapsed_ns",
+    "libvpx_encode_elapsed_ns",
     "vp8uya_psnr_all_db",
     "libvpx_psnr_all_db",
     "vp8uya_fps",
@@ -645,6 +647,14 @@ def assert_results_ndjson_records_payload_bits() -> None:
         )
         write_test_ivf(runs_dir / "unit_qcif.vp8uya.ivf", [10, 20])
         write_test_ivf(runs_dir / "unit_qcif.libvpx.ivf", [7, 8])
+        (runs_dir / "unit_qcif.vp8uya.encode.json").write_text(
+            json.dumps({"vp8uya_encode_elapsed_ns": 1234}),
+            encoding="utf-8",
+        )
+        (runs_dir / "unit_qcif.libvpx.encode.json").write_text(
+            json.dumps({"libvpx_encode_elapsed_ns": 2345}),
+            encoding="utf-8",
+        )
 
         completed = subprocess.run(
             [
@@ -680,6 +690,8 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert result["libvpx_payload_bits"] == 120
         assert result["vp8uya_bits_per_pixel"] == 0.46875
         assert result["libvpx_bits_per_pixel"] == 0.234375
+        assert result["vp8uya_encode_elapsed_ns"] == 1234
+        assert result["libvpx_encode_elapsed_ns"] == 2345
 
 
 def assert_ssim_is_record_only(module: object) -> None:
