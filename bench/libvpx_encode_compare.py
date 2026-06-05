@@ -61,6 +61,8 @@ REQUIRED_SUMMARY_FIELDS = (
     "libvpx_bits_per_pixel",
     "vp8uya_psnr_all_db",
     "libvpx_psnr_all_db",
+    "vp8uya_fps",
+    "libvpx_fps",
 )
 
 HARD_THRESHOLD_FIELDS = (

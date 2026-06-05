@@ -265,6 +265,9 @@ docs/encoder_libvpx_compare_report_template.md
 - aggregate quality fields:
   - `vp8uya_psnr_all_db`
   - `libvpx_psnr_all_db`
+- aggregate speed fields:
+  - `vp8uya_fps`
+  - `libvpx_fps`
 
 `docs/encoder_libvpx_compare_report.md` 记录：
 
