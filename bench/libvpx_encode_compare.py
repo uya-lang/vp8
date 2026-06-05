@@ -65,7 +65,17 @@ REQUIRED_RESULT_FIELDS = (
     "libvpx_psnr_v_db",
     "libvpx_psnr_all_db",
     "psnr_all_delta_db",
+    "ssim_y",
+    "ssim_u",
+    "ssim_v",
+    "ssim_all",
+    "vp8uya_ssim_y",
+    "vp8uya_ssim_u",
+    "vp8uya_ssim_v",
     "vp8uya_ssim_all",
+    "libvpx_ssim_y",
+    "libvpx_ssim_u",
+    "libvpx_ssim_v",
     "libvpx_ssim_all",
     "vp8uya_fps",
     "libvpx_fps",
@@ -922,6 +932,16 @@ def prepare_i420_encode_input(
 
     runs_dir.mkdir(parents=True, exist_ok=True)
     trimmed_path = runs_dir / f"{name}.frames{sample_frames(sample)}.i420"
+    if trimmed_path.exists() and trimmed_path.stat().st_size == expected_bytes:
+        return {
+            "ok": True,
+            "path": str(trimmed_path),
+            "source_path": str(input_path),
+            "expected_bytes": expected_bytes,
+            "actual_bytes": actual_bytes,
+            "truncated": True,
+            "error": None,
+        }
     with input_path.open("rb") as src, trimmed_path.open("wb") as dst:
         remaining = expected_bytes
         while remaining > 0:
@@ -1755,6 +1775,72 @@ def psnr_failure_result(reference_path: Path | None, decoded_path: Path | None, 
     }
 
 
+def ssim_failure_result(reference_path: Path | None, decoded_path: Path | None, error: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "reference_path": "" if reference_path is None else str(reference_path),
+        "decoded_path": "" if decoded_path is None else str(decoded_path),
+        "ssim_y": 0.0,
+        "ssim_u": 0.0,
+        "ssim_v": 0.0,
+        "ssim_all": 0.0,
+        "error": error,
+    }
+
+
+def nonnegative_variance(value: float) -> float:
+    if value < 0.0 and value > -0.0000001:
+        return 0.0
+    return value
+
+
+def ssim_from_stats(stats: dict[str, float]) -> float:
+    sample_count = int(stats["sample_count"])
+    if sample_count <= 0:
+        raise ValueError("SSIM sample count must be positive")
+    inv_count = 1.0 / float(sample_count)
+    mean_reference = stats["sum_reference"] * inv_count
+    mean_decoded = stats["sum_decoded"] * inv_count
+    variance_reference = nonnegative_variance((stats["sum_reference_squared"] * inv_count) - (mean_reference * mean_reference))
+    variance_decoded = nonnegative_variance((stats["sum_decoded_squared"] * inv_count) - (mean_decoded * mean_decoded))
+    covariance = (stats["sum_cross"] * inv_count) - (mean_reference * mean_decoded)
+    c1 = 6.5025
+    c2 = 58.5225
+    numerator = (((2.0 * mean_reference * mean_decoded) + c1) * ((2.0 * covariance) + c2))
+    denominator = (((mean_reference * mean_reference) + (mean_decoded * mean_decoded) + c1) * (variance_reference + variance_decoded + c2))
+    return numerator / denominator
+
+
+def new_ssim_stats() -> dict[str, float]:
+    return {
+        "sample_count": 0.0,
+        "sum_reference": 0.0,
+        "sum_decoded": 0.0,
+        "sum_reference_squared": 0.0,
+        "sum_decoded_squared": 0.0,
+        "sum_cross": 0.0,
+    }
+
+
+def add_ssim_samples(stats: dict[str, float], reference_samples: bytes, decoded_samples: bytes) -> None:
+    stats["sample_count"] += float(len(reference_samples))
+    for reference_value, decoded_value in zip(reference_samples, decoded_samples):
+        reference_sample = float(reference_value)
+        decoded_sample = float(decoded_value)
+        stats["sum_reference"] += reference_sample
+        stats["sum_decoded"] += decoded_sample
+        stats["sum_reference_squared"] += reference_sample * reference_sample
+        stats["sum_decoded_squared"] += decoded_sample * decoded_sample
+        stats["sum_cross"] += reference_sample * decoded_sample
+
+
+def weighted_ssim(y_ssim: float, u_ssim: float, v_ssim: float, y_samples: int, uv_samples: int) -> float:
+    total_samples = y_samples + (2 * uv_samples)
+    if total_samples <= 0:
+        raise ValueError("SSIM total sample count must be positive")
+    return ((y_ssim * y_samples) + (u_ssim * uv_samples) + (v_ssim * uv_samples)) / float(total_samples)
+
+
 def read_i420_psnr(
     reference_path: Path,
     decoded_path: Path,
@@ -1841,6 +1927,77 @@ def read_i420_psnr(
     }
 
 
+def read_i420_ssim(
+    reference_path: Path,
+    decoded_path: Path,
+    *,
+    width: int,
+    height: int,
+    frames: int,
+) -> dict[str, Any]:
+    try:
+        expected_size = i420_frame_size(width, height) * frames
+    except ValueError as exc:
+        return ssim_failure_result(reference_path, decoded_path, str(exc))
+    if frames <= 0:
+        return ssim_failure_result(reference_path, decoded_path, "I420 SSIM frames must be positive")
+
+    try:
+        reference = reference_path.read_bytes()
+    except OSError as exc:
+        return ssim_failure_result(reference_path, decoded_path, f"failed to read reference I420 {reference_path}: {exc}")
+    try:
+        decoded = decoded_path.read_bytes()
+    except OSError as exc:
+        return ssim_failure_result(reference_path, decoded_path, f"failed to read decoded I420 {decoded_path}: {exc}")
+
+    if len(reference) != expected_size:
+        return ssim_failure_result(
+            reference_path,
+            decoded_path,
+            f"reference I420 {reference_path} has {len(reference)} bytes, expected {expected_size}",
+        )
+    if len(decoded) != expected_size:
+        return ssim_failure_result(
+            reference_path,
+            decoded_path,
+            f"decoded I420 {decoded_path} has {len(decoded)} bytes, expected {expected_size}",
+        )
+
+    y_size = width * height
+    chroma_width = (width + 1) // 2
+    chroma_height = (height + 1) // 2
+    uv_size = chroma_width * chroma_height
+    frame_size = y_size + (2 * uv_size)
+    y_stats = new_ssim_stats()
+    u_stats = new_ssim_stats()
+    v_stats = new_ssim_stats()
+    for frame_index in range(frames):
+        frame_offset = frame_index * frame_size
+        y_start = frame_offset
+        u_start = y_start + y_size
+        v_start = u_start + uv_size
+        add_ssim_samples(y_stats, reference[y_start:u_start], decoded[y_start:u_start])
+        add_ssim_samples(u_stats, reference[u_start:v_start], decoded[u_start:v_start])
+        add_ssim_samples(v_stats, reference[v_start:v_start + uv_size], decoded[v_start:v_start + uv_size])
+
+    y_ssim = ssim_from_stats(y_stats)
+    u_ssim = ssim_from_stats(u_stats)
+    v_ssim = ssim_from_stats(v_stats)
+    y_samples = y_size * frames
+    uv_samples = uv_size * frames
+    return {
+        "ok": True,
+        "reference_path": str(reference_path),
+        "decoded_path": str(decoded_path),
+        "ssim_y": y_ssim,
+        "ssim_u": u_ssim,
+        "ssim_v": v_ssim,
+        "ssim_all": weighted_ssim(y_ssim, u_ssim, v_ssim, y_samples, uv_samples),
+        "error": None,
+    }
+
+
 def read_sample_psnr(
     sample: Mapping[str, Any],
     *,
@@ -1864,6 +2021,31 @@ def read_sample_psnr(
         )
     reference_path = Path(str(input_report["path"]))
     return read_i420_psnr(reference_path, decoded_path, width=width, height=height, frames=frames)
+
+
+def read_sample_ssim(
+    sample: Mapping[str, Any],
+    *,
+    i420_dir: Path,
+    runs_dir: Path,
+    encoder_label: str,
+) -> dict[str, Any]:
+    try:
+        decoded_path = sample_decoded_i420_path(sample, runs_dir, encoder_label)
+        width = sample_dimension(sample, "width")
+        height = sample_dimension(sample, "height")
+        frames = sample_frames(sample)
+    except ValueError as exc:
+        return ssim_failure_result(None, None, str(exc))
+    input_report = prepare_i420_encode_input(sample, i420_dir=i420_dir, runs_dir=runs_dir)
+    if not input_report["ok"]:
+        return ssim_failure_result(
+            Path(str(input_report["path"])) if input_report["path"] else None,
+            decoded_path,
+            str(input_report["error"]),
+        )
+    reference_path = Path(str(input_report["path"]))
+    return read_i420_ssim(reference_path, decoded_path, width=width, height=height, frames=frames)
 
 
 def write_encode_metadata(
@@ -2012,6 +2194,12 @@ def write_results_ndjson_payload_bits(
             failure_reasons.append(f"vp8uya psnr: {vp8uya_psnr['error']}")
         if not libvpx_psnr["ok"]:
             failure_reasons.append(f"libvpx psnr: {libvpx_psnr['error']}")
+        vp8uya_ssim = read_sample_ssim(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="vp8uya")
+        libvpx_ssim = read_sample_ssim(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="libvpx")
+        if not vp8uya_ssim["ok"]:
+            failure_reasons.append(f"vp8uya ssim: {vp8uya_ssim['error']}")
+        if not libvpx_ssim["ok"]:
+            failure_reasons.append(f"libvpx ssim: {libvpx_ssim['error']}")
 
         try:
             vp8uya_bpp = bits_per_pixel(
@@ -2072,6 +2260,22 @@ def write_results_ndjson_payload_bits(
             "vp8uya_psnr_decoded_path": vp8uya_psnr["decoded_path"],
             "libvpx_psnr_reference_path": libvpx_psnr["reference_path"],
             "libvpx_psnr_decoded_path": libvpx_psnr["decoded_path"],
+            "ssim_y": vp8uya_ssim["ssim_y"],
+            "ssim_u": vp8uya_ssim["ssim_u"],
+            "ssim_v": vp8uya_ssim["ssim_v"],
+            "ssim_all": vp8uya_ssim["ssim_all"],
+            "vp8uya_ssim_y": vp8uya_ssim["ssim_y"],
+            "vp8uya_ssim_u": vp8uya_ssim["ssim_u"],
+            "vp8uya_ssim_v": vp8uya_ssim["ssim_v"],
+            "vp8uya_ssim_all": vp8uya_ssim["ssim_all"],
+            "libvpx_ssim_y": libvpx_ssim["ssim_y"],
+            "libvpx_ssim_u": libvpx_ssim["ssim_u"],
+            "libvpx_ssim_v": libvpx_ssim["ssim_v"],
+            "libvpx_ssim_all": libvpx_ssim["ssim_all"],
+            "vp8uya_ssim_reference_path": vp8uya_ssim["reference_path"],
+            "vp8uya_ssim_decoded_path": vp8uya_ssim["decoded_path"],
+            "libvpx_ssim_reference_path": libvpx_ssim["reference_path"],
+            "libvpx_ssim_decoded_path": libvpx_ssim["decoded_path"],
             "vp8uya_encode_metadata_path": vp8uya_elapsed["path"],
             "libvpx_encode_metadata_path": libvpx_elapsed["path"],
             "vp8uya_payload_bytes": vp8uya_payload["payload_bytes"],

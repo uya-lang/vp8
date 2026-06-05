@@ -27,6 +27,18 @@ REQUIRED_FIELDS = {
     "libvpx_encode_elapsed_ns",
     "vp8uya_psnr_all_db",
     "libvpx_psnr_all_db",
+    "ssim_y",
+    "ssim_u",
+    "ssim_v",
+    "ssim_all",
+    "vp8uya_ssim_y",
+    "vp8uya_ssim_u",
+    "vp8uya_ssim_v",
+    "vp8uya_ssim_all",
+    "libvpx_ssim_y",
+    "libvpx_ssim_u",
+    "libvpx_ssim_v",
+    "libvpx_ssim_all",
     "vp8uya_fps",
     "libvpx_fps",
 }
@@ -641,6 +653,10 @@ def psnr_for_mse(mse: float) -> float:
     return 10.0 * math.log10(65025.0 / mse)
 
 
+def ssim_for_constant_delta(delta: float) -> float:
+    return 6.5025 / ((delta * delta) + 6.5025)
+
+
 def assert_results_ndjson_records_payload_bits() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -731,6 +747,22 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert math.isclose(result["libvpx_psnr_u_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
         assert math.isclose(result["libvpx_psnr_v_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
         assert math.isclose(result["libvpx_psnr_all_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
+        expected_ssim_y = ssim_for_constant_delta(1.0)
+        expected_ssim_u = ssim_for_constant_delta(2.0)
+        expected_ssim_v = ssim_for_constant_delta(3.0)
+        expected_ssim_all = ((expected_ssim_y * 512.0) + (expected_ssim_u * 128.0) + (expected_ssim_v * 128.0)) / 768.0
+        assert math.isclose(result["ssim_y"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["ssim_u"], expected_ssim_u, rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["ssim_v"], expected_ssim_v, rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["ssim_all"], expected_ssim_all, rel_tol=0.0, abs_tol=1e-12)
+        assert result["vp8uya_ssim_y"] == result["ssim_y"]
+        assert result["vp8uya_ssim_u"] == result["ssim_u"]
+        assert result["vp8uya_ssim_v"] == result["ssim_v"]
+        assert result["vp8uya_ssim_all"] == result["ssim_all"]
+        assert math.isclose(result["libvpx_ssim_y"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["libvpx_ssim_u"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["libvpx_ssim_v"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["libvpx_ssim_all"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
 
 
 def assert_ssim_is_record_only(module: object) -> None:
