@@ -43,7 +43,7 @@ Date: 2026-06-05
 
 ## Phase 2: libvpx 工具链获取
 
-- [ ] 新增 `vpxenc` 查找 helper。
+- [x] 新增 `vpxenc` 查找 helper。
   - 验收命令：`VPXENC=/tmp/fake-vpxenc python3 bench/libvpx_encode_compare.py --probe-tools` 优先报告该路径。
 - [ ] 新增 `vpxdec` 查找 helper。
   - 验收命令：`VPXDEC=/tmp/fake-vpxdec python3 bench/libvpx_encode_compare.py --probe-tools` 优先报告该路径。
