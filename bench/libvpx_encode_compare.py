@@ -860,6 +860,79 @@ def convert_y4m_to_i420(
     }
 
 
+def fetch_real_y4m_samples(
+    *,
+    manifest_path: Path = DEFAULT_MANIFEST_PATH,
+    group: str | None = None,
+    frames_override: int | None = None,
+    y4m_dir: Path = DEFAULT_Y4M_CACHE_DIR,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+    downloader: Callable[[str, Path], None] = http_download,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    try:
+        manifest = load_sample_manifest(manifest_path)
+        selected = filter_samples_by_group(manifest_samples(manifest), group)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "manifest_path": str(manifest_path),
+            "group": group,
+            "frames_override": frames_override,
+            "y4m_cache_dir": str(y4m_dir),
+            "i420_cache_dir": str(i420_dir),
+            "sample_count": 0,
+            "samples": [],
+            "error": str(exc),
+        }
+
+    dir_report = prepare_sample_dirs(y4m_dir=y4m_dir, i420_dir=i420_dir)
+    sample_reports: list[dict[str, Any]] = []
+    for sample in plan_sample_entries(selected, frames_override):
+        name = sample.get("name", "")
+        download_report = ensure_y4m_sample(sample, y4m_dir=y4m_dir, downloader=downloader)
+        convert_report: dict[str, Any] | None = None
+        size_report: dict[str, Any] | None = None
+        error = download_report["error"]
+
+        if download_report["ok"]:
+            convert_report = convert_y4m_to_i420(sample, y4m_dir=y4m_dir, i420_dir=i420_dir, runner=runner)
+            error = None if convert_report["ok"] else convert_report["stderr"]
+            if convert_report["ok"]:
+                size_report = validate_i420_sample_size(sample, i420_dir=i420_dir)
+                error = None if size_report["ok"] else size_report["error"]
+
+        sample_ok = (
+            download_report["ok"]
+            and convert_report is not None
+            and convert_report["ok"]
+            and size_report is not None
+            and size_report["ok"]
+        )
+        sample_reports.append(
+            {
+                "sample": name,
+                "ok": sample_ok,
+                "download": download_report,
+                "convert": convert_report,
+                "i420_size": size_report,
+                "error": error,
+            }
+        )
+
+    return {
+        "ok": dir_report["ok"] and all(sample["ok"] for sample in sample_reports),
+        "manifest_path": str(manifest_path),
+        "group": group,
+        "frames_override": frames_override,
+        "y4m_cache_dir": str(y4m_dir),
+        "i420_cache_dir": str(i420_dir),
+        "sample_count": len(sample_reports),
+        "samples": sample_reports,
+        "error": None if all(sample["ok"] for sample in sample_reports) else "one or more real samples failed",
+    }
+
+
 def prepare_i420_encode_input(
     sample: Mapping[str, Any],
     *,
@@ -2688,6 +2761,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="create real Y4M and converted I420 cache directories",
     )
     parser.add_argument(
+        "--fetch-real-y4m",
+        action="store_true",
+        help="download selected real Y4M samples and convert them to I420 cache files",
+    )
+    parser.add_argument(
         "--evaluate-result-json",
         type=Path,
         help="read one benchmark result JSON object, apply hard thresholds, and return non-zero on failure",
@@ -2902,6 +2980,16 @@ def main(argv: list[str]) -> int:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.fetch_real_y4m:
+        report = fetch_real_y4m_samples(
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+            y4m_dir=args.y4m_cache_dir,
+            i420_dir=args.i420_cache_dir,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
     if args.evaluate_result_json is not None:
         report = evaluate_result_json(args.evaluate_result_json)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -2941,7 +3029,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --threshold, --write-repro-report, --write-results-ndjson, --write-summary-json, or --write-markdown-report", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --fetch-real-y4m, --evaluate-result-json, --threshold, --write-repro-report, --write-results-ndjson, --write-summary-json, or --write-markdown-report", file=sys.stderr)
     return 2
 
 

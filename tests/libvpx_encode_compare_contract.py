@@ -1450,6 +1450,88 @@ def assert_convert_y4m_to_i420(module: object) -> None:
         )]
 
 
+def assert_fetch_real_y4m_samples(module: object) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        y4m_dir = root / "real-y4m"
+        i420_dir = root / "fixtures"
+        payload = b"YUV4MPEG2 W2 H2 F30:1 Ip A0:0 C420jpeg\nFRAME\n"
+        manifest_path = root / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "samples": [
+                        {
+                            "name": "tiny_real",
+                            "url": "https://example.test/tiny_real.y4m",
+                            "width": 2,
+                            "height": 2,
+                            "frames": 2,
+                            "fps": "30/1",
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                            "groups": ["real", "tiny"],
+                        },
+                        {
+                            "name": "skipped_real",
+                            "url": "https://example.test/skipped_real.y4m",
+                            "width": 2,
+                            "height": 2,
+                            "frames": 2,
+                            "fps": "30/1",
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                            "groups": ["real", "other"],
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        download_calls: list[tuple[str, Path]] = []
+        runner_calls: list[tuple[list[str], Path]] = []
+
+        def downloader(url: str, dest: Path) -> None:
+            download_calls.append((url, dest))
+            dest.write_bytes(payload)
+
+        def runner(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+            runner_calls.append((command, cwd))
+            Path(command[-1]).write_bytes(bytes(module.i420_frame_size(2, 2) * 2))
+            return subprocess.CompletedProcess(command, 0, "converted\n", "")
+
+        report = module.fetch_real_y4m_samples(
+            manifest_path=manifest_path,
+            group="tiny",
+            y4m_dir=y4m_dir,
+            i420_dir=i420_dir,
+            downloader=downloader,
+            runner=runner,
+        )
+        assert report["ok"] is True
+        assert report["sample_count"] == 1
+        assert report["samples"][0]["sample"] == "tiny_real"
+        assert report["samples"][0]["ok"] is True
+        assert report["samples"][0]["i420_size"]["ok"] is True
+        assert (y4m_dir / "tiny_real.y4m").exists()
+        assert (i420_dir / "tiny_real.i420").stat().st_size == 12
+        assert download_calls == [("https://example.test/tiny_real.y4m", y4m_dir / "tiny_real.y4m.part")]
+        assert runner_calls == [(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(y4m_dir / "tiny_real.y4m"),
+                "-frames:v",
+                "2",
+                "-pix_fmt",
+                "yuv420p",
+                "-f",
+                "rawvideo",
+                str(i420_dir / "tiny_real.i420"),
+            ],
+            module.REPO_ROOT,
+        )]
+
+
 def assert_i420_size_validation(module: object) -> None:
     assert module.i420_frame_size(16, 16) == 384
     assert module.i420_frame_size(17, 17) == 451
@@ -1521,6 +1603,7 @@ def main() -> int:
     assert_verify_y4m_sha256(module)
     assert_y4m_cache_reuse(module)
     assert_convert_y4m_to_i420(module)
+    assert_fetch_real_y4m_samples(module)
     assert_i420_size_validation(module)
 
     completed = subprocess.run(

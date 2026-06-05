@@ -211,7 +211,7 @@ Date: 2026-06-05
 
 - [x] 新增 `fetch-vpx-tools` 目标。
   - 验收命令：`make fetch-vpx-tools`。
-- [ ] 新增 `fetch-real-y4m` 目标。
+- [x] 新增 `fetch-real-y4m` 目标。
   - 验收命令：`make fetch-real-y4m`。
 - [ ] 新增 `bench-libvpx-encode` 目标。
   - 验收命令：`make bench-libvpx-encode`。
