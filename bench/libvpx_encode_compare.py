@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,7 @@ DEFAULT_I420_CACHE_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "fixtur
 DEFAULT_VP8UYA_BIN = REPO_ROOT / "build" / "vp8uya"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "fixtures" / "encoder_libvpx_real_samples.json"
 DEFAULT_RUNS_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "runs"
+DEFAULT_REPRO_REPORT_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "repro.md"
 LIBVPX_PRESET = "vpxenc --best"
 REPEAT_STATISTIC = "median"
 
@@ -1357,6 +1359,192 @@ def evaluate_result_json(path: Path) -> dict[str, Any]:
     return evaluate_thresholds(data)
 
 
+def load_repro_result_records(path: Path) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [], f"failed to read result records {path}: {exc}"
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        records: list[dict[str, Any]] = []
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                value = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                return [], f"failed to parse {path}:{line_number}: {exc}"
+            if not isinstance(value, dict):
+                return [], f"result record {path}:{line_number} must contain an object"
+            records.append(value)
+        return records, None
+
+    if isinstance(data, dict):
+        results = data.get("results")
+        if isinstance(results, list):
+            records = []
+            for index, value in enumerate(results):
+                if not isinstance(value, dict):
+                    return [], f"results[{index}] in {path} must contain an object"
+                records.append(value)
+            return records, None
+        return [data], None
+
+    if isinstance(data, list):
+        records = []
+        for index, value in enumerate(data):
+            if not isinstance(value, dict):
+                return [], f"result entry {index} in {path} must contain an object"
+            records.append(value)
+        return records, None
+
+    return [], f"result records {path} must be a JSON object, array, or NDJSON objects"
+
+
+def command_to_shell(command: Any) -> str:
+    if isinstance(command, str):
+        return command
+    if isinstance(command, list):
+        return shlex.join(str(part) for part in command)
+    return ""
+
+
+def first_command(result: Mapping[str, Any], field_names: tuple[str, ...]) -> str:
+    for field_name in field_names:
+        command = command_to_shell(result.get(field_name))
+        if command:
+            return command
+    return ""
+
+
+def all_commands(result: Mapping[str, Any], field_names: tuple[str, ...]) -> list[str]:
+    commands: list[str] = []
+    seen: set[str] = set()
+    for field_name in field_names:
+        command = command_to_shell(result.get(field_name))
+        if command and command not in seen:
+            seen.add(command)
+            commands.append(command)
+    return commands
+
+
+def result_failed(result: Mapping[str, Any]) -> bool:
+    if result.get("passed") is False:
+        return True
+    if result.get("ok") is False:
+        return True
+    failure_reasons = result.get("failure_reasons")
+    return isinstance(failure_reasons, list) and len(failure_reasons) > 0
+
+
+def collect_repro_commands(result: Mapping[str, Any]) -> dict[str, list[str]]:
+    return {
+        "vp8uya": [command]
+        if (command := first_command(result, ("vp8uya_command", "vp8uya_encode_command")))
+        else [],
+        "vpxenc": [command]
+        if (command := first_command(result, ("vpxenc_command", "libvpx_command", "libvpx_encode_command")))
+        else [],
+        "vpxdec": all_commands(
+            result,
+            (
+                "vp8uya_vpxdec_command",
+                "vpxdec_vp8uya_command",
+                "libvpx_vpxdec_command",
+                "vpxdec_libvpx_command",
+                "vpxdec_command",
+            ),
+        ),
+    }
+
+
+def append_command_block(lines: list[str], label: str, commands: list[str]) -> None:
+    lines.append(f"### {label}")
+    lines.append("```sh")
+    if commands:
+        lines.extend(commands)
+    else:
+        lines.append(f"# missing {label} command")
+    lines.append("```")
+    lines.append("")
+
+
+def write_repro_report(results_path: Path, report_path: Path = DEFAULT_REPRO_REPORT_PATH) -> dict[str, Any]:
+    records, error = load_repro_result_records(results_path)
+    if error is not None:
+        return {
+            "ok": False,
+            "input_path": str(results_path),
+            "report_path": str(report_path),
+            "sample_count": 0,
+            "failed_sample_count": 0,
+            "missing_commands": [],
+            "error": error,
+        }
+
+    failed_records = [record for record in records if result_failed(record)]
+    missing_commands: list[dict[str, str]] = []
+    lines = [
+        "# libvpx Reproduction Commands",
+        "",
+        f"Input: `{results_path}`",
+        "",
+    ]
+
+    if not failed_records:
+        lines.append("No failing samples.")
+        lines.append("")
+
+    for record in failed_records:
+        sample = record.get("sample", record.get("name", "unknown"))
+        sample_name = str(sample)
+        lines.append(f"## {sample_name}")
+        lines.append("")
+
+        failure_reasons = record.get("failure_reasons")
+        if isinstance(failure_reasons, list) and failure_reasons:
+            lines.append("Failure reasons:")
+            for reason in failure_reasons:
+                lines.append(f"- {reason}")
+            lines.append("")
+
+        commands = collect_repro_commands(record)
+        for label in ("vp8uya", "vpxenc", "vpxdec"):
+            if not commands[label]:
+                missing_commands.append({
+                    "sample": sample_name,
+                    "command": label,
+                })
+            append_command_block(lines, label, commands[label])
+
+    try:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("\n".join(lines), encoding="utf-8")
+    except OSError as exc:
+        return {
+            "ok": False,
+            "input_path": str(results_path),
+            "report_path": str(report_path),
+            "sample_count": len(records),
+            "failed_sample_count": len(failed_records),
+            "missing_commands": missing_commands,
+            "error": f"failed to write repro report {report_path}: {exc}",
+        }
+
+    return {
+        "ok": len(missing_commands) == 0,
+        "input_path": str(results_path),
+        "report_path": str(report_path),
+        "sample_count": len(records),
+        "failed_sample_count": len(failed_records),
+        "missing_commands": missing_commands,
+        "error": None,
+    }
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare vp8uya encoder output against libvpx")
     parser.add_argument(
@@ -1388,6 +1576,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--evaluate-result-json",
         type=Path,
         help="read one benchmark result JSON object, apply hard thresholds, and return non-zero on failure",
+    )
+    parser.add_argument(
+        "--write-repro-report",
+        type=Path,
+        help="read benchmark result JSON/NDJSON records and write failing-sample reproduction commands as Markdown",
     )
     parser.add_argument(
         "--dry-run",
@@ -1464,6 +1657,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_RUNS_DIR,
         help=f"directory for benchmark run artifacts, defaulting to {DEFAULT_RUNS_DIR}",
+    )
+    parser.add_argument(
+        "--repro-report-md",
+        type=Path,
+        default=DEFAULT_REPRO_REPORT_PATH,
+        help=f"Markdown path for --write-repro-report, defaulting to {DEFAULT_REPRO_REPORT_PATH}",
     )
     return parser.parse_args(argv[1:])
 
@@ -1554,8 +1753,12 @@ def main(argv: list[str]) -> int:
         report = evaluate_result_json(args.evaluate_result_json)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
+    if args.write_repro_report is not None:
+        report = write_repro_report(args.write_repro_report, report_path=args.repro_report_md)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, or --write-repro-report", file=sys.stderr)
     return 2
 
 

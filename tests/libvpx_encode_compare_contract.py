@@ -538,6 +538,67 @@ def assert_vpxdec_decodes_libvpx_output() -> None:
         assert str(runs_dir / "unit_qcif.libvpx.ivf") in command
 
 
+def assert_repro_report_records_failed_sample_commands() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        results_path = root / "results.json"
+        report_path = root / "repro.md"
+        results_path.write_text(
+            json.dumps({
+                "results": [
+                    {
+                        "sample": "passing_sample",
+                        "passed": True,
+                        "failure_reasons": [],
+                        "vp8uya_command": ["vp8uya", "encode", "passing.i420"],
+                        "libvpx_command": ["vpxenc", "--best", "passing.i420"],
+                        "vp8uya_vpxdec_command": ["vpxdec", "--rawvideo", "passing.vp8uya.ivf"],
+                    },
+                    {
+                        "sample": "failing_sample",
+                        "passed": False,
+                        "failure_reasons": ["bitrate_ratio too high"],
+                        "vp8uya_command": ["vp8uya", "encode", "failing.i420"],
+                        "libvpx_command": ["vpxenc", "--best", "failing.i420"],
+                        "vp8uya_vpxdec_command": ["vpxdec", "--rawvideo", "failing.vp8uya.ivf"],
+                        "libvpx_vpxdec_command": ["vpxdec", "--rawvideo", "failing.libvpx.ivf"],
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--write-repro-report",
+                str(results_path),
+                "--repro-report-md",
+                str(report_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        status = json.loads(completed.stdout)
+        assert status["ok"] is True
+        assert status["failed_sample_count"] == 1
+
+        markdown = report_path.read_text(encoding="utf-8")
+        assert "## failing_sample" in markdown
+        assert "passing_sample" not in markdown
+        assert "bitrate_ratio too high" in markdown
+        assert "vp8uya encode failing.i420" in markdown
+        assert "vpxenc --best failing.i420" in markdown
+        assert "vpxdec --rawvideo failing.vp8uya.ivf" in markdown
+        assert "vpxdec --rawvideo failing.libvpx.ivf" in markdown
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -1052,6 +1113,7 @@ def main() -> int:
     assert_libvpx_encode_generates_ivf()
     assert_vpxdec_decodes_vp8uya_output()
     assert_vpxdec_decodes_libvpx_output()
+    assert_repro_report_records_failed_sample_commands()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)
