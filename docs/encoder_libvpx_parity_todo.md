@@ -36,7 +36,7 @@ Date: 2026-06-05
   - 验收产物：未来 `summary.json` 包含 `vp8uya_fps` 和 `libvpx_fps`。
 - [x] 固化 fps 硬阈值。
   - 验收：当 `vp8uya_fps < libvpx_fps * 0.80` 时，未来门禁返回非 0。
-- [ ] 明确 `SSIM-all` 第一版只记录不设硬门禁。
+- [x] 明确 `SSIM-all` 第一版只记录不设硬门禁。
   - 验收产物：未来报告包含 `SSIM-all`，但 SSIM 不影响 hard threshold pass/fail。
 - [ ] 定义失败原因字段。
   - 验收产物：未来 `results.ndjson` 中失败样本包含非空 `failure_reasons`。

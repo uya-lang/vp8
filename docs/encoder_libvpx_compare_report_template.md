@@ -45,9 +45,9 @@ names:
 
 ## Sample Results
 
-| Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya fps | libvpx fps | Passed |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `<sample>` | `<groups>` | `<frames>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<true/false>` |
+| Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `<sample>` | `<groups>` | `<frames>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<true/false>` |
 
 ## Failed Samples
 
