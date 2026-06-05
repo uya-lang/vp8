@@ -142,7 +142,7 @@ Date: 2026-06-05
   - 验收：17x17 三帧 encode/decode 输出大小正确。
 - [x] 增加 forced scalar 测试。
   - 验收命令：`VP8UYA_FORCE_SCALAR=1 build/vp8uya encode ... --frames 3 ...` 成功。
-- [ ] 增加 forced SIMD 测试。
+- [x] 增加 forced SIMD 测试。
   - 验收命令：`VP8UYA_FORCE_SIMD=1 build/vp8uya encode ... --frames 3 ...` 成功或明确 fallback。
 
 ## Phase 6: libvpx 对标脚本

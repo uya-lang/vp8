@@ -183,6 +183,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-repeat.ivf
 	VP8UYA_FORCE_SCALAR=1 $(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-force-scalar.ivf
+	VP8UYA_FORCE_SIMD=1 $(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-force-simd.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps 30/1 --out $(ENCODE_CLI_DIR)/out-fps.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out-repeat.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 16 --out $(ENCODE_CLI_DIR)/out-q16.ivf
@@ -240,6 +241,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf | grep -q 'ivf.height=17'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-3frames.ivf | grep -q 'ivf.frame_count=3'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-3frames-force-scalar.ivf | grep -q 'ivf.frame_count=3'
+	$(BIN) info $(ENCODE_CLI_DIR)/out-3frames-force-simd.ivf | grep -q 'ivf.frame_count=3'
 	python3 tests/ivf_timestamps.py $(ENCODE_CLI_DIR)/out-3frames.ivf 0 1 2
 	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
@@ -247,6 +249,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf --yuv $(ENCODE_CLI_DIR)/decoded-17x17-3frames.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-3frames.ivf --yuv $(ENCODE_CLI_DIR)/decoded-3frames.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-3frames-force-scalar.ivf --yuv $(ENCODE_CLI_DIR)/decoded-3frames-force-scalar.yuv >/dev/null
+	$(BIN) decode $(ENCODE_CLI_DIR)/out-3frames-force-simd.ivf --yuv $(ENCODE_CLI_DIR)/decoded-3frames-force-simd.yuv >/dev/null
 	if test -n "$(VPXDEC)"; then \
 		"$(VPXDEC)" --rawvideo -o $(ENCODE_CLI_DIR)/decoded-3frames.vpxdec.i420 $(ENCODE_CLI_DIR)/out-3frames.ivf > $(ENCODE_CLI_DIR)/vpxdec-3frames.stdout 2> $(ENCODE_CLI_DIR)/vpxdec-3frames.stderr; \
 		test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames.vpxdec.i420)" -eq 1152; \
@@ -259,6 +262,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-17x17-3frames.yuv)" -eq 1353
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames.yuv)" -eq 1152
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames-force-scalar.yuv)" -eq 1152
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames-force-simd.yuv)" -eq 1152
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2
