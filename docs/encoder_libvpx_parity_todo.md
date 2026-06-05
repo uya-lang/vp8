@@ -74,7 +74,7 @@ Date: 2026-06-05
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `motion`。
 - [x] 在 manifest 中添加 `coastguard_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `pan`。
-- [ ] 在 manifest 中添加 `mobile_cif`。
+- [x] 在 manifest 中添加 `mobile_cif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `texture`。
 - [ ] 实现样本下载缓存目录。
   - 产物：`build/real-y4m/`，且该目录不进入 git。
