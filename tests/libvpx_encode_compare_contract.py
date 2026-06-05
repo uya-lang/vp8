@@ -291,6 +291,71 @@ def assert_repeats_dry_run_recorded() -> None:
     assert report["repeat_statistic"] == "median"
 
 
+def assert_vp8uya_encode_generates_ivf() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest_path = root / "manifest.json"
+        i420_dir = root / "fixtures"
+        runs_dir = root / "runs"
+        fake_bin = root / "vp8uya"
+        command_log = root / "vp8uya.args"
+        i420_dir.mkdir()
+        (i420_dir / "unit_qcif.i420").write_bytes(bytes(384 * 2))
+        manifest_path.write_text(
+            json.dumps({
+                "samples": [{
+                    "name": "unit_qcif",
+                    "url": "https://example.test/unit_qcif.y4m",
+                    "width": 16,
+                    "height": 16,
+                    "frames": 2,
+                    "fps": "30/1",
+                    "sha256": "0" * 64,
+                    "groups": ["qcif"],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        write_fake_vp8uya_encoder(fake_bin, command_log)
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--i420-cache-dir",
+                str(i420_dir),
+                "--runs-dir",
+                str(runs_dir),
+                "--vp8uya-bin",
+                str(fake_bin),
+                "--group",
+                "qcif",
+                "--encode-vp8uya",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        report = json.loads(completed.stdout)
+        result = report["results"][0]
+        output_path = runs_dir / "unit_qcif.vp8uya.ivf"
+        assert report["ok"] is True
+        assert result["output_path"] == str(output_path)
+        assert output_path.read_bytes() == b"DKIF"
+        command = result["vp8uya_command"]
+        assert command[:2] == [str(fake_bin), "encode"]
+        assert "--frames" in command
+        assert "2" in command
+        assert "--fps" in command
+        assert "30/1" in command
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -309,6 +374,23 @@ def assert_ssim_is_record_only(module: object) -> None:
 
 def write_fake_executable(path: Path) -> None:
     path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | 0o111)
+
+
+def write_fake_vp8uya_encoder(path: Path, log_path: Path) -> None:
+    path.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$@\" > '" + str(log_path) + "'\n"
+        "out=''\n"
+        "prev=''\n"
+        "for arg in \"$@\"; do\n"
+        "  if [ \"$prev\" = '--out' ]; then out=\"$arg\"; fi\n"
+        "  prev=\"$arg\"\n"
+        "done\n"
+        "if [ -z \"$out\" ]; then exit 3; fi\n"
+        "printf 'DKIF' > \"$out\"\n",
+        encoding="utf-8",
+    )
     path.chmod(path.stat().st_mode | 0o111)
 
 
@@ -749,6 +831,7 @@ def main() -> int:
     assert_frames_dry_run_override()
     assert_warmups_dry_run_recorded()
     assert_repeats_dry_run_recorded()
+    assert_vp8uya_encode_generates_ivf()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

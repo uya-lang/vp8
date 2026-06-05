@@ -29,6 +29,7 @@ DEFAULT_Y4M_CACHE_DIR = REPO_ROOT / "build" / "real-y4m"
 DEFAULT_I420_CACHE_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "fixtures"
 DEFAULT_VP8UYA_BIN = REPO_ROOT / "build" / "vp8uya"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "fixtures" / "encoder_libvpx_real_samples.json"
+DEFAULT_RUNS_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "runs"
 LIBVPX_PRESET = "vpxenc --best"
 REPEAT_STATISTIC = "median"
 
@@ -400,6 +401,17 @@ def filter_samples_by_group(samples: list[dict[str, Any]], group: str | None) ->
     return [sample for sample in samples if group in sample["groups"]]
 
 
+def plan_sample_entries(samples: list[dict[str, Any]], frames_override: int | None) -> list[dict[str, Any]]:
+    planned_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        planned = dict(sample)
+        if frames_override is not None:
+            planned["manifest_frames"] = planned.get("frames")
+            planned["frames"] = frames_override
+        planned_samples.append(planned)
+    return planned_samples
+
+
 def dry_run_samples(
     *,
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
@@ -423,13 +435,7 @@ def dry_run_samples(
             "error": str(exc),
         }
 
-    planned_samples: list[dict[str, Any]] = []
-    for sample in selected:
-        planned = dict(sample)
-        if frames_override is not None:
-            planned["manifest_frames"] = planned.get("frames")
-            planned["frames"] = frames_override
-        planned_samples.append(planned)
+    planned_samples = plan_sample_entries(selected, frames_override)
 
     return {
         "ok": True,
@@ -442,6 +448,13 @@ def dry_run_samples(
         "samples": planned_samples,
         "sample_count": len(planned_samples),
     }
+
+
+def sample_fps(sample: Mapping[str, Any]) -> str:
+    fps = sample.get("fps", "30/1")
+    if not isinstance(fps, str) or not fps:
+        raise ValueError("sample fps must be a non-empty string")
+    return fps
 
 
 def http_download(url: str, dest: Path) -> None:
@@ -642,6 +655,13 @@ def sample_i420_path(sample: Mapping[str, Any], i420_dir: Path) -> Path:
     return i420_dir / f"{name}.i420"
 
 
+def sample_vp8uya_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
+    name = sample.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("sample name must be a non-empty string")
+    return runs_dir / f"{name}.vp8uya.ivf"
+
+
 def sample_frames(sample: Mapping[str, Any]) -> int:
     frames = sample.get("frames", 60)
     if not isinstance(frames, int) or frames <= 0:
@@ -780,6 +800,208 @@ def convert_y4m_to_i420(
         "returncode": completed.returncode,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
+    }
+
+
+def prepare_i420_encode_input(
+    sample: Mapping[str, Any],
+    *,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+    runs_dir: Path = DEFAULT_RUNS_DIR,
+) -> dict[str, Any]:
+    try:
+        input_path = sample_i420_path(sample, i420_dir)
+        width = sample_dimension(sample, "width")
+        height = sample_dimension(sample, "height")
+        frames = sample_frames(sample)
+        expected_bytes = i420_frame_size(width, height) * frames
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "source_path": "",
+            "expected_bytes": 0,
+            "actual_bytes": 0,
+            "truncated": False,
+            "error": str(exc),
+        }
+
+    if not input_path.exists():
+        return {
+            "ok": False,
+            "path": str(input_path),
+            "source_path": str(input_path),
+            "expected_bytes": expected_bytes,
+            "actual_bytes": 0,
+            "truncated": False,
+            "error": f"missing I420 input: {input_path}",
+        }
+
+    actual_bytes = input_path.stat().st_size
+    if actual_bytes == expected_bytes:
+        return {
+            "ok": True,
+            "path": str(input_path),
+            "source_path": str(input_path),
+            "expected_bytes": expected_bytes,
+            "actual_bytes": actual_bytes,
+            "truncated": False,
+            "error": None,
+        }
+
+    if actual_bytes < expected_bytes:
+        return {
+            "ok": False,
+            "path": str(input_path),
+            "source_path": str(input_path),
+            "expected_bytes": expected_bytes,
+            "actual_bytes": actual_bytes,
+            "truncated": False,
+            "error": f"I420 input is too short for requested frames: {input_path}",
+        }
+
+    try:
+        name = sample["name"]
+        if not isinstance(name, str) or not name:
+            raise ValueError("sample name must be a non-empty string")
+    except (KeyError, ValueError) as exc:
+        return {
+            "ok": False,
+            "path": str(input_path),
+            "source_path": str(input_path),
+            "expected_bytes": expected_bytes,
+            "actual_bytes": actual_bytes,
+            "truncated": False,
+            "error": str(exc),
+        }
+
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    trimmed_path = runs_dir / f"{name}.frames{sample_frames(sample)}.i420"
+    with input_path.open("rb") as src, trimmed_path.open("wb") as dst:
+        remaining = expected_bytes
+        while remaining > 0:
+            chunk = src.read(min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            dst.write(chunk)
+            remaining -= len(chunk)
+
+    return {
+        "ok": remaining == 0,
+        "path": str(trimmed_path),
+        "source_path": str(input_path),
+        "expected_bytes": expected_bytes,
+        "actual_bytes": actual_bytes,
+        "truncated": True,
+        "error": None if remaining == 0 else f"failed to trim I420 input to {expected_bytes} bytes",
+    }
+
+
+def encode_vp8uya_samples(
+    *,
+    manifest_path: Path = DEFAULT_MANIFEST_PATH,
+    group: str | None = None,
+    frames_override: int | None = None,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+    runs_dir: Path = DEFAULT_RUNS_DIR,
+    vp8uya_bin: Path = DEFAULT_VP8UYA_BIN,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    binary = validate_vp8uya_binary(vp8uya_bin)
+    if not binary["ok"]:
+        return {
+            "ok": False,
+            "vp8uya_bin": str(vp8uya_bin),
+            "runs_dir": str(runs_dir),
+            "results": [],
+            "error": binary["error"],
+        }
+
+    try:
+        manifest = load_sample_manifest(manifest_path)
+        selected = plan_sample_entries(
+            filter_samples_by_group(manifest_samples(manifest), group),
+            frames_override,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "vp8uya_bin": str(vp8uya_bin),
+            "runs_dir": str(runs_dir),
+            "results": [],
+            "error": str(exc),
+        }
+
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    results: list[dict[str, Any]] = []
+    for sample in selected:
+        try:
+            width = sample_dimension(sample, "width")
+            height = sample_dimension(sample, "height")
+            frames = sample_frames(sample)
+            fps = sample_fps(sample)
+            output_path = sample_vp8uya_ivf_path(sample, runs_dir)
+        except ValueError as exc:
+            results.append({
+                "sample": sample.get("name", ""),
+                "ok": False,
+                "error": str(exc),
+            })
+            continue
+
+        input_report = prepare_i420_encode_input(sample, i420_dir=i420_dir, runs_dir=runs_dir)
+        if not input_report["ok"]:
+            results.append({
+                "sample": sample["name"],
+                "ok": False,
+                "input": input_report,
+                "output_path": str(output_path),
+                "vp8uya_command": [],
+                "returncode": None,
+                "stdout": "",
+                "stderr": input_report["error"],
+            })
+            continue
+
+        command = [
+            str(vp8uya_bin),
+            "encode",
+            input_report["path"],
+            "--width",
+            str(width),
+            "--height",
+            str(height),
+            "--frames",
+            str(frames),
+            "--fps",
+            fps,
+            "--out",
+            str(output_path),
+        ]
+        try:
+            completed = runner(command, REPO_ROOT)
+        except OSError as exc:
+            completed = subprocess.CompletedProcess(command, 127, "", str(exc))
+
+        results.append({
+            "sample": sample["name"],
+            "ok": completed.returncode == 0 and output_path.exists(),
+            "input": input_report,
+            "output_path": str(output_path),
+            "vp8uya_command": command,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        })
+
+    return {
+        "ok": all(result["ok"] for result in results),
+        "vp8uya_bin": str(vp8uya_bin),
+        "runs_dir": str(runs_dir),
+        "i420_cache_dir": str(i420_dir),
+        "group": group,
+        "frames_override": frames_override,
+        "results": results,
     }
 
 
@@ -935,6 +1157,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="print the selected sample plan without downloading, encoding, or decoding",
     )
     parser.add_argument(
+        "--encode-vp8uya",
+        action="store_true",
+        help="run vp8uya encode for selected prepared I420 samples",
+    )
+    parser.add_argument(
         "--group",
         help="only select samples whose manifest groups include this value",
     )
@@ -979,6 +1206,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_I420_CACHE_DIR,
         help="directory for converted raw I420 samples",
     )
+    parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=DEFAULT_RUNS_DIR,
+        help=f"directory for benchmark run artifacts, defaulting to {DEFAULT_RUNS_DIR}",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -1019,6 +1252,17 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.encode_vp8uya:
+        report = encode_vp8uya_samples(
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+            i420_dir=args.i420_cache_dir,
+            runs_dir=args.runs_dir,
+            vp8uya_bin=args.vp8uya_bin or DEFAULT_VP8UYA_BIN,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
     if args.prepare_sample_dirs:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -1028,7 +1272,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
     return 2
 
 
