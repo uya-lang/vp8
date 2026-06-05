@@ -226,6 +226,24 @@ def assert_vp8uya_bin_missing_cli_path() -> None:
         assert "vp8uya binary" in completed.stdout
 
 
+def assert_group_dry_run_filters_qcif() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--group", "qcif", "--dry-run"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stdout)
+    report = json.loads(completed.stdout)
+    sample_names = [sample["name"] for sample in report["samples"]]
+    assert sample_names == ["akiyo_qcif", "foreman_qcif", "coastguard_qcif"]
+    assert "mobile_cif" not in sample_names
+    assert all("qcif" in sample["groups"] for sample in report["samples"])
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -680,6 +698,7 @@ def main() -> int:
     assert_fps_threshold(module)
     assert_threshold_cli_return_codes()
     assert_vp8uya_bin_missing_cli_path()
+    assert_group_dry_run_filters_qcif()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

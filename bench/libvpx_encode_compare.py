@@ -28,6 +28,7 @@ DEFAULT_VPX_TOOLS_DIR = DEFAULT_VPX_TOOLS_ROOT / "usr" / "bin"
 DEFAULT_Y4M_CACHE_DIR = REPO_ROOT / "build" / "real-y4m"
 DEFAULT_I420_CACHE_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "fixtures"
 DEFAULT_VP8UYA_BIN = REPO_ROOT / "build" / "vp8uya"
+DEFAULT_MANIFEST_PATH = REPO_ROOT / "fixtures" / "encoder_libvpx_real_samples.json"
 LIBVPX_PRESET = "vpxenc --best"
 
 REQUIRED_RESULT_FIELDS = (
@@ -335,6 +336,68 @@ def prepare_sample_dirs(
         "ok": y4m_dir.is_dir() and i420_dir.is_dir(),
         "y4m_cache_dir": str(y4m_dir),
         "i420_cache_dir": str(i420_dir),
+    }
+
+
+def load_sample_manifest(path: Path = DEFAULT_MANIFEST_PATH) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"failed to read sample manifest {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"failed to parse sample manifest {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"sample manifest {path} must contain an object")
+    samples = data.get("samples")
+    if not isinstance(samples, list):
+        raise ValueError(f"sample manifest {path} must contain a samples array")
+    return data
+
+
+def manifest_samples(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw_samples = manifest.get("samples")
+    if not isinstance(raw_samples, list):
+        raise ValueError("sample manifest must contain a samples array")
+
+    samples: list[dict[str, Any]] = []
+    for index, raw_sample in enumerate(raw_samples):
+        if not isinstance(raw_sample, dict):
+            raise ValueError(f"sample manifest entry {index} must be an object")
+        name = raw_sample.get("name")
+        groups = raw_sample.get("groups")
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"sample manifest entry {index} must have a non-empty name")
+        if not isinstance(groups, list) or not all(isinstance(group, str) for group in groups):
+            raise ValueError(f"sample manifest entry {name} must have string groups")
+        samples.append(dict(raw_sample))
+    return samples
+
+
+def filter_samples_by_group(samples: list[dict[str, Any]], group: str | None) -> list[dict[str, Any]]:
+    if group is None:
+        return list(samples)
+    return [sample for sample in samples if group in sample["groups"]]
+
+
+def dry_run_samples(*, manifest_path: Path = DEFAULT_MANIFEST_PATH, group: str | None = None) -> dict[str, Any]:
+    try:
+        manifest = load_sample_manifest(manifest_path)
+        selected = filter_samples_by_group(manifest_samples(manifest), group)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "manifest_path": str(manifest_path),
+            "group": group,
+            "samples": [],
+            "error": str(exc),
+        }
+
+    return {
+        "ok": True,
+        "manifest_path": str(manifest_path),
+        "group": group,
+        "samples": selected,
+        "sample_count": len(selected),
     }
 
 
@@ -824,6 +887,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="read one benchmark result JSON object, apply hard thresholds, and return non-zero on failure",
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the selected sample plan without downloading, encoding, or decoding",
+    )
+    parser.add_argument(
+        "--group",
+        help="only select samples whose manifest groups include this value",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_MANIFEST_PATH,
+        help=f"path to the real-sample manifest, defaulting to {DEFAULT_MANIFEST_PATH}",
+    )
+    parser.add_argument(
         "--vp8uya-bin",
         type=Path,
         default=None,
@@ -871,6 +949,10 @@ def main(argv: list[str]) -> int:
         report = extract_vpx_tools()
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.dry_run:
+        report = dry_run_samples(manifest_path=args.manifest, group=args.group)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
     if args.prepare_sample_dirs:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -880,7 +962,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
     return 2
 
 
