@@ -45,6 +45,10 @@ use vp8.encoder.inter_prediction.EncoderInterPredictionResult;
 use vp8.encoder.inter_prediction.predict_last_frame_macroblock;
 use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
 use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
+use vp8.encoder.mode_search.Intra16x16ModeSearchResult;
+use vp8.encoder.mode_search.UvModeSearchResult;
+use vp8.encoder.mode_search.search_intra16x16_mode_with_kernel_table;
+use vp8.encoder.mode_search.search_uv_mode_with_kernel_table;
 use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
 use vp8.encoder.motion_search.SubpixelMotionRefinementResult;
 use vp8.encoder.motion_search.refine_last_frame_half_quarter_pel_with_kernel_table;
@@ -71,6 +75,14 @@ use vp8.kernels.scalar.DequantFactors;
 use vp8.kernels.scalar.build_dequant_factors;
 use vp8.kernels.scalar.dequant_block_4x4;
 use vp8.kernels.scalar.inverse_walsh_hadamard_y2_4x4;
+use vp8.kernels.scalar.predict_uv8x8_dc;
+use vp8.kernels.scalar.predict_uv8x8_horizontal;
+use vp8.kernels.scalar.predict_uv8x8_true_motion;
+use vp8.kernels.scalar.predict_uv8x8_vertical;
+use vp8.kernels.scalar.predict_y16x16_dc;
+use vp8.kernels.scalar.predict_y16x16_horizontal;
+use vp8.kernels.scalar.predict_y16x16_true_motion;
+use vp8.kernels.scalar.predict_y16x16_vertical;
 use vp8.token.parse.CoefficientBlockSummary;
 use vp8.token.parse.VP8_COEFF_TOKEN_CAT1;
 use vp8.token.parse.VP8_COEFF_TOKEN_CAT2;
@@ -88,6 +100,17 @@ use vp8.token.parse.coefficient_band;
 use vp8.token.parse.coefficient_eob_context;
 use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
 use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
+use vp8.mode.parse.VP8_REF_CURRENT;
+use vp8.mode.parse.VP8_REF_LAST;
+use vp8.mode.parse.VP8_UV_MODE_DC;
+use vp8.mode.parse.VP8_UV_MODE_H;
+use vp8.mode.parse.VP8_UV_MODE_TM;
+use vp8.mode.parse.VP8_UV_MODE_V;
+use vp8.mode.parse.VP8_Y_MODE_B;
+use vp8.mode.parse.VP8_Y_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_H;
+use vp8.mode.parse.VP8_Y_MODE_TM;
+use vp8.mode.parse.VP8_Y_MODE_V;
 
 error ErrEncoderInterFrameInvalidInput;
 error ErrEncoderInterFrameInvalidGeometry;
@@ -99,6 +122,8 @@ export struct EncoderInterFrameEncodeStats {
     written_len: usize,
     border_extension_count: usize,
     nonzero_coefficient_count: usize,
+    inter_macroblock_count: usize,
+    intra_macroblock_count: usize,
     zero_mv_count: usize,
     newmv_count: usize,
     nonzero_mv_count: usize,
@@ -109,6 +134,9 @@ export struct EncoderInterFrameEncodeStats {
 }
 
 struct EncoderInterMacroblockDecision {
+    ref_frame: byte,
+    y_mode: byte,
+    uv_mode: byte,
     inter_mv_mode: byte,
     mv_x: i16,
     mv_y: i16,
@@ -274,6 +302,54 @@ fn encoder_inter_write_mv_mode(writer: &BoolWriter, probs: &Vp8Probs, decision: 
     return error.ErrEncoderInterFrameInvalidInput;
 }
 
+fn encoder_inter_write_y_mode(writer: &BoolWriter, probs: &Vp8Probs, mode: byte) !void {
+    if mode == VP8_Y_MODE_DC {
+        try bool_writer_write(writer, 0 as u8, probs.y_mode_probs[0]);
+        return;
+    }
+    try bool_writer_write(writer, 1 as u8, probs.y_mode_probs[0]);
+    if mode == VP8_Y_MODE_V {
+        try bool_writer_write(writer, 0 as u8, probs.y_mode_probs[1]);
+        return;
+    }
+    try bool_writer_write(writer, 1 as u8, probs.y_mode_probs[1]);
+    if mode == VP8_Y_MODE_H {
+        try bool_writer_write(writer, 0 as u8, probs.y_mode_probs[2]);
+        return;
+    }
+    try bool_writer_write(writer, 1 as u8, probs.y_mode_probs[2]);
+    if mode == VP8_Y_MODE_TM {
+        try bool_writer_write(writer, 0 as u8, probs.y_mode_probs[3]);
+        return;
+    }
+    if mode == VP8_Y_MODE_B {
+        return error.ErrEncoderInterFrameInvalidInput;
+    }
+    return error.ErrEncoderInterFrameInvalidInput;
+}
+
+fn encoder_inter_write_uv_mode(writer: &BoolWriter, probs: &Vp8Probs, mode: byte) !void {
+    if mode == VP8_UV_MODE_DC {
+        try bool_writer_write(writer, 0 as u8, probs.uv_mode_probs[0]);
+        return;
+    }
+    try bool_writer_write(writer, 1 as u8, probs.uv_mode_probs[0]);
+    if mode == VP8_UV_MODE_V {
+        try bool_writer_write(writer, 0 as u8, probs.uv_mode_probs[1]);
+        return;
+    }
+    try bool_writer_write(writer, 1 as u8, probs.uv_mode_probs[1]);
+    if mode == VP8_UV_MODE_H {
+        try bool_writer_write(writer, 0 as u8, probs.uv_mode_probs[2]);
+        return;
+    }
+    try bool_writer_write(writer, 1 as u8, probs.uv_mode_probs[2]);
+    if mode == VP8_UV_MODE_TM {
+        return;
+    }
+    return error.ErrEncoderInterFrameInvalidInput;
+}
+
 fn encoder_inter_write_probability_updates(writer: &BoolWriter) !void {
     var index: usize = 0;
     while index < VP8_COEFF_PROB_COUNT {
@@ -328,9 +404,16 @@ fn encoder_inter_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid, prob
         var mb_x: usize = 0;
         while mb_x < grid.mb_cols {
             const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
-            try bool_writer_write(writer, 1 as u8, 145 as byte);
-            try bool_writer_write(writer, 0 as u8, 156 as byte);
-            try encoder_inter_write_mv_mode(writer, probs, &decisions[mb_index] as &EncoderInterMacroblockDecision);
+            const decision: &EncoderInterMacroblockDecision = &decisions[mb_index] as &EncoderInterMacroblockDecision;
+            if decision.ref_frame == VP8_REF_CURRENT {
+                try bool_writer_write(writer, 0 as u8, 145 as byte);
+                try encoder_inter_write_y_mode(writer, probs, decision.y_mode);
+                try encoder_inter_write_uv_mode(writer, probs, decision.uv_mode);
+            } else {
+                try bool_writer_write(writer, 1 as u8, 145 as byte);
+                try bool_writer_write(writer, 0 as u8, 156 as byte);
+                try encoder_inter_write_mv_mode(writer, probs, decision);
+            }
             mb_x = mb_x + 1;
         }
         mb_y = mb_y + 1;
@@ -360,11 +443,101 @@ fn encoder_inter_make_decision_from_search(result: &IntegerPelMotionSearchResult
         mode = VP8_INTER_MV_MODE_ZERO;
     }
     return EncoderInterMacroblockDecision{
+        ref_frame: VP8_REF_LAST,
+        y_mode: VP8_Y_MODE_DC,
+        uv_mode: VP8_UV_MODE_DC,
         inter_mv_mode: mode,
         mv_x: result.mv_x,
         mv_y: result.mv_y,
         distortion: result.distortion,
         candidates_evaluated: result.candidates_evaluated,
+        subpel_macroblock_count: 0,
+        subpel_halfpel_candidate_count: 0,
+        subpel_quarterpel_candidate_count: 0
+    };
+}
+
+fn encoder_inter_load_left_edge(src: &byte, stride: usize, height: usize, out: &byte) void {
+    var row: usize = 0;
+    while row < height {
+        out[row] = src[row * stride];
+        row = row + 1;
+    }
+}
+
+fn encoder_inter_can_intra16(frame: &YuvFrameView, mb_x: usize, mb_y: usize) bool {
+    const y_x: usize = mb_x * (16 as usize);
+    const y_y: usize = mb_y * (16 as usize);
+    const uv_x: usize = mb_x * (8 as usize);
+    const uv_y: usize = mb_y * (8 as usize);
+    return y_x + (16 as usize) <= frame.y.width &&
+        y_y + (16 as usize) <= frame.y.height &&
+        uv_x + (8 as usize) <= frame.u.width &&
+        uv_y + (8 as usize) <= frame.u.height &&
+        uv_x + (8 as usize) <= frame.v.width &&
+        uv_y + (8 as usize) <= frame.v.height;
+}
+
+fn encoder_inter_decide_intra_macroblock(
+    kernels: &KernelFunctionTable,
+    frame: &YuvFrameView,
+    rd_model: &EncoderRdCostModel,
+    mb_x: usize,
+    mb_y: usize
+) !EncoderInterMacroblockDecision {
+    const y_x: usize = mb_x * (16 as usize);
+    const y_y: usize = mb_y * (16 as usize);
+    const y_offset: usize = (y_y * frame.y.stride) + y_x;
+    const has_above: bool = y_y != 0;
+    const has_left: bool = y_x != 0;
+    var y_above: &byte = null as &byte;
+    var y_left: [byte: 16] = [];
+    var y_above_left: byte = 128 as byte;
+    if has_above {
+        y_above = &frame.y.data[y_offset - frame.y.stride] as &byte;
+        if has_left {
+            y_above_left = frame.y.data[y_offset - frame.y.stride - 1];
+        }
+    }
+    if has_left {
+        encoder_inter_load_left_edge(&frame.y.data[y_offset - 1] as &byte, frame.y.stride, 16, &y_left[0] as &byte);
+    }
+    const intra_y: Intra16x16ModeSearchResult = try search_intra16x16_mode_with_kernel_table(kernels, &frame.y.data[y_offset] as &byte, frame.y.stride, y_above, has_above, &y_left[0] as &byte, has_left, y_above_left);
+
+    const uv_x: usize = mb_x * (8 as usize);
+    const uv_y: usize = mb_y * (8 as usize);
+    const u_offset: usize = (uv_y * frame.u.stride) + uv_x;
+    const v_offset: usize = (uv_y * frame.v.stride) + uv_x;
+    var u_above: &byte = null as &byte;
+    var v_above: &byte = null as &byte;
+    var u_left: [byte: 8] = [];
+    var v_left: [byte: 8] = [];
+    var u_above_left: byte = 128 as byte;
+    var v_above_left: byte = 128 as byte;
+    if has_above {
+        u_above = &frame.u.data[u_offset - frame.u.stride] as &byte;
+        v_above = &frame.v.data[v_offset - frame.v.stride] as &byte;
+        if has_left {
+            u_above_left = frame.u.data[u_offset - frame.u.stride - 1];
+            v_above_left = frame.v.data[v_offset - frame.v.stride - 1];
+        }
+    }
+    if has_left {
+        encoder_inter_load_left_edge(&frame.u.data[u_offset - 1] as &byte, frame.u.stride, 8, &u_left[0] as &byte);
+        encoder_inter_load_left_edge(&frame.v.data[v_offset - 1] as &byte, frame.v.stride, 8, &v_left[0] as &byte);
+    }
+    const intra_uv: UvModeSearchResult = try search_uv_mode_with_kernel_table(kernels, &frame.u.data[u_offset] as &byte, frame.u.stride, &frame.v.data[v_offset] as &byte, frame.v.stride, u_above, v_above, has_above, &u_left[0] as &byte, &v_left[0] as &byte, has_left, u_above_left, v_above_left);
+    const distortion: u32 = intra_y.distortion + intra_uv.distortion;
+
+    return EncoderInterMacroblockDecision{
+        ref_frame: VP8_REF_CURRENT,
+        y_mode: intra_y.mode,
+        uv_mode: intra_uv.mode,
+        inter_mv_mode: VP8_INTER_MV_MODE_ZERO,
+        mv_x: 0 as i16,
+        mv_y: 0 as i16,
+        distortion: distortion,
+        candidates_evaluated: 1,
         subpel_macroblock_count: 0,
         subpel_halfpel_candidate_count: 0,
         subpel_quarterpel_candidate_count: 0
@@ -419,6 +592,28 @@ fn encoder_inter_decide_macroblock(
         best.subpel_quarterpel_candidate_count = refined.quarterpel_candidate_count;
     }
 
+    if encoder_inter_can_intra16(frame, mb_x, mb_y) {
+        const intra_decision: EncoderInterMacroblockDecision = try encoder_inter_decide_intra_macroblock(kernels, frame, rd_model, mb_x, mb_y);
+        const inter_score: u32 = try encoder_inter_decision_score_q8(probs, &best, rd_model.lambda_q8);
+        const intra_score: u32 = try encoder_rd_score_q8(intra_decision.distortion, 0 as u32, rd_model.lambda_q8);
+        best.candidates_evaluated = best.candidates_evaluated + intra_decision.candidates_evaluated;
+        if intra_score < inter_score {
+            return EncoderInterMacroblockDecision{
+                ref_frame: intra_decision.ref_frame,
+                y_mode: intra_decision.y_mode,
+                uv_mode: intra_decision.uv_mode,
+                inter_mv_mode: intra_decision.inter_mv_mode,
+                mv_x: intra_decision.mv_x,
+                mv_y: intra_decision.mv_y,
+                distortion: intra_decision.distortion,
+                candidates_evaluated: best.candidates_evaluated,
+                subpel_macroblock_count: best.subpel_macroblock_count,
+                subpel_halfpel_candidate_count: best.subpel_halfpel_candidate_count,
+                subpel_quarterpel_candidate_count: best.subpel_quarterpel_candidate_count
+            };
+        }
+    }
+
     return best;
 }
 
@@ -430,6 +625,8 @@ fn encoder_inter_decide_macroblocks(
     frame: &YuvFrameView,
     probs: &Vp8Probs,
     decisions: &EncoderInterMacroblockDecision,
+    inter_macroblock_count: &usize,
+    intra_macroblock_count: &usize,
     zero_mv_count: &usize,
     newmv_count: &usize,
     nonzero_mv_count: &usize,
@@ -447,17 +644,25 @@ fn encoder_inter_decide_macroblocks(
             const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
             const decision: EncoderInterMacroblockDecision = try encoder_inter_decide_macroblock(config, kernels, refs, frame, probs, &rd_model, mb_x, mb_y);
             mode_search_work_units[0] = mode_search_work_units[0] + decision.candidates_evaluated;
-            if decision.inter_mv_mode == VP8_INTER_MV_MODE_NEW {
-                newmv_count[0] = newmv_count[0] + 1;
+            if decision.ref_frame == VP8_REF_CURRENT {
+                intra_macroblock_count[0] = intra_macroblock_count[0] + 1;
             } else {
-                zero_mv_count[0] = zero_mv_count[0] + 1;
-            }
-            if decision.mv_x != (0 as i16) || decision.mv_y != (0 as i16) {
-                nonzero_mv_count[0] = nonzero_mv_count[0] + 1;
+                inter_macroblock_count[0] = inter_macroblock_count[0] + 1;
+                if decision.inter_mv_mode == VP8_INTER_MV_MODE_NEW {
+                    newmv_count[0] = newmv_count[0] + 1;
+                } else {
+                    zero_mv_count[0] = zero_mv_count[0] + 1;
+                }
+                if decision.mv_x != (0 as i16) || decision.mv_y != (0 as i16) {
+                    nonzero_mv_count[0] = nonzero_mv_count[0] + 1;
+                }
             }
             subpel_macroblock_count[0] = subpel_macroblock_count[0] + decision.subpel_macroblock_count;
             subpel_halfpel_candidate_count[0] = subpel_halfpel_candidate_count[0] + decision.subpel_halfpel_candidate_count;
             subpel_quarterpel_candidate_count[0] = subpel_quarterpel_candidate_count[0] + decision.subpel_quarterpel_candidate_count;
+            decisions[mb_index].ref_frame = decision.ref_frame;
+            decisions[mb_index].y_mode = decision.y_mode;
+            decisions[mb_index].uv_mode = decision.uv_mode;
             decisions[mb_index].inter_mv_mode = decision.inter_mv_mode;
             decisions[mb_index].mv_x = decision.mv_x;
             decisions[mb_index].mv_y = decision.mv_y;
@@ -821,6 +1026,72 @@ fn encoder_inter_encode_uv_plane_blocks(
     return nonzero_coefficients;
 }
 
+fn encoder_inter_predict_intra_y16x16(current: &FrameBuffer, mb_x: usize, mb_y: usize, mode: byte) void {
+    var left: [byte: 16] = [];
+    const x: usize = mb_x * (16 as usize);
+    const y: usize = mb_y * (16 as usize);
+    const offset: usize = (y * current.y.plane.stride) + x;
+    const has_above: bool = mb_y != 0;
+    const has_left: bool = mb_x != 0;
+    var above_offset: usize = offset;
+    if has_above {
+        above_offset = offset - current.y.plane.stride;
+    }
+    var above_left: byte = 128 as byte;
+    if has_above && has_left {
+        above_left = current.y.plane.origin[above_offset - 1];
+    }
+    if has_left {
+        encoder_inter_load_left_edge(&current.y.plane.origin[offset - 1] as &byte, current.y.plane.stride, 16, &left[0] as &byte);
+    }
+
+    if mode == VP8_Y_MODE_V && has_above {
+        predict_y16x16_vertical(&current.y.plane.origin[offset] as &byte, current.y.plane.stride, &current.y.plane.origin[above_offset] as &byte);
+    } else if mode == VP8_Y_MODE_H && has_left {
+        predict_y16x16_horizontal(&current.y.plane.origin[offset] as &byte, current.y.plane.stride, &left[0] as &byte);
+    } else if mode == VP8_Y_MODE_TM && has_above && has_left {
+        predict_y16x16_true_motion(&current.y.plane.origin[offset] as &byte, current.y.plane.stride, &current.y.plane.origin[above_offset] as &byte, &left[0] as &byte, above_left);
+    } else {
+        predict_y16x16_dc(&current.y.plane.origin[offset] as &byte, current.y.plane.stride, &current.y.plane.origin[above_offset] as &byte, has_above, &left[0] as &byte, has_left);
+    }
+}
+
+fn encoder_inter_predict_intra_uv8x8_plane(plane: &Plane, mb_x: usize, mb_y: usize, mode: byte) void {
+    var left: [byte: 8] = [];
+    const x: usize = mb_x * (8 as usize);
+    const y: usize = mb_y * (8 as usize);
+    const offset: usize = (y * plane.stride) + x;
+    const has_above: bool = mb_y != 0;
+    const has_left: bool = mb_x != 0;
+    var above_offset: usize = offset;
+    if has_above {
+        above_offset = offset - plane.stride;
+    }
+    var above_left: byte = 128 as byte;
+    if has_above && has_left {
+        above_left = plane.origin[above_offset - 1];
+    }
+    if has_left {
+        encoder_inter_load_left_edge(&plane.origin[offset - 1] as &byte, plane.stride, 8, &left[0] as &byte);
+    }
+
+    if mode == VP8_UV_MODE_V && has_above {
+        predict_uv8x8_vertical(&plane.origin[offset] as &byte, plane.stride, &plane.origin[above_offset] as &byte);
+    } else if mode == VP8_UV_MODE_H && has_left {
+        predict_uv8x8_horizontal(&plane.origin[offset] as &byte, plane.stride, &left[0] as &byte);
+    } else if mode == VP8_UV_MODE_TM && has_above && has_left {
+        predict_uv8x8_true_motion(&plane.origin[offset] as &byte, plane.stride, &plane.origin[above_offset] as &byte, &left[0] as &byte, above_left);
+    } else {
+        predict_uv8x8_dc(&plane.origin[offset] as &byte, plane.stride, &plane.origin[above_offset] as &byte, has_above, &left[0] as &byte, has_left);
+    }
+}
+
+fn encoder_inter_predict_intra_macroblock(current: &FrameBuffer, mb_x: usize, mb_y: usize, y_mode: byte, uv_mode: byte) void {
+    encoder_inter_predict_intra_y16x16(current, mb_x, mb_y, y_mode);
+    encoder_inter_predict_intra_uv8x8_plane(&current.u.plane, mb_x, mb_y, uv_mode);
+    encoder_inter_predict_intra_uv8x8_plane(&current.v.plane, mb_x, mb_y, uv_mode);
+}
+
 fn encoder_inter_encode_tokens(
     writer: &BoolWriter,
     grid: &MacroblockGrid,
@@ -844,9 +1115,13 @@ fn encoder_inter_encode_tokens(
         while mb_x < grid.mb_cols {
             const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
             const decision: &EncoderInterMacroblockDecision = &decisions[mb_index] as &EncoderInterMacroblockDecision;
-            const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, decision.mv_x, decision.mv_y);
-            border_extension_count[0] = border_extension_count[0] + prediction.border_extension_count;
             const current: &FrameBuffer = try encoder_reference_current(refs);
+            if decision.ref_frame == VP8_REF_CURRENT {
+                encoder_inter_predict_intra_macroblock(current, mb_x, mb_y, decision.y_mode, decision.uv_mode);
+            } else {
+                const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, decision.mv_x, decision.mv_y);
+                border_extension_count[0] = border_extension_count[0] + prediction.border_extension_count;
+            }
             nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_y_blocks(writer, probs, &coeff_ctx, frame, current, &factors, mb_x, mb_y));
             nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.u, &current.u.plane, &factors, mb_x, mb_y, false));
             nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.v, &current.v.plane, &factors, mb_x, mb_y, true));
@@ -898,6 +1173,8 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
     defer free(decisions as &void);
     var border_extension_count: usize = 0;
     var nonzero_coefficient_count: usize = 0;
+    var inter_macroblock_count: usize = 0;
+    var intra_macroblock_count: usize = 0;
     var zero_mv_count: usize = 0;
     var newmv_count: usize = 0;
     var nonzero_mv_count: usize = 0;
@@ -914,6 +1191,8 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         frame,
         &probs,
         decisions,
+        &inter_macroblock_count as &usize,
+        &intra_macroblock_count as &usize,
         &zero_mv_count as &usize,
         &newmv_count as &usize,
         &nonzero_mv_count as &usize,
@@ -979,6 +1258,8 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         written_len: try encoder_inter_checked_add(payload_offset, vp8_payload_size),
         border_extension_count: border_extension_count,
         nonzero_coefficient_count: nonzero_coefficient_count,
+        inter_macroblock_count: inter_macroblock_count,
+        intra_macroblock_count: intra_macroblock_count,
         zero_mv_count: zero_mv_count,
         newmv_count: newmv_count,
         nonzero_mv_count: nonzero_mv_count,

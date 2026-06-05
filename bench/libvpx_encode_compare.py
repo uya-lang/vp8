@@ -52,6 +52,7 @@ REQUIRED_RESULT_FIELDS = (
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
     "vp8uya_mode_distribution",
+    "vp8uya_macroblock_mode_distribution",
     "vp8uya_motion_distribution",
     "vp8uya_subpel_distribution",
     "vp8uya_encode_elapsed_ns",
@@ -97,6 +98,7 @@ REQUIRED_SUMMARY_FIELDS = (
     "vp8uya_fps",
     "libvpx_fps",
     "vp8uya_mode_distribution",
+    "vp8uya_macroblock_mode_distribution",
     "vp8uya_motion_distribution",
     "vp8uya_subpel_distribution",
     "vpxenc_version",
@@ -219,6 +221,29 @@ def parse_vp8uya_motion_distribution(stdout: str) -> dict[str, int] | None:
         "encode.motion.zero_mv": "zero_mv_count",
         "encode.motion.new_mv": "new_mv_count",
         "encode.motion.nonzero_mv": "nonzero_mv_count",
+    }
+    parsed: dict[str, int] = {}
+    for line in stdout.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep != "=" or key not in field_map:
+            continue
+        try:
+            count = int(value, 10)
+        except ValueError:
+            continue
+        if count < 0:
+            continue
+        parsed[field_map[key]] = count
+    if all(field in parsed for field in field_map.values()):
+        return parsed
+    return None
+
+
+def parse_vp8uya_macroblock_mode_distribution(stdout: str) -> dict[str, int] | None:
+    field_map = {
+        "encode.mode.macroblocks": "macroblock_count",
+        "encode.mode.inter_mbs": "inter_macroblock_count",
+        "encode.mode.intra_mbs": "intra_macroblock_count",
     }
     parsed: dict[str, int] = {}
     for line in stdout.splitlines():
@@ -1202,18 +1227,22 @@ def encode_vp8uya_samples(
             completed = subprocess.CompletedProcess(command, 127, "", str(exc))
         elapsed_ns = time.perf_counter_ns() - started_ns
         mode_distribution = parse_vp8uya_mode_distribution(completed.stdout)
+        macroblock_mode_distribution = parse_vp8uya_macroblock_mode_distribution(completed.stdout)
         motion_distribution = parse_vp8uya_motion_distribution(completed.stdout)
         subpel_distribution = parse_vp8uya_subpel_distribution(completed.stdout)
         encode_ok = (
             completed.returncode == 0
             and output_path.exists()
             and mode_distribution is not None
+            and macroblock_mode_distribution is not None
             and motion_distribution is not None
             and subpel_distribution is not None
         )
         extra_fields = {}
         if mode_distribution is not None:
             extra_fields["vp8uya_mode_distribution"] = mode_distribution
+        if macroblock_mode_distribution is not None:
+            extra_fields["vp8uya_macroblock_mode_distribution"] = macroblock_mode_distribution
         if motion_distribution is not None:
             extra_fields["vp8uya_motion_distribution"] = motion_distribution
         if subpel_distribution is not None:
@@ -1241,6 +1270,8 @@ def encode_vp8uya_samples(
             "vp8uya_encode_elapsed_ns": elapsed_ns,
             "vp8uya_mode_distribution": mode_distribution,
             "vp8uya_mode_distribution_error": None if mode_distribution is not None else "missing encode.frames.* stdout report",
+            "vp8uya_macroblock_mode_distribution": macroblock_mode_distribution,
+            "vp8uya_macroblock_mode_distribution_error": None if macroblock_mode_distribution is not None else "missing encode.mode.* stdout report",
             "vp8uya_motion_distribution": motion_distribution,
             "vp8uya_motion_distribution_error": None if motion_distribution is not None else "missing encode.motion.* stdout report",
             "vp8uya_subpel_distribution": subpel_distribution,
@@ -1901,6 +1932,26 @@ def aggregate_motion_distribution(records: list[dict[str, Any]], field: str) -> 
     return totals
 
 
+def aggregate_macroblock_mode_distribution(records: list[dict[str, Any]], field: str) -> dict[str, int]:
+    if not records:
+        raise ValueError("summary requires at least one result record")
+    totals = {
+        "macroblock_count": 0,
+        "inter_macroblock_count": 0,
+        "intra_macroblock_count": 0,
+    }
+    for record in records:
+        distribution = record.get(field)
+        if not isinstance(distribution, dict):
+            raise ValueError(f"summary requires object {field}")
+        for count_field in totals:
+            value = distribution.get(count_field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"summary requires non-negative integer {field}.{count_field}")
+            totals[count_field] += value
+    return totals
+
+
 def aggregate_subpel_distribution(records: list[dict[str, Any]], field: str) -> dict[str, int]:
     if not records:
         raise ValueError("summary requires at least one result record")
@@ -1953,6 +2004,7 @@ def build_summary(records: list[dict[str, Any]], *, results_path: Path) -> dict[
         "vp8uya_fps": mean_required_field(records, "vp8uya_fps"),
         "libvpx_fps": mean_required_field(records, "libvpx_fps"),
         "vp8uya_mode_distribution": aggregate_mode_distribution(records, "vp8uya_mode_distribution"),
+        "vp8uya_macroblock_mode_distribution": aggregate_macroblock_mode_distribution(records, "vp8uya_macroblock_mode_distribution"),
         "vp8uya_motion_distribution": aggregate_motion_distribution(records, "vp8uya_motion_distribution"),
         "vp8uya_subpel_distribution": aggregate_subpel_distribution(records, "vp8uya_subpel_distribution"),
         "vpxenc_version": first_string_field(records, "vpxenc_version"),
@@ -2127,6 +2179,41 @@ def build_markdown_report(summary: Mapping[str, Any], records: list[dict[str, An
                     markdown_number(record.get("vp8uya_fps"), 2),
                     markdown_number(record.get("libvpx_fps"), 2),
                     "true" if record.get("passed") is True else "false",
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend([
+        "",
+        "## VP8UYA Macroblock Mode Distribution",
+        "",
+        "| Scope | Macroblocks | Inter MBs | Intra MBs |",
+        "| --- | ---: | ---: | ---: |",
+    ])
+    summary_macroblock_mode = summary.get("vp8uya_macroblock_mode_distribution")
+    lines.append(
+        "| "
+        + " | ".join(
+            [
+                "summary",
+                markdown_distribution_count(summary_macroblock_mode, "macroblock_count"),
+                markdown_distribution_count(summary_macroblock_mode, "inter_macroblock_count"),
+                markdown_distribution_count(summary_macroblock_mode, "intra_macroblock_count"),
+            ]
+        )
+        + " |"
+    )
+    for record in records:
+        macroblock_mode_distribution = record.get("vp8uya_macroblock_mode_distribution")
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    markdown_cell(record.get("sample", record.get("name", ""))),
+                    markdown_distribution_count(macroblock_mode_distribution, "macroblock_count"),
+                    markdown_distribution_count(macroblock_mode_distribution, "inter_macroblock_count"),
+                    markdown_distribution_count(macroblock_mode_distribution, "intra_macroblock_count"),
                 ]
             )
             + " |"
@@ -2927,6 +3014,71 @@ def read_vp8uya_motion_distribution(sample: Mapping[str, Any], runs_dir: Path) -
     }
 
 
+def read_vp8uya_macroblock_mode_distribution(sample: Mapping[str, Any], runs_dir: Path) -> dict[str, Any]:
+    try:
+        path = sample_encode_metadata_path(sample, runs_dir, "vp8uya")
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "macroblock_mode_distribution": {},
+            "error": str(exc),
+        }
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "macroblock_mode_distribution": {},
+            "error": f"failed to read encode metadata {path}: {exc}",
+        }
+    except json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "macroblock_mode_distribution": {},
+            "error": f"failed to parse encode metadata {path}: {exc}",
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "macroblock_mode_distribution": {},
+            "error": f"encode metadata {path} must contain an object",
+        }
+
+    distribution = data.get("vp8uya_macroblock_mode_distribution")
+    if not isinstance(distribution, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "macroblock_mode_distribution": {},
+            "error": f"encode metadata {path} must contain vp8uya_macroblock_mode_distribution",
+        }
+
+    parsed: dict[str, int] = {}
+    for field in ("macroblock_count", "inter_macroblock_count", "intra_macroblock_count"):
+        value = distribution.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {
+                "ok": False,
+                "path": str(path),
+                "macroblock_mode_distribution": {},
+                "error": f"vp8uya_macroblock_mode_distribution.{field} must be a non-negative integer",
+            }
+        parsed[field] = value
+
+    return {
+        "ok": True,
+        "path": str(path),
+        "macroblock_mode_distribution": parsed,
+        "error": None,
+    }
+
+
 def read_vp8uya_subpel_distribution(sample: Mapping[str, Any], runs_dir: Path) -> dict[str, Any]:
     try:
         path = sample_encode_metadata_path(sample, runs_dir, "vp8uya")
@@ -3084,6 +3236,9 @@ def write_results_ndjson_payload_bits(
         vp8uya_mode_distribution = read_vp8uya_mode_distribution(sample, runs_dir)
         if not vp8uya_mode_distribution["ok"]:
             failure_reasons.append(f"vp8uya mode distribution: {vp8uya_mode_distribution['error']}")
+        vp8uya_macroblock_mode_distribution = read_vp8uya_macroblock_mode_distribution(sample, runs_dir)
+        if not vp8uya_macroblock_mode_distribution["ok"]:
+            failure_reasons.append(f"vp8uya macroblock mode distribution: {vp8uya_macroblock_mode_distribution['error']}")
         vp8uya_motion_distribution = read_vp8uya_motion_distribution(sample, runs_dir)
         if not vp8uya_motion_distribution["ok"]:
             failure_reasons.append(f"vp8uya motion distribution: {vp8uya_motion_distribution['error']}")
@@ -3158,6 +3313,7 @@ def write_results_ndjson_payload_bits(
             "vp8uya_encode_elapsed_ns": vp8uya_elapsed["elapsed_ns"],
             "libvpx_encode_elapsed_ns": libvpx_elapsed["elapsed_ns"],
             "vp8uya_mode_distribution": vp8uya_mode_distribution["mode_distribution"],
+            "vp8uya_macroblock_mode_distribution": vp8uya_macroblock_mode_distribution["macroblock_mode_distribution"],
             "vp8uya_motion_distribution": vp8uya_motion_distribution["motion_distribution"],
             "vp8uya_subpel_distribution": vp8uya_subpel_distribution["subpel_distribution"],
             "vp8uya_fps": vp8uya_fps,

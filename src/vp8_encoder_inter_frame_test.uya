@@ -33,7 +33,10 @@ use vp8.encoder.reference_pool.encoder_reference_refresh;
 use vp8.encoder.reference_pool.free_encoder_reference_frame_pool;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
+use vp8.mode.parse.VP8_REF_CURRENT;
 use vp8.mode.parse.VP8_REF_LAST;
+use vp8.mode.parse.VP8_UV_MODE_DC;
+use vp8.mode.parse.VP8_Y_MODE_DC;
 
 fn fill_constant_reference(frame: &FrameBuffer, y_value: byte, u_value: byte, v_value: byte) void {
     var row: usize = 0;
@@ -161,9 +164,52 @@ test "inter frame writer emits LAST zero-MV copy frame with empty residual" {
     try assert_eq_i32(tag.show_frame as i32, true as i32);
     try assert_eq_i32((tag.first_partition_size >= (24 as u32)) as i32, true as i32);
     try assert_eq_i32(stats.nonzero_coefficient_count as i32, 0);
+    try assert_eq_i32(stats.inter_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.intra_macroblock_count as i32, 0);
     try assert_eq_i32(current.y.plane.origin[0] as i32, 100);
     try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 129);
+}
+
+test "inter frame writer refreshes intra macroblock when intra prediction wins" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(16, 16, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    fill_constant_reference(seed, 0 as byte, 128 as byte, 128 as byte);
+    try encoder_reference_refresh(&refs, true, true, true);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 384] = [];
+    fill_constant_i420(&input[0] as &byte, 128 as byte, 128 as byte, 128 as byte);
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    var config: EncoderConfig = make_default_encoder_config(16, 16);
+    config.quantizer = 0 as u8;
+    var kernels: KernelFunctionTable = make_scalar_kernel_table();
+    var out: [byte: 12000] = [];
+
+    const stats: EncoderInterFrameEncodeStats = try encode_inter_frame_ivf_with_stats_and_kernel_table(&config, &kernels, &refs, &frame, &out[0] as &byte, 12000);
+    try assert_eq_i32(stats.inter_macroblock_count as i32, 0);
+    try assert_eq_i32(stats.intra_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.zero_mv_count as i32, 0);
+    try assert_eq_i32(stats.newmv_count as i32, 0);
+
+    const ivf: IvfHeader = try parse_ivf_header(&out[0] as &byte, stats.written_len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, stats.written_len, &ivf);
+    const encoded_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+
+    var decode_context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&decode_context);
+    const decode_seed: &FrameBuffer = try frame_pool_get_slot(&decode_context.frame_pool, decode_context.frame_pool.current_slot);
+    fill_constant_reference(decode_seed, 0 as byte, 128 as byte, 128 as byte);
+    try frame_pool_refresh_references(&decode_context.frame_pool, true, false, false);
+    var decoder: Decoder = make_decoder(&decode_context);
+
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, encoded_frame.payload.data, encoded_frame.payload.len);
+    defer decoded_frame_release(&result.output) catch {};
+    try assert_eq_i32(decode_context.mb_info.ref_frame[0] as i32, VP8_REF_CURRENT as i32);
+    try assert_eq_i32(decode_context.mb_info.y_mode[0] as i32, VP8_Y_MODE_DC as i32);
+    try assert_eq_i32(decode_context.mb_info.uv_mode[0] as i32, VP8_UV_MODE_DC as i32);
+    try assert_eq_i32(result.output.view.y.origin[0] as i32, 128);
 }
 
 test "inter frame writer applies luma residual over LAST prediction" {

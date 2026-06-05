@@ -24,6 +24,7 @@ REQUIRED_FIELDS = {
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
     "vp8uya_mode_distribution",
+    "vp8uya_macroblock_mode_distribution",
     "vp8uya_motion_distribution",
     "vp8uya_subpel_distribution",
     "vp8uya_encode_elapsed_ns",
@@ -54,6 +55,7 @@ REQUIRED_SUMMARY_FIELDS = {
     "vp8uya_fps",
     "libvpx_fps",
     "vp8uya_mode_distribution",
+    "vp8uya_macroblock_mode_distribution",
     "vp8uya_motion_distribution",
     "vp8uya_subpel_distribution",
     "vpxenc_version",
@@ -101,6 +103,11 @@ def make_result(**overrides: object) -> dict[str, object]:
             "encoded_frame_count": 1,
             "key_frame_count": 1,
             "inter_frame_count": 0,
+        },
+        "vp8uya_macroblock_mode_distribution": {
+            "macroblock_count": 0,
+            "inter_macroblock_count": 0,
+            "intra_macroblock_count": 0,
         },
         "vp8uya_motion_distribution": {
             "macroblock_count": 0,
@@ -484,6 +491,11 @@ def assert_vp8uya_encode_generates_ivf() -> None:
             "key_frame_count": 1,
             "inter_frame_count": 1,
         }
+        assert metadata["vp8uya_macroblock_mode_distribution"] == {
+            "macroblock_count": 2,
+            "inter_macroblock_count": 1,
+            "intra_macroblock_count": 1,
+        }
         assert metadata["vp8uya_motion_distribution"] == {
             "macroblock_count": 2,
             "zero_mv_count": 1,
@@ -817,6 +829,11 @@ def assert_results_ndjson_records_payload_bits() -> None:
                     "key_frame_count": 1,
                     "inter_frame_count": 1,
                 },
+                "vp8uya_macroblock_mode_distribution": {
+                    "macroblock_count": 2,
+                    "inter_macroblock_count": 1,
+                    "intra_macroblock_count": 1,
+                },
                 "vp8uya_motion_distribution": {
                     "macroblock_count": 2,
                     "zero_mv_count": 1,
@@ -890,6 +907,11 @@ def assert_results_ndjson_records_payload_bits() -> None:
             "encoded_frame_count": 2,
             "key_frame_count": 1,
             "inter_frame_count": 1,
+        }
+        assert result["vp8uya_macroblock_mode_distribution"] == {
+            "macroblock_count": 2,
+            "inter_macroblock_count": 1,
+            "intra_macroblock_count": 1,
         }
         assert result["vp8uya_motion_distribution"] == {
             "macroblock_count": 2,
@@ -997,6 +1019,11 @@ def assert_summary_json_records_core_fields() -> None:
             "key_frame_count": 1,
             "inter_frame_count": 0,
         }
+        assert summary["vp8uya_macroblock_mode_distribution"] == {
+            "macroblock_count": 0,
+            "inter_macroblock_count": 0,
+            "intra_macroblock_count": 0,
+        }
         assert summary["vp8uya_motion_distribution"] == {
             "macroblock_count": 0,
             "zero_mv_count": 0,
@@ -1055,6 +1082,11 @@ def assert_markdown_report_records_summary_and_samples() -> None:
                 "libvpx_psnr_all_db": 36.0,
                 "vp8uya_fps": 80.0,
                 "libvpx_fps": 100.0,
+                "vp8uya_macroblock_mode_distribution": {
+                    "macroblock_count": 0,
+                    "inter_macroblock_count": 0,
+                    "intra_macroblock_count": 0,
+                },
                 "vpxenc_version": "fake vpxenc",
                 "vpxdec_version": "fake vpxdec",
             }, sort_keys=True) + "\n",
@@ -1090,6 +1122,8 @@ def assert_markdown_report_records_summary_and_samples() -> None:
         assert "vpxenc --best" in markdown
         assert "| unit_qcif |" in markdown
         assert "| Bitrate |" in markdown
+        assert "## VP8UYA Macroblock Mode Distribution" in markdown
+        assert "| unit_qcif | 0 | 0 | 0 |" in markdown
         assert "bitrate_ratio too high" in markdown
         assert "vp8uya encode unit.i420" in markdown
         assert "vpxenc --best unit.i420" in markdown
@@ -1131,6 +1165,9 @@ def write_fake_vp8uya_encoder(path: Path, log_path: Path) -> None:
         "echo 'encode.frames.total=2'\n"
         "echo 'encode.frames.key=1'\n"
         "echo 'encode.frames.inter=1'\n"
+        "echo 'encode.mode.macroblocks=2'\n"
+        "echo 'encode.mode.inter_mbs=1'\n"
+        "echo 'encode.mode.intra_mbs=1'\n"
         "echo 'encode.motion.macroblocks=2'\n"
         "echo 'encode.motion.zero_mv=1'\n"
         "echo 'encode.motion.new_mv=1'\n"
