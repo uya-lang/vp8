@@ -231,7 +231,7 @@ Date: 2026-06-05
   - 验收：运动样本报告中 non-zero MV count 大于 0。
 - [x] 接入 sub-pel refinement。
   - 验收：报告中记录 half-pel 或 quarter-pel candidate count。
-- [ ] 写出 per-MB MV。
+- [x] 写出 per-MB MV。
   - 验收：含 non-zero MV 的输出可被本项目 decoder 和 `vpxdec` 解码。
 - [ ] 接入 MV rate cost。
   - 验收：mode decision 分数包含 MV bit cost。
