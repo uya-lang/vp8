@@ -40,6 +40,8 @@ fn dummy_subpixel_motion_refinement_result() SubpixelMotionRefinementResult {
         mv_y: 0 as i16,
         distortion: 4294967295 as u32,
         candidates_evaluated: 0,
+        halfpel_candidate_count: 0,
+        quarterpel_candidate_count: 0,
         border_extension_count: 0
     };
 }
@@ -214,7 +216,9 @@ test "half quarter pel refinement finds horizontal half-pel offset" {
     try assert_eq_i32(result.mv_x as i32, 4);
     try assert_eq_i32(result.mv_y as i32, 0);
     try assert_eq_i32(result.distortion as i32, 0);
-    try assert_eq_i32((result.candidates_evaluated > 0) as i32, true as i32);
+    try assert_eq_i32(result.candidates_evaluated as i32, 18);
+    try assert_eq_i32(result.halfpel_candidate_count as i32, 9);
+    try assert_eq_i32(result.quarterpel_candidate_count as i32, 9);
     try assert_eq_i32(result.border_extension_count as i32, 3);
 }
 
@@ -322,6 +326,8 @@ test "half quarter pel refinement can use forced SIMD sub-pixel predictor" {
     try assert_eq_i32(simd_result.mv_y as i32, scalar_result.mv_y as i32);
     try assert_eq_i32(simd_result.distortion as i32, scalar_result.distortion as i32);
     try assert_eq_i32(simd_result.candidates_evaluated as i32, scalar_result.candidates_evaluated as i32);
+    try assert_eq_i32(simd_result.halfpel_candidate_count as i32, scalar_result.halfpel_candidate_count as i32);
+    try assert_eq_i32(simd_result.quarterpel_candidate_count as i32, scalar_result.quarterpel_candidate_count as i32);
 }
 
 test "half quarter pel refinement rejects missing kernel table sub-pixel predictor" {

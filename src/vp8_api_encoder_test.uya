@@ -185,6 +185,12 @@ test "public encoder API emits inter frames after the first keyframe" {
     try assert_eq_i32(stats.last_zero_mv_count as i32, 1);
     try assert_eq_i32(stats.last_newmv_count as i32, 0);
     try assert_eq_i32(stats.last_nonzero_mv_count as i32, 0);
+    try assert_eq_i32(stats.subpel_macroblock_count as i32, 2);
+    try assert_eq_i32(stats.subpel_halfpel_candidate_count as i32, 18);
+    try assert_eq_i32(stats.subpel_quarterpel_candidate_count as i32, 18);
+    try assert_eq_i32(stats.last_subpel_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.last_subpel_halfpel_candidate_count as i32, 9);
+    try assert_eq_i32(stats.last_subpel_quarterpel_candidate_count as i32, 9);
     try assert_eq_i32((stats.last_mode_search_work_units > 0) as i32, true as i32);
 }
 

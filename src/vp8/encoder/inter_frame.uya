@@ -46,6 +46,8 @@ use vp8.encoder.inter_prediction.predict_last_frame_macroblock;
 use vp8.encoder.loop_filter_level.EncoderLoopFilterLevelDecision;
 use vp8.encoder.loop_filter_level.decide_encoder_loop_filter_level;
 use vp8.encoder.motion_search.IntegerPelMotionSearchResult;
+use vp8.encoder.motion_search.SubpixelMotionRefinementResult;
+use vp8.encoder.motion_search.refine_last_frame_half_quarter_pel_with_kernel_table;
 use vp8.encoder.motion_search.search_last_frame_integer_pel_with_kernel_table;
 use vp8.encoder.mv_cost.inter_mv_mode_cost_q8;
 use vp8.encoder.mv_cost.mv_delta_cost_q8;
@@ -100,6 +102,9 @@ export struct EncoderInterFrameEncodeStats {
     zero_mv_count: usize,
     newmv_count: usize,
     nonzero_mv_count: usize,
+    subpel_macroblock_count: usize,
+    subpel_halfpel_candidate_count: usize,
+    subpel_quarterpel_candidate_count: usize,
     mode_search_work_units: usize
 }
 
@@ -108,7 +113,10 @@ struct EncoderInterMacroblockDecision {
     mv_x: i16,
     mv_y: i16,
     distortion: u32,
-    candidates_evaluated: usize
+    candidates_evaluated: usize,
+    subpel_macroblock_count: usize,
+    subpel_halfpel_candidate_count: usize,
+    subpel_quarterpel_candidate_count: usize
 }
 
 const ENCODER_INTER_FIRST_BASE_CAPACITY: usize = 4096;
@@ -342,6 +350,10 @@ fn encoder_inter_search_radius(config: &EncoderConfig) usize {
     return 4;
 }
 
+fn encoder_inter_should_refine_subpel(config: &EncoderConfig) bool {
+    return config.speed_preset != EncoderSpeedPreset.fastest;
+}
+
 fn encoder_inter_make_decision_from_search(result: &IntegerPelMotionSearchResult) EncoderInterMacroblockDecision {
     var mode: byte = VP8_INTER_MV_MODE_NEW;
     if result.mv_x == (0 as i16) && result.mv_y == (0 as i16) {
@@ -352,7 +364,10 @@ fn encoder_inter_make_decision_from_search(result: &IntegerPelMotionSearchResult
         mv_x: result.mv_x,
         mv_y: result.mv_y,
         distortion: result.distortion,
-        candidates_evaluated: result.candidates_evaluated
+        candidates_evaluated: result.candidates_evaluated,
+        subpel_macroblock_count: 0,
+        subpel_halfpel_candidate_count: 0,
+        subpel_quarterpel_candidate_count: 0
     };
 }
 
@@ -396,6 +411,14 @@ fn encoder_inter_decide_macroblock(
         }
     }
 
+    if encoder_inter_should_refine_subpel(config) {
+        const refined: SubpixelMotionRefinementResult = try refine_last_frame_half_quarter_pel_with_kernel_table(refs, kernels, frame, mb_x, mb_y, best.mv_x, best.mv_y);
+        best.candidates_evaluated = best.candidates_evaluated + refined.candidates_evaluated;
+        best.subpel_macroblock_count = 1;
+        best.subpel_halfpel_candidate_count = refined.halfpel_candidate_count;
+        best.subpel_quarterpel_candidate_count = refined.quarterpel_candidate_count;
+    }
+
     return best;
 }
 
@@ -410,6 +433,9 @@ fn encoder_inter_decide_macroblocks(
     zero_mv_count: &usize,
     newmv_count: &usize,
     nonzero_mv_count: &usize,
+    subpel_macroblock_count: &usize,
+    subpel_halfpel_candidate_count: &usize,
+    subpel_quarterpel_candidate_count: &usize,
     mode_search_work_units: &usize
 ) !void {
     const rd_model: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(config.quantizer);
@@ -429,11 +455,17 @@ fn encoder_inter_decide_macroblocks(
             if decision.mv_x != (0 as i16) || decision.mv_y != (0 as i16) {
                 nonzero_mv_count[0] = nonzero_mv_count[0] + 1;
             }
+            subpel_macroblock_count[0] = subpel_macroblock_count[0] + decision.subpel_macroblock_count;
+            subpel_halfpel_candidate_count[0] = subpel_halfpel_candidate_count[0] + decision.subpel_halfpel_candidate_count;
+            subpel_quarterpel_candidate_count[0] = subpel_quarterpel_candidate_count[0] + decision.subpel_quarterpel_candidate_count;
             decisions[mb_index].inter_mv_mode = decision.inter_mv_mode;
             decisions[mb_index].mv_x = decision.mv_x;
             decisions[mb_index].mv_y = decision.mv_y;
             decisions[mb_index].distortion = decision.distortion;
             decisions[mb_index].candidates_evaluated = decision.candidates_evaluated;
+            decisions[mb_index].subpel_macroblock_count = decision.subpel_macroblock_count;
+            decisions[mb_index].subpel_halfpel_candidate_count = decision.subpel_halfpel_candidate_count;
+            decisions[mb_index].subpel_quarterpel_candidate_count = decision.subpel_quarterpel_candidate_count;
             mb_x = mb_x + 1;
         }
         mb_y = mb_y + 1;
@@ -869,6 +901,9 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
     var zero_mv_count: usize = 0;
     var newmv_count: usize = 0;
     var nonzero_mv_count: usize = 0;
+    var subpel_macroblock_count: usize = 0;
+    var subpel_halfpel_candidate_count: usize = 0;
+    var subpel_quarterpel_candidate_count: usize = 0;
     var mode_search_work_units: usize = 0;
 
     try encoder_inter_decide_macroblocks(
@@ -882,6 +917,9 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         &zero_mv_count as &usize,
         &newmv_count as &usize,
         &nonzero_mv_count as &usize,
+        &subpel_macroblock_count as &usize,
+        &subpel_halfpel_candidate_count as &usize,
+        &subpel_quarterpel_candidate_count as &usize,
         &mode_search_work_units as &usize
     );
     try encoder_inter_write_fixed_header_bits(&first_writer, config);
@@ -944,6 +982,9 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         zero_mv_count: zero_mv_count,
         newmv_count: newmv_count,
         nonzero_mv_count: nonzero_mv_count,
+        subpel_macroblock_count: subpel_macroblock_count,
+        subpel_halfpel_candidate_count: subpel_halfpel_candidate_count,
+        subpel_quarterpel_candidate_count: subpel_quarterpel_candidate_count,
         mode_search_work_units: mode_search_work_units
     };
 }

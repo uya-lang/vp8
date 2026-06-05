@@ -53,6 +53,7 @@ REQUIRED_RESULT_FIELDS = (
     "libvpx_bits_per_pixel",
     "vp8uya_mode_distribution",
     "vp8uya_motion_distribution",
+    "vp8uya_subpel_distribution",
     "vp8uya_encode_elapsed_ns",
     "libvpx_encode_elapsed_ns",
     "psnr_y_db",
@@ -97,6 +98,7 @@ REQUIRED_SUMMARY_FIELDS = (
     "libvpx_fps",
     "vp8uya_mode_distribution",
     "vp8uya_motion_distribution",
+    "vp8uya_subpel_distribution",
     "vpxenc_version",
     "vpxdec_version",
 )
@@ -217,6 +219,29 @@ def parse_vp8uya_motion_distribution(stdout: str) -> dict[str, int] | None:
         "encode.motion.zero_mv": "zero_mv_count",
         "encode.motion.new_mv": "new_mv_count",
         "encode.motion.nonzero_mv": "nonzero_mv_count",
+    }
+    parsed: dict[str, int] = {}
+    for line in stdout.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep != "=" or key not in field_map:
+            continue
+        try:
+            count = int(value, 10)
+        except ValueError:
+            continue
+        if count < 0:
+            continue
+        parsed[field_map[key]] = count
+    if all(field in parsed for field in field_map.values()):
+        return parsed
+    return None
+
+
+def parse_vp8uya_subpel_distribution(stdout: str) -> dict[str, int] | None:
+    field_map = {
+        "encode.subpel.macroblocks": "macroblock_count",
+        "encode.subpel.half_pel_candidates": "half_pel_candidate_count",
+        "encode.subpel.quarter_pel_candidates": "quarter_pel_candidate_count",
     }
     parsed: dict[str, int] = {}
     for line in stdout.splitlines():
@@ -1178,17 +1203,21 @@ def encode_vp8uya_samples(
         elapsed_ns = time.perf_counter_ns() - started_ns
         mode_distribution = parse_vp8uya_mode_distribution(completed.stdout)
         motion_distribution = parse_vp8uya_motion_distribution(completed.stdout)
+        subpel_distribution = parse_vp8uya_subpel_distribution(completed.stdout)
         encode_ok = (
             completed.returncode == 0
             and output_path.exists()
             and mode_distribution is not None
             and motion_distribution is not None
+            and subpel_distribution is not None
         )
         extra_fields = {}
         if mode_distribution is not None:
             extra_fields["vp8uya_mode_distribution"] = mode_distribution
         if motion_distribution is not None:
             extra_fields["vp8uya_motion_distribution"] = motion_distribution
+        if subpel_distribution is not None:
+            extra_fields["vp8uya_subpel_distribution"] = subpel_distribution
 
         metadata_error = write_encode_metadata(
             metadata_path,
@@ -1214,6 +1243,8 @@ def encode_vp8uya_samples(
             "vp8uya_mode_distribution_error": None if mode_distribution is not None else "missing encode.frames.* stdout report",
             "vp8uya_motion_distribution": motion_distribution,
             "vp8uya_motion_distribution_error": None if motion_distribution is not None else "missing encode.motion.* stdout report",
+            "vp8uya_subpel_distribution": subpel_distribution,
+            "vp8uya_subpel_distribution_error": None if subpel_distribution is not None else "missing encode.subpel.* stdout report",
             "returncode": completed.returncode,
             "stdout": completed.stdout,
             "stderr": completed.stderr,
@@ -1870,6 +1901,26 @@ def aggregate_motion_distribution(records: list[dict[str, Any]], field: str) -> 
     return totals
 
 
+def aggregate_subpel_distribution(records: list[dict[str, Any]], field: str) -> dict[str, int]:
+    if not records:
+        raise ValueError("summary requires at least one result record")
+    totals = {
+        "macroblock_count": 0,
+        "half_pel_candidate_count": 0,
+        "quarter_pel_candidate_count": 0,
+    }
+    for record in records:
+        distribution = record.get(field)
+        if not isinstance(distribution, dict):
+            raise ValueError(f"summary requires object {field}")
+        for count_field in totals:
+            value = distribution.get(count_field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"summary requires non-negative integer {field}.{count_field}")
+            totals[count_field] += value
+    return totals
+
+
 def current_git_commit() -> str:
     completed = run_command(["git", "rev-parse", "HEAD"], REPO_ROOT)
     if completed.returncode != 0:
@@ -1903,6 +1954,7 @@ def build_summary(records: list[dict[str, Any]], *, results_path: Path) -> dict[
         "libvpx_fps": mean_required_field(records, "libvpx_fps"),
         "vp8uya_mode_distribution": aggregate_mode_distribution(records, "vp8uya_mode_distribution"),
         "vp8uya_motion_distribution": aggregate_motion_distribution(records, "vp8uya_motion_distribution"),
+        "vp8uya_subpel_distribution": aggregate_subpel_distribution(records, "vp8uya_subpel_distribution"),
         "vpxenc_version": first_string_field(records, "vpxenc_version"),
         "vpxdec_version": first_string_field(records, "vpxdec_version"),
     }
@@ -2112,6 +2164,41 @@ def build_markdown_report(summary: Mapping[str, Any], records: list[dict[str, An
                     markdown_distribution_count(motion_distribution, "zero_mv_count"),
                     markdown_distribution_count(motion_distribution, "new_mv_count"),
                     markdown_distribution_count(motion_distribution, "nonzero_mv_count"),
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend([
+        "",
+        "## VP8UYA Subpel Distribution",
+        "",
+        "| Scope | Macroblocks | Half-pel Candidates | Quarter-pel Candidates |",
+        "| --- | ---: | ---: | ---: |",
+    ])
+    summary_subpel = summary.get("vp8uya_subpel_distribution")
+    lines.append(
+        "| "
+        + " | ".join(
+            [
+                "summary",
+                markdown_distribution_count(summary_subpel, "macroblock_count"),
+                markdown_distribution_count(summary_subpel, "half_pel_candidate_count"),
+                markdown_distribution_count(summary_subpel, "quarter_pel_candidate_count"),
+            ]
+        )
+        + " |"
+    )
+    for record in records:
+        subpel_distribution = record.get("vp8uya_subpel_distribution")
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    markdown_cell(record.get("sample", record.get("name", ""))),
+                    markdown_distribution_count(subpel_distribution, "macroblock_count"),
+                    markdown_distribution_count(subpel_distribution, "half_pel_candidate_count"),
+                    markdown_distribution_count(subpel_distribution, "quarter_pel_candidate_count"),
                 ]
             )
             + " |"
@@ -2840,6 +2927,71 @@ def read_vp8uya_motion_distribution(sample: Mapping[str, Any], runs_dir: Path) -
     }
 
 
+def read_vp8uya_subpel_distribution(sample: Mapping[str, Any], runs_dir: Path) -> dict[str, Any]:
+    try:
+        path = sample_encode_metadata_path(sample, runs_dir, "vp8uya")
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "subpel_distribution": {},
+            "error": str(exc),
+        }
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "subpel_distribution": {},
+            "error": f"failed to read encode metadata {path}: {exc}",
+        }
+    except json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "subpel_distribution": {},
+            "error": f"failed to parse encode metadata {path}: {exc}",
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "subpel_distribution": {},
+            "error": f"encode metadata {path} must contain an object",
+        }
+
+    distribution = data.get("vp8uya_subpel_distribution")
+    if not isinstance(distribution, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "subpel_distribution": {},
+            "error": f"encode metadata {path} must contain vp8uya_subpel_distribution",
+        }
+
+    parsed: dict[str, int] = {}
+    for field in ("macroblock_count", "half_pel_candidate_count", "quarter_pel_candidate_count"):
+        value = distribution.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {
+                "ok": False,
+                "path": str(path),
+                "subpel_distribution": {},
+                "error": f"vp8uya_subpel_distribution.{field} must be a non-negative integer",
+            }
+        parsed[field] = value
+
+    return {
+        "ok": True,
+        "path": str(path),
+        "subpel_distribution": parsed,
+        "error": None,
+    }
+
+
 def read_encode_command(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> list[str]:
     try:
         path = sample_encode_metadata_path(sample, runs_dir, encoder_label)
@@ -2935,6 +3087,9 @@ def write_results_ndjson_payload_bits(
         vp8uya_motion_distribution = read_vp8uya_motion_distribution(sample, runs_dir)
         if not vp8uya_motion_distribution["ok"]:
             failure_reasons.append(f"vp8uya motion distribution: {vp8uya_motion_distribution['error']}")
+        vp8uya_subpel_distribution = read_vp8uya_subpel_distribution(sample, runs_dir)
+        if not vp8uya_subpel_distribution["ok"]:
+            failure_reasons.append(f"vp8uya subpel distribution: {vp8uya_subpel_distribution['error']}")
         vp8uya_psnr = read_sample_psnr(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="vp8uya")
         libvpx_psnr = read_sample_psnr(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="libvpx")
         if not vp8uya_psnr["ok"]:
@@ -3004,6 +3159,7 @@ def write_results_ndjson_payload_bits(
             "libvpx_encode_elapsed_ns": libvpx_elapsed["elapsed_ns"],
             "vp8uya_mode_distribution": vp8uya_mode_distribution["mode_distribution"],
             "vp8uya_motion_distribution": vp8uya_motion_distribution["motion_distribution"],
+            "vp8uya_subpel_distribution": vp8uya_subpel_distribution["subpel_distribution"],
             "vp8uya_fps": vp8uya_fps,
             "libvpx_fps": libvpx_fps,
             "psnr_y_db": vp8uya_psnr["psnr_y_db"],

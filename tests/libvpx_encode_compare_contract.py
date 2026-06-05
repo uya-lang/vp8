@@ -25,6 +25,7 @@ REQUIRED_FIELDS = {
     "libvpx_bits_per_pixel",
     "vp8uya_mode_distribution",
     "vp8uya_motion_distribution",
+    "vp8uya_subpel_distribution",
     "vp8uya_encode_elapsed_ns",
     "libvpx_encode_elapsed_ns",
     "vp8uya_psnr_all_db",
@@ -54,6 +55,7 @@ REQUIRED_SUMMARY_FIELDS = {
     "libvpx_fps",
     "vp8uya_mode_distribution",
     "vp8uya_motion_distribution",
+    "vp8uya_subpel_distribution",
     "vpxenc_version",
     "vpxdec_version",
 }
@@ -105,6 +107,11 @@ def make_result(**overrides: object) -> dict[str, object]:
             "zero_mv_count": 0,
             "new_mv_count": 0,
             "nonzero_mv_count": 0,
+        },
+        "vp8uya_subpel_distribution": {
+            "macroblock_count": 0,
+            "half_pel_candidate_count": 0,
+            "quarter_pel_candidate_count": 0,
         },
         "vp8uya_psnr_all_db": 40.0,
         "libvpx_psnr_all_db": 40.0,
@@ -483,6 +490,11 @@ def assert_vp8uya_encode_generates_ivf() -> None:
             "new_mv_count": 1,
             "nonzero_mv_count": 1,
         }
+        assert metadata["vp8uya_subpel_distribution"] == {
+            "macroblock_count": 2,
+            "half_pel_candidate_count": 18,
+            "quarter_pel_candidate_count": 18,
+        }
 
 
 def assert_libvpx_encode_generates_ivf() -> None:
@@ -811,6 +823,11 @@ def assert_results_ndjson_records_payload_bits() -> None:
                     "new_mv_count": 1,
                     "nonzero_mv_count": 1,
                 },
+                "vp8uya_subpel_distribution": {
+                    "macroblock_count": 2,
+                    "half_pel_candidate_count": 18,
+                    "quarter_pel_candidate_count": 18,
+                },
                 "vp8uya_encode_elapsed_ns": 1234,
             }),
             encoding="utf-8",
@@ -879,6 +896,11 @@ def assert_results_ndjson_records_payload_bits() -> None:
             "zero_mv_count": 1,
             "new_mv_count": 1,
             "nonzero_mv_count": 1,
+        }
+        assert result["vp8uya_subpel_distribution"] == {
+            "macroblock_count": 2,
+            "half_pel_candidate_count": 18,
+            "quarter_pel_candidate_count": 18,
         }
         assert result["vp8uya_vpxdec_command"][0] == str(tools_dir / "vpxdec")
         assert result["libvpx_vpxdec_command"][0] == str(tools_dir / "vpxdec")
@@ -980,6 +1002,11 @@ def assert_summary_json_records_core_fields() -> None:
             "zero_mv_count": 0,
             "new_mv_count": 0,
             "nonzero_mv_count": 0,
+        }
+        assert summary["vp8uya_subpel_distribution"] == {
+            "macroblock_count": 0,
+            "half_pel_candidate_count": 0,
+            "quarter_pel_candidate_count": 0,
         }
         assert isinstance(summary["vpxenc_version"], str)
         assert isinstance(summary["vpxdec_version"], str)
@@ -1107,7 +1134,10 @@ def write_fake_vp8uya_encoder(path: Path, log_path: Path) -> None:
         "echo 'encode.motion.macroblocks=2'\n"
         "echo 'encode.motion.zero_mv=1'\n"
         "echo 'encode.motion.new_mv=1'\n"
-        "echo 'encode.motion.nonzero_mv=1'\n",
+        "echo 'encode.motion.nonzero_mv=1'\n"
+        "echo 'encode.subpel.macroblocks=2'\n"
+        "echo 'encode.subpel.half_pel_candidates=18'\n"
+        "echo 'encode.subpel.quarter_pel_candidates=18'\n",
         encoding="utf-8",
     )
     path.chmod(path.stat().st_mode | 0o111)

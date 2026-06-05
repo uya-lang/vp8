@@ -31,6 +31,8 @@ export struct SubpixelMotionRefinementResult {
     mv_y: i16,
     distortion: u32,
     candidates_evaluated: usize,
+    halfpel_candidate_count: usize,
+    quarterpel_candidate_count: usize,
     border_extension_count: usize
 }
 
@@ -265,7 +267,7 @@ fn encoder_motion_search_better_refinement_candidate(distortion: u32, mv_x: i32,
     return mv_x < best_x;
 }
 
-fn encoder_motion_search_refine_candidate(best: &SubpixelMotionRefinementResult, has_best: bool, kernels: &KernelFunctionTable, frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32, base_mv_x: i32, base_mv_y: i32) bool {
+fn encoder_motion_search_refine_candidate(best: &SubpixelMotionRefinementResult, has_best: bool, kernels: &KernelFunctionTable, frame: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, mv_x: i32, mv_y: i32, base_mv_x: i32, base_mv_y: i32, candidate_count: &usize) bool {
     var valid: bool = true;
     const distortion: u32 = encoder_motion_search_sad_y16_subpixel(kernels, frame, reference, mb_x, mb_y, mv_x, mv_y) catch {
         valid = false;
@@ -276,6 +278,7 @@ fn encoder_motion_search_refine_candidate(best: &SubpixelMotionRefinementResult,
     }
 
     best.candidates_evaluated = best.candidates_evaluated + 1;
+    candidate_count[0] = candidate_count[0] + 1;
     if encoder_motion_search_better_refinement_candidate(distortion, mv_x, mv_y, best, has_best, base_mv_x, base_mv_y) {
         best.mv_x = mv_x as i16;
         best.mv_y = mv_y as i16;
@@ -373,19 +376,24 @@ export fn refine_last_frame_half_quarter_pel_with_kernel_table(refs: &EncoderRef
         mv_y: base_mv_y,
         distortion: 4294967295 as u32,
         candidates_evaluated: 0,
+        halfpel_candidate_count: 0,
+        quarterpel_candidate_count: 0,
         border_extension_count: border_extension_count
     };
     var has_best: bool = false;
+    var halfpel_candidate_count: usize = 0;
+    var quarterpel_candidate_count: usize = 0;
 
     var half_y: i32 = -4;
     while half_y <= 4 {
         var half_x: i32 = -4;
         while half_x <= 4 {
-            has_best = encoder_motion_search_refine_candidate(&best, has_best, kernels, frame, reference, mb_x, mb_y, base_x + half_x, base_y + half_y, base_x, base_y);
+            has_best = encoder_motion_search_refine_candidate(&best, has_best, kernels, frame, reference, mb_x, mb_y, base_x + half_x, base_y + half_y, base_x, base_y, &halfpel_candidate_count as &usize);
             half_x = half_x + 4;
         }
         half_y = half_y + 4;
     }
+    best.halfpel_candidate_count = halfpel_candidate_count;
 
     if !has_best {
         return error.ErrEncoderMotionSearchNoCandidate;
@@ -397,11 +405,12 @@ export fn refine_last_frame_half_quarter_pel_with_kernel_table(refs: &EncoderRef
     while quarter_y <= 2 {
         var quarter_x: i32 = -2;
         while quarter_x <= 2 {
-            has_best = encoder_motion_search_refine_candidate(&best, has_best, kernels, frame, reference, mb_x, mb_y, half_best_x + quarter_x, half_best_y + quarter_y, base_x, base_y);
+            has_best = encoder_motion_search_refine_candidate(&best, has_best, kernels, frame, reference, mb_x, mb_y, half_best_x + quarter_x, half_best_y + quarter_y, base_x, base_y, &quarterpel_candidate_count as &usize);
             quarter_x = quarter_x + 2;
         }
         quarter_y = quarter_y + 2;
     }
+    best.quarterpel_candidate_count = quarterpel_candidate_count;
 
     return best;
 }

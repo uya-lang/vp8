@@ -210,6 +210,9 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.motion.zero_mv=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.motion.new_mv=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.motion.nonzero_mv=0' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.subpel.macroblocks=0' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.subpel.half_pel_candidates=0' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.subpel.quarter_pel_candidates=0' $(ENCODE_CLI_DIR)/encode.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --frames 1 --out $(ENCODE_CLI_DIR)/out-frames1.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-17x17.yuv --width 17 --height 17 --frames 1 --out $(ENCODE_CLI_DIR)/out-17x17.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-17x17-3frames.yuv --width 17 --height 17 --frames 3 --out $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf
@@ -221,6 +224,9 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.motion.zero_mv=0' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.motion.new_mv=2' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.motion.nonzero_mv=2' $(ENCODE_CLI_DIR)/encode-3frames.log
+	grep -q 'encode.subpel.macroblocks=2' $(ENCODE_CLI_DIR)/encode-3frames.log
+	grep -q 'encode.subpel.half_pel_candidates=18' $(ENCODE_CLI_DIR)/encode-3frames.log
+	grep -q 'encode.subpel.quarter_pel_candidates=18' $(ENCODE_CLI_DIR)/encode-3frames.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-repeat.ivf
 	VP8UYA_FORCE_SCALAR=1 $(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-force-scalar.ivf
 	VP8UYA_FORCE_SIMD=1 $(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-force-simd.ivf

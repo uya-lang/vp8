@@ -146,11 +146,17 @@ export struct Vp8EncoderStats {
     zero_mv_count: u64,
     newmv_count: u64,
     nonzero_mv_count: u64,
+    subpel_macroblock_count: u64,
+    subpel_halfpel_candidate_count: u64,
+    subpel_quarterpel_candidate_count: u64,
     last_bytes_written: usize,
     last_inter_macroblock_count: usize,
     last_zero_mv_count: usize,
     last_newmv_count: usize,
     last_nonzero_mv_count: usize,
+    last_subpel_macroblock_count: usize,
+    last_subpel_halfpel_candidate_count: usize,
+    last_subpel_quarterpel_candidate_count: usize,
     last_mode_search_work_units: usize,
     last_quantizer: u8,
     last_target_bits: u32,
@@ -323,11 +329,17 @@ export fn empty_vp8_encoder_stats() Vp8EncoderStats {
         zero_mv_count: 0 as u64,
         newmv_count: 0 as u64,
         nonzero_mv_count: 0 as u64,
+        subpel_macroblock_count: 0 as u64,
+        subpel_halfpel_candidate_count: 0 as u64,
+        subpel_quarterpel_candidate_count: 0 as u64,
         last_bytes_written: 0,
         last_inter_macroblock_count: 0,
         last_zero_mv_count: 0,
         last_newmv_count: 0,
         last_nonzero_mv_count: 0,
+        last_subpel_macroblock_count: 0,
+        last_subpel_halfpel_candidate_count: 0,
+        last_subpel_quarterpel_candidate_count: 0,
         last_mode_search_work_units: 0,
         last_quantizer: 0 as u8,
         last_target_bits: 0,
@@ -741,6 +753,9 @@ export fn vp8_encoder_encode_frame(
         encoder.stats.last_zero_mv_count = 0;
         encoder.stats.last_newmv_count = 0;
         encoder.stats.last_nonzero_mv_count = 0;
+        encoder.stats.last_subpel_macroblock_count = 0;
+        encoder.stats.last_subpel_halfpel_candidate_count = 0;
+        encoder.stats.last_subpel_quarterpel_candidate_count = 0;
         encoder.stats.last_mode_search_work_units = encode_stats.mode_search_work_units;
         encoder.stats.last_quantizer = decision.quantizer;
         encoder.stats.last_target_bits = decision.target_bits;
@@ -770,10 +785,16 @@ export fn vp8_encoder_encode_frame(
     encoder.stats.zero_mv_count = encoder.stats.zero_mv_count + (inter_stats.zero_mv_count as u64);
     encoder.stats.newmv_count = encoder.stats.newmv_count + (inter_stats.newmv_count as u64);
     encoder.stats.nonzero_mv_count = encoder.stats.nonzero_mv_count + (inter_stats.nonzero_mv_count as u64);
+    encoder.stats.subpel_macroblock_count = encoder.stats.subpel_macroblock_count + (inter_stats.subpel_macroblock_count as u64);
+    encoder.stats.subpel_halfpel_candidate_count = encoder.stats.subpel_halfpel_candidate_count + (inter_stats.subpel_halfpel_candidate_count as u64);
+    encoder.stats.subpel_quarterpel_candidate_count = encoder.stats.subpel_quarterpel_candidate_count + (inter_stats.subpel_quarterpel_candidate_count as u64);
     encoder.stats.last_inter_macroblock_count = inter_macroblock_count;
     encoder.stats.last_zero_mv_count = inter_stats.zero_mv_count;
     encoder.stats.last_newmv_count = inter_stats.newmv_count;
     encoder.stats.last_nonzero_mv_count = inter_stats.nonzero_mv_count;
+    encoder.stats.last_subpel_macroblock_count = inter_stats.subpel_macroblock_count;
+    encoder.stats.last_subpel_halfpel_candidate_count = inter_stats.subpel_halfpel_candidate_count;
+    encoder.stats.last_subpel_quarterpel_candidate_count = inter_stats.subpel_quarterpel_candidate_count;
     encoder.stats.last_mode_search_work_units = inter_stats.mode_search_work_units;
     encoder.stats.last_quantizer = decision.quantizer;
     encoder.stats.last_target_bits = decision.target_bits;
