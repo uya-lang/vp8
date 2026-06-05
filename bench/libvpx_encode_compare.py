@@ -2546,6 +2546,26 @@ def read_encode_elapsed_ns(sample: Mapping[str, Any], runs_dir: Path, encoder_la
     }
 
 
+def read_encode_command(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> list[str]:
+    try:
+        path = sample_encode_metadata_path(sample, runs_dir, encoder_label)
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    command = data.get("command")
+    if not isinstance(command, list):
+        return []
+    return [str(part) for part in command]
+
+
+def build_vpxdec_command(vpxdec_path: str | None, input_path: Path, output_path: Path) -> list[str]:
+    if not vpxdec_path:
+        return []
+    return [vpxdec_path, "--rawvideo", "-o", str(output_path), str(input_path)]
+
+
 def write_results_ndjson_payload_bits(
     *,
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
@@ -2574,6 +2594,9 @@ def write_results_ndjson_payload_bits(
     tool_report = probe_tools()
     vpxenc_version = tool_report.get("vpxenc_version") or ""
     vpxdec_version = tool_report.get("vpxdec_version") or ""
+    vpxdec_path = tool_report.get("vpxdec", {}).get("path")
+    if not isinstance(vpxdec_path, str):
+        vpxdec_path = None
     results: list[dict[str, Any]] = []
     for sample in selected:
         sample_name = str(sample.get("name", ""))
@@ -2661,6 +2684,18 @@ def write_results_ndjson_payload_bits(
             "libvpx_ivf_path": str(libvpx_path),
             "vpxenc_version": vpxenc_version,
             "vpxdec_version": vpxdec_version,
+            "vp8uya_command": read_encode_command(sample, runs_dir, "vp8uya"),
+            "libvpx_command": read_encode_command(sample, runs_dir, "libvpx"),
+            "vp8uya_vpxdec_command": build_vpxdec_command(
+                vpxdec_path,
+                vp8uya_path,
+                sample_decoded_i420_path(sample, runs_dir, "vp8uya"),
+            ),
+            "libvpx_vpxdec_command": build_vpxdec_command(
+                vpxdec_path,
+                libvpx_path,
+                sample_decoded_i420_path(sample, runs_dir, "libvpx"),
+            ),
             "vp8uya_payload_bits": vp8uya_payload["payload_bits"],
             "libvpx_payload_bits": libvpx_payload["payload_bits"],
             "vp8uya_bits_per_pixel": vp8uya_bpp,
@@ -2711,6 +2746,7 @@ def write_results_ndjson_payload_bits(
             "passed": len(failure_reasons) == 0,
             "failure_reasons": failure_reasons,
         })
+        result = evaluate_threshold_record(result)
         results.append(result)
 
     try:
@@ -2729,7 +2765,10 @@ def write_results_ndjson_payload_bits(
         }
 
     return {
-        "ok": all(result["passed"] for result in results),
+        "ok": True,
+        "passed": all(result["passed"] for result in results),
+        "passed_count": sum(1 for result in results if result["passed"]),
+        "failed_count": sum(1 for result in results if not result["passed"]),
         "manifest_path": str(manifest_path),
         "runs_dir": str(runs_dir),
         "results_ndjson": str(results_path),

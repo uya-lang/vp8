@@ -71,7 +71,7 @@ LOCAL_VPXDEC := $(BUILD_DIR)/deps/vpx-tools-root/usr/bin/vpxdec
 VPXENC ?= $(shell if command -v vpxenc >/dev/null 2>&1; then command -v vpxenc; elif test -x "$(LOCAL_VPXENC)"; then printf '%s' "$(LOCAL_VPXENC)"; fi)
 VPXDEC ?= $(shell if command -v vpxdec >/dev/null 2>&1; then command -v vpxdec; elif test -x "$(LOCAL_VPXDEC)"; then printf '%s' "$(LOCAL_VPXDEC)"; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff fetch-vpx-tools fetch-real-y4m test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-libvpx-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff fetch-vpx-tools fetch-real-y4m test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff test-libvpx-encode-threshold bench bench-decode bench-encode bench-libvpx-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -157,6 +157,9 @@ bench-libvpx-encode: build
 	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --write-results-ndjson
 	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --write-summary-json
 	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --write-markdown-report
+
+test-libvpx-encode-threshold: bench-libvpx-encode
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --threshold
 
 test-cli-doc: build
 	python3 $(CLI_DOC_SCRIPT) $(CLI_DOC) $(BIN)

@@ -215,8 +215,9 @@ Date: 2026-06-05
   - 验收命令：`make fetch-real-y4m`。
 - [x] 新增 `bench-libvpx-encode` 目标。
   - 验收命令：`make bench-libvpx-encode`。
-- [ ] 新增 `test-libvpx-encode-threshold` 目标。
+- [x] 新增 `test-libvpx-encode-threshold` 目标。
   - 验收命令：`make test-libvpx-encode-threshold`。
+  - 验证：目标已运行；benchmark 生成成功，最终 `--threshold` 按设计返回非 0，当前 4 个真实样本因码率、`PSNR-all`、fps 硬阈值未达标被拦截，达标由后续质量/性能任务处理。
 - [ ] 确保普通 `make test` 不下载真实样本。
   - 验收命令：`make -n test` 不出现 `fetch-real-y4m`。
 - [ ] 增加可选 CI job。

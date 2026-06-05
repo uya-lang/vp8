@@ -771,11 +771,17 @@ def assert_results_ndjson_records_payload_bits() -> None:
         write_i420_constant(runs_dir / "unit_qcif.vp8uya.decoded.i420", 16, 16, 2, 1, 2, 3)
         write_i420_constant(runs_dir / "unit_qcif.libvpx.decoded.i420", 16, 16, 2, 1, 1, 1)
         (runs_dir / "unit_qcif.vp8uya.encode.json").write_text(
-            json.dumps({"vp8uya_encode_elapsed_ns": 1234}),
+            json.dumps({
+                "command": ["vp8uya", "encode", "unit_qcif.i420"],
+                "vp8uya_encode_elapsed_ns": 1234,
+            }),
             encoding="utf-8",
         )
         (runs_dir / "unit_qcif.libvpx.encode.json").write_text(
-            json.dumps({"libvpx_encode_elapsed_ns": 2345}),
+            json.dumps({
+                "command": ["vpxenc", "--best", "unit_qcif.i420"],
+                "libvpx_encode_elapsed_ns": 2345,
+            }),
             encoding="utf-8",
         )
         tools_dir = root / "tools"
@@ -812,6 +818,7 @@ def assert_results_ndjson_records_payload_bits() -> None:
             raise AssertionError(completed.stdout)
         status = json.loads(completed.stdout)
         assert status["ok"] is True
+        assert status["passed"] is False
         assert status["results_ndjson"] == str(results_path)
 
         lines = results_path.read_text(encoding="utf-8").splitlines()
@@ -822,6 +829,12 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert result["libvpx_payload_bits"] == 120
         assert result["vpxenc_version"] == "fake vpxenc"
         assert result["vpxdec_version"] == "fake vpxdec"
+        assert result["vp8uya_command"] == ["vp8uya", "encode", "unit_qcif.i420"]
+        assert result["libvpx_command"] == ["vpxenc", "--best", "unit_qcif.i420"]
+        assert result["vp8uya_vpxdec_command"][0] == str(tools_dir / "vpxdec")
+        assert result["libvpx_vpxdec_command"][0] == str(tools_dir / "vpxdec")
+        assert result["passed"] is False
+        assert any("bitrate_ratio" in reason for reason in result["failure_reasons"])
         assert result["vp8uya_bits_per_pixel"] == 0.46875
         assert result["libvpx_bits_per_pixel"] == 0.234375
         assert result["vp8uya_encode_elapsed_ns"] == 1234
