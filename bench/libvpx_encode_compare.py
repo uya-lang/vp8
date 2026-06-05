@@ -1663,6 +1663,13 @@ def read_ivf_payload_bits(path: Path) -> dict[str, Any]:
     }
 
 
+def bits_per_pixel(payload_bits: int | float, width: int, height: int, frames: int) -> float:
+    denominator = width * height * frames
+    if denominator <= 0:
+        raise ValueError("bits per pixel denominator must be positive")
+    return float(payload_bits) / float(denominator)
+
+
 def write_results_ndjson_payload_bits(
     *,
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
@@ -1720,11 +1727,31 @@ def write_results_ndjson_payload_bits(
         if not libvpx_payload["ok"]:
             failure_reasons.append(f"libvpx: {libvpx_payload['error']}")
 
+        try:
+            vp8uya_bpp = bits_per_pixel(
+                vp8uya_payload["payload_bits"],
+                int(result["width"]),
+                int(result["height"]),
+                int(result["frames"]),
+            )
+            libvpx_bpp = bits_per_pixel(
+                libvpx_payload["payload_bits"],
+                int(result["width"]),
+                int(result["height"]),
+                int(result["frames"]),
+            )
+        except (TypeError, ValueError) as exc:
+            vp8uya_bpp = 0.0
+            libvpx_bpp = 0.0
+            failure_reasons.append(str(exc))
+
         result.update({
             "vp8uya_ivf_path": str(vp8uya_path),
             "libvpx_ivf_path": str(libvpx_path),
             "vp8uya_payload_bits": vp8uya_payload["payload_bits"],
             "libvpx_payload_bits": libvpx_payload["payload_bits"],
+            "vp8uya_bits_per_pixel": vp8uya_bpp,
+            "libvpx_bits_per_pixel": libvpx_bpp,
             "vp8uya_payload_bytes": vp8uya_payload["payload_bytes"],
             "libvpx_payload_bytes": libvpx_payload["payload_bytes"],
             "vp8uya_ivf_frame_count": vp8uya_payload["frame_count"],

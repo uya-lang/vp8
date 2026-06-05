@@ -678,6 +678,8 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert result["sample"] == "unit_qcif"
         assert result["vp8uya_payload_bits"] == 240
         assert result["libvpx_payload_bits"] == 120
+        assert result["vp8uya_bits_per_pixel"] == 0.46875
+        assert result["libvpx_bits_per_pixel"] == 0.234375
 
 
 def assert_ssim_is_record_only(module: object) -> None:
