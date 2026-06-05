@@ -56,6 +56,11 @@ REQUIRED_RESULT_FIELDS = (
     "failure_reasons",
 )
 
+REQUIRED_SUMMARY_FIELDS = (
+    "vp8uya_bits_per_pixel",
+    "libvpx_bits_per_pixel",
+)
+
 HARD_THRESHOLD_FIELDS = (
     "bitrate_ratio",
     "psnr_all_delta_db",
@@ -662,6 +667,7 @@ def metric_contract() -> dict[str, Any]:
     return {
         "libvpx_preset": LIBVPX_PRESET,
         "required_result_fields": list(REQUIRED_RESULT_FIELDS),
+        "required_summary_fields": list(REQUIRED_SUMMARY_FIELDS),
         "hard_threshold_fields": list(HARD_THRESHOLD_FIELDS),
         "thresholds": dict(THRESHOLDS),
     }

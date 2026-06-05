@@ -25,6 +25,11 @@ REQUIRED_FIELDS = {
     "libvpx_fps",
 }
 
+REQUIRED_SUMMARY_FIELDS = {
+    "vp8uya_bits_per_pixel",
+    "libvpx_bits_per_pixel",
+}
+
 
 def load_module():
     spec = importlib.util.spec_from_file_location("libvpx_encode_compare", SCRIPT_PATH)
@@ -40,6 +45,11 @@ def assert_contract(contract: dict[str, object]) -> None:
     missing = REQUIRED_FIELDS - fields
     if missing:
         raise AssertionError(f"missing required metric fields: {sorted(missing)}")
+
+    summary_fields = set(contract["required_summary_fields"])
+    missing_summary = REQUIRED_SUMMARY_FIELDS - summary_fields
+    if missing_summary:
+        raise AssertionError(f"missing required summary fields: {sorted(missing_summary)}")
 
     thresholds = contract["thresholds"]
     assert thresholds["max_bitrate_ratio"] == 1.10

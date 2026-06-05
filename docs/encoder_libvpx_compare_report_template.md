@@ -31,6 +31,13 @@
 `SSIM-all` is recorded for diagnosis only and does not decide hard pass/fail in
 the first report version.
 
+## Summary JSON Contract
+
+Future `summary.json` output records bitrate fields with these exact names:
+
+- `vp8uya_bits_per_pixel`
+- `libvpx_bits_per_pixel`
+
 ## Sample Results
 
 | Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya fps | libvpx fps | Passed |

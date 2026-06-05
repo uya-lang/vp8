@@ -259,6 +259,9 @@ docs/encoder_libvpx_compare_report_template.md
 - sample count
 - passed count
 - failed count
+- aggregate bitrate fields:
+  - `vp8uya_bits_per_pixel`
+  - `libvpx_bits_per_pixel`
 
 `docs/encoder_libvpx_compare_report.md` 记录：
 
