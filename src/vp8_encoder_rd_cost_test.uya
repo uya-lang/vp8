@@ -5,6 +5,8 @@ use vp8.encoder.rd_cost.EncoderRdCostModel;
 use vp8.encoder.rd_cost.encoder_rd_cost_q8;
 use vp8.encoder.rd_cost.encoder_rd_is_better;
 use vp8.encoder.rd_cost.encoder_rd_score_q8;
+use vp8.encoder.rd_cost.encoder_rd_weight_chroma_distortion;
+use vp8.encoder.rd_cost.encoder_rd_weighted_luma_chroma_distortion;
 use vp8.encoder.rd_cost.make_encoder_quantizer_rd_cost_model;
 use vp8.encoder.rd_cost.make_encoder_rd_cost_model;
 
@@ -48,6 +50,11 @@ test "RD cost model can derive lambda from quantizer" {
 
     const q127: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(127 as u8);
     try assert_eq_i32(q127.lambda_q8 as i32, 572);
+}
+
+test "RD cost weights chroma distortion before combining with luma" {
+    try assert_eq_i32((try encoder_rd_weight_chroma_distortion(64)) as i32, 128);
+    try assert_eq_i32((try encoder_rd_weighted_luma_chroma_distortion(100, 64)) as i32, 228);
 }
 
 test "RD cost comparison uses total score" {

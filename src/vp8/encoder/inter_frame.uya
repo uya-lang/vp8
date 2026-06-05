@@ -63,6 +63,7 @@ use vp8.encoder.quant.forward_walsh_hadamard_y2_4x4;
 use vp8.encoder.quant.quantize_block_4x4;
 use vp8.encoder.quant.tokenize_quantized_block_4x4;
 use vp8.encoder.rd_cost.encoder_rd_score_q8;
+use vp8.encoder.rd_cost.encoder_rd_weighted_luma_chroma_distortion;
 use vp8.encoder.rd_cost.make_encoder_quantizer_rd_cost_model;
 use vp8.encoder.rd_cost.EncoderRdCostModel;
 use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
@@ -535,7 +536,7 @@ fn encoder_inter_decide_intra_macroblock(
         encoder_inter_load_left_edge(&frame.v.data[v_offset - 1] as &byte, frame.v.stride, 8, &v_left[0] as &byte);
     }
     const intra_uv: UvModeSearchResult = try search_uv_mode_with_kernel_table(kernels, &frame.u.data[u_offset] as &byte, frame.u.stride, &frame.v.data[v_offset] as &byte, frame.v.stride, u_above, v_above, has_above, &u_left[0] as &byte, &v_left[0] as &byte, has_left, u_above_left, v_above_left);
-    const distortion: u32 = intra_y.distortion + intra_uv.distortion;
+    const distortion: u32 = try encoder_rd_weighted_luma_chroma_distortion(intra_y.distortion, intra_uv.distortion);
 
     return EncoderInterMacroblockDecision{
         ref_frame: VP8_REF_CURRENT,

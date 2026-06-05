@@ -14,6 +14,7 @@ use vp8.encoder.mv_cost.inter_mv_mode_cost_q8;
 use vp8.encoder.mv_cost.mv_delta_cost_q8;
 use vp8.encoder.rd_cost.encoder_rd_distortion_score_q8;
 use vp8.encoder.rd_cost.encoder_rd_score_q8;
+use vp8.encoder.rd_cost.encoder_rd_weighted_luma_chroma_distortion;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.mode.parse.VP8_INTER_MV_MODE_NEW;
 use vp8.mode.parse.VP8_INTER_MV_MODE_ZERO;
@@ -225,7 +226,7 @@ export fn decide_last_frame_inter_or_intra(
     candidates_evaluated = candidates_evaluated + refined.candidates_evaluated;
     border_extension_count = border_extension_count + refined.border_extension_count;
 
-    const intra_score_q8: u32 = try encoder_rd_distortion_score_q8(intra_y.distortion);
+    const intra_score_q8: u32 = try encoder_rd_distortion_score_q8(try encoder_rd_weighted_luma_chroma_distortion(intra_y.distortion, intra_uv.distortion));
     var inter_mv_mode: byte = VP8_INTER_MV_MODE_ZERO;
     var inter_mv_x: i16 = 0 as i16;
     var inter_mv_y: i16 = 0 as i16;

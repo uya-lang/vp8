@@ -239,8 +239,9 @@ Date: 2026-06-05
   - 验收：静态样本 inter 占优，复杂运动样本存在合理 intra refresh。
 - [x] 接入 skip decision。
   - 验收：`akiyo_qcif` 的 skip ratio 高于 `mobile_cif`。
-- [ ] 调整 chroma distortion 权重。
+- [f] 调整 chroma distortion 权重。
   - 验收：PSNR-U/V 不出现明显退化，`PSNR-all` 达到硬阈值。
+  - 失败原因：已接入 2x chroma-weighted distortion 到 integer-pel motion search 和 inter/intra score，并通过 `vp8_encoder_rd_cost_test`、`vp8_encoder_motion_search_test`、`vp8_encoder_mode_decision_test`、`vp8_encoder_inter_frame_test`；但 `make bench-libvpx-encode UYA=/media/winger/_dde_home/winger/uya/gui-uya/uya/bin/uya` 后 `python3 bench/libvpx_encode_compare.py --threshold` 仍返回 2，4 个真实样本全部失败。当前 `summary.json` 为 `vp8uya_psnr_all_db=13.697338889558004`、`libvpx_psnr_all_db=38.42188201151545`、`vp8uya_bits_per_pixel=1.141300373526936`、`libvpx_bits_per_pixel=0.26137580229377105`，差距已超出 chroma 权重可修复范围，需后续 luma/RD/码率/性能任务继续追赶。
 
 ## Phase 11: 码率与 RD 优化
 

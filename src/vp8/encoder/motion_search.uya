@@ -4,11 +4,13 @@ use vp8.common.plane.Plane;
 use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.YuvPlaneView;
 use vp8.encoder.context.validate_yuv_frame_view;
+use vp8.encoder.rd_cost.encoder_rd_weighted_luma_chroma_distortion;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.encoder_reference_last;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.kernel_table_predict_luma_subpixel_16x16;
 use vp8.kernels.dispatch.kernel_table_sad_16x16;
+use vp8.kernels.dispatch.kernel_table_sad_8x8;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
 
 error ErrEncoderMotionSearchInvalidGeometry;
@@ -157,6 +159,59 @@ fn encoder_motion_search_sad_y16(kernels: &KernelFunctionTable, src: &YuvFrameVi
     }
 
     return try encoder_motion_search_sad_y16_clamped(src, reference, mb_x, mb_y, dx, dy);
+}
+
+fn encoder_motion_search_sad_uv8_clamped(src: &YuvPlaneView, reference: &Plane, src_x: i32, src_y: i32, ref_x: i32, ref_y: i32) !u32 {
+    const ref_index: usize = try encoder_motion_search_block_data_index(reference, ref_x, ref_y, 8, 8);
+
+    var distortion: u32 = 0;
+    var row: usize = 0;
+    while row < 8 {
+        const ref_base: usize = ref_index + (row * reference.stride);
+        var col: usize = 0;
+        while col < 8 {
+            const src_value: byte = encoder_motion_search_source_sample_clamped(src, src_x + (col as i32), src_y + (row as i32));
+            const ref_value: byte = reference.data[ref_base + col];
+            distortion = distortion + encoder_motion_search_abs_diff_u8(src_value, ref_value);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return distortion;
+}
+
+fn encoder_motion_search_sad_uv8(kernels: &KernelFunctionTable, src: &YuvPlaneView, reference: &Plane, src_x: i32, src_y: i32, ref_x: i32, ref_y: i32) !u32 {
+    const ref_index: usize = try encoder_motion_search_block_data_index(reference, ref_x, ref_y, 8, 8);
+    const block_end_x: usize = (src_x as usize) + (8 as usize);
+    const block_end_y: usize = (src_y as usize) + (8 as usize);
+
+    if src_x >= 0 && src_y >= 0 && block_end_x <= src.width && block_end_y <= src.height {
+        const src_index: usize = ((src_y as usize) * src.stride) + (src_x as usize);
+        return try kernel_table_sad_8x8(
+            kernels,
+            &src.data[src_index] as &byte,
+            src.stride,
+            &reference.data[ref_index] as &byte,
+            reference.stride
+        );
+    }
+
+    return try encoder_motion_search_sad_uv8_clamped(src, reference, src_x, src_y, ref_x, ref_y);
+}
+
+fn encoder_motion_search_sad_uv8x2(kernels: &KernelFunctionTable, src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, dx: i32, dy: i32) !u32 {
+    const src_x: i32 = (mb_x * (8 as usize)) as i32;
+    const src_y: i32 = (mb_y * (8 as usize)) as i32;
+    const ref_x: i32 = src_x + (dx / 2);
+    const ref_y: i32 = src_y + (dy / 2);
+    return (try encoder_motion_search_sad_uv8(kernels, &src.u, &reference.u.plane, src_x, src_y, ref_x, ref_y)) +
+        (try encoder_motion_search_sad_uv8(kernels, &src.v, &reference.v.plane, src_x, src_y, ref_x, ref_y));
+}
+
+fn encoder_motion_search_sad_yuv_weighted(kernels: &KernelFunctionTable, src: &YuvFrameView, reference: &FrameBuffer, mb_x: usize, mb_y: usize, dx: i32, dy: i32) !u32 {
+    const luma_distortion: u32 = try encoder_motion_search_sad_y16(kernels, src, reference, mb_x, mb_y, dx, dy);
+    const chroma_distortion: u32 = try encoder_motion_search_sad_uv8x2(kernels, src, reference, mb_x, mb_y, dx, dy);
+    return try encoder_rd_weighted_luma_chroma_distortion(luma_distortion, chroma_distortion);
 }
 
 fn encoder_motion_search_floor_div8(value: i32) i32 {
@@ -328,7 +383,7 @@ export fn search_last_frame_integer_pel_with_kernel_table(refs: &EncoderReferenc
         var dx: i32 = 0 - radius;
         while dx <= radius {
             var valid: bool = true;
-            const distortion: u32 = encoder_motion_search_sad_y16(kernels, frame, reference, mb_x, mb_y, dx, dy) catch {
+            const distortion: u32 = encoder_motion_search_sad_yuv_weighted(kernels, frame, reference, mb_x, mb_y, dx, dy) catch {
                 valid = false;
                 0 as u32;
             };

@@ -2,6 +2,7 @@ error ErrEncoderRdCostInvalidInput;
 error ErrEncoderRdCostOverflow;
 
 const ENCODER_RD_COST_U32_MAX: u64 = 4294967295 as u64;
+export const ENCODER_RD_CHROMA_DISTORTION_WEIGHT_Q8: u32 = 512 as u32;
 
 export struct EncoderRdCostModel {
     lambda_q8: u32
@@ -54,6 +55,19 @@ fn encoder_rd_checked_add_q8(left: u32, right: u32) !u32 {
         return error.ErrEncoderRdCostOverflow;
     }
     return value as u32;
+}
+
+export fn encoder_rd_weight_chroma_distortion(chroma_distortion: u32) !u32 {
+    const value: u64 = ((chroma_distortion as u64) * (ENCODER_RD_CHROMA_DISTORTION_WEIGHT_Q8 as u64)) + (128 as u64);
+    const weighted: u64 = value / (256 as u64);
+    if weighted > ENCODER_RD_COST_U32_MAX {
+        return error.ErrEncoderRdCostOverflow;
+    }
+    return weighted as u32;
+}
+
+export fn encoder_rd_weighted_luma_chroma_distortion(luma_distortion: u32, chroma_distortion: u32) !u32 {
+    return try encoder_rd_checked_add_q8(luma_distortion, try encoder_rd_weight_chroma_distortion(chroma_distortion));
 }
 
 export fn encoder_rd_cost_q8(distortion: u32, rate_cost_q8: u32, lambda_q8: u32) !EncoderRdCost {

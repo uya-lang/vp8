@@ -117,6 +117,76 @@ test "integer-pel motion search tie prefers zero motion" {
     try assert_eq_i32(result.candidates_evaluated as i32, 25);
 }
 
+test "integer-pel motion search uses chroma distortion to break luma ties" {
+    var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(32, 32, 32, 32);
+    defer free_encoder_reference_frame_pool(&refs);
+
+    const seed: &FrameBuffer = try encoder_reference_current(&refs);
+    var row: usize = 0;
+    while row < seed.height {
+        var col: usize = 0;
+        while col < seed.width {
+            seed.y.plane.origin[(row * seed.y.plane.stride) + col] = 77 as byte;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    row = 0;
+    while row < seed.u.plane.height {
+        var col_uv: usize = 0;
+        while col_uv < seed.u.plane.width {
+            seed.u.plane.origin[(row * seed.u.plane.stride) + col_uv] = 20 as byte;
+            seed.v.plane.origin[(row * seed.v.plane.stride) + col_uv] = 30 as byte;
+            col_uv = col_uv + 1;
+        }
+        row = row + 1;
+    }
+    row = 8;
+    while row < 16 {
+        var col_match: usize = 0;
+        while col_match < 8 {
+            seed.u.plane.origin[(row * seed.u.plane.stride) + col_match] = 90 as byte;
+            seed.v.plane.origin[(row * seed.v.plane.stride) + col_match] = 110 as byte;
+            col_match = col_match + 1;
+        }
+        row = row + 1;
+    }
+    try encoder_reference_refresh(&refs, true, false, false);
+    try encoder_reference_begin_frame(&refs);
+
+    var input: [byte: 1536] = [];
+    var index: usize = 0;
+    while index < 1024 {
+        input[index] = 77 as byte;
+        index = index + 1;
+    }
+    while index < 1280 {
+        input[index] = 20 as byte;
+        index = index + 1;
+    }
+    while index < 1536 {
+        input[index] = 30 as byte;
+        index = index + 1;
+    }
+    row = 8;
+    while row < 16 {
+        var col_current: usize = 8;
+        while col_current < 16 {
+            input[1024 + (row * 16) + col_current] = 90 as byte;
+            input[1280 + (row * 16) + col_current] = 110 as byte;
+            col_current = col_current + 1;
+        }
+        row = row + 1;
+    }
+
+    const frame: YuvFrameView = try make_i420_frame_view(&input[0] as &byte, 1536, 32, 32);
+    const result: IntegerPelMotionSearchResult = try search_last_frame_integer_pel(&refs, &frame, 1, 1, 16);
+
+    try assert_eq_i32(result.mv_x as i32, -128);
+    try assert_eq_i32(result.mv_y as i32, 0);
+    try assert_eq_i32(result.distortion as i32, 0);
+}
+
 test "integer-pel motion search can use forced SIMD SAD kernel" {
     var refs: EncoderReferenceFramePool = try allocate_encoder_reference_frame_pool(64, 64, 32, 32);
     defer free_encoder_reference_frame_pool(&refs);
