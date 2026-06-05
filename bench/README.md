@@ -25,6 +25,13 @@ forced-SIMD 达到 speedup 阈值。使用 `make bench-motion-search-smoke`
 `make bench-1080p-smoke` 生成并测试一个合成的 1920x1080 样本，该样本使用
 四个解码器工作线程 scratch arena。
 
+`libvpx_encode_compare.py` 负责真实样本 encoder 对标。默认对标 libvpx
+`vpxenc --best`；传 `--quantizer-ladder` 会把所选样本展开为
+`Q=16/24/32/40/48` 五档，分别运行 `vp8uya encode --quantizer Q` 和
+`vpxenc --end-usage=q --cq-level=Q --min-q=Q --max-q=Q`，并在
+`results.ndjson` 中为每档输出 bpp、`PSNR-all` 和 fps，在 `summary.json`
+中输出 `quantizer_ladder` 与 `q_ladder_summary`。
+
 `kernel_thresholds.json` 定义未来 SIMD kernel 基准测试的默认启用门槛。
 `make check-kernel-thresholds` 用于校验该表。加速比指标为
 `scalar_median_ns / simd_median_ns`；内存受限 kernel 必须达到 1.10x，

@@ -245,7 +245,7 @@ Date: 2026-06-05
 
 ## Phase 11: 码率与 RD 优化
 
-- [ ] 建立 Q ladder 对标。
+- [x] 建立 Q ladder 对标。
   - 验收：Q=16/24/32/40/48 均输出 bpp、`PSNR-all`、fps。
 - [ ] 拟合 lambda-Q 表。
   - 产物：lambda table 文档或 JSON。

@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "bench" / "libvpx_encode_compare.py"
 
 REQUIRED_FIELDS = {
+    "quantizer",
     "vp8uya_payload_bits",
     "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
@@ -62,6 +63,8 @@ REQUIRED_SUMMARY_FIELDS = {
     "vp8uya_subpel_distribution",
     "vpxenc_version",
     "vpxdec_version",
+    "quantizer_ladder",
+    "q_ladder_summary",
 }
 
 
@@ -99,6 +102,7 @@ def make_result(**overrides: object) -> dict[str, object]:
         "height": 16,
         "frames": 1,
         "fps": "30/1",
+        "quantizer": None,
         "vp8uya_bits_per_pixel": 1.0,
         "libvpx_bits_per_pixel": 1.0,
         "vp8uya_mode_distribution": {
@@ -429,6 +433,37 @@ def assert_repeats_dry_run_recorded() -> None:
     assert report["repeat_statistic"] == "median"
 
 
+def assert_quantizer_ladder_dry_run_expands_samples() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--group",
+            "qcif",
+            "--frames",
+            "30",
+            "--quantizer-ladder",
+            "--dry-run",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stdout)
+    report = json.loads(completed.stdout)
+    assert report["quantizer_ladder"] == [16, 24, 32, 40, 48]
+    assert report["sample_count"] == 15
+    first_sample = report["samples"][0]
+    assert first_sample["name"] == "akiyo_qcif"
+    assert first_sample["artifact_name"] == "akiyo_qcif.q16"
+    assert first_sample["quantizer"] == 16
+    assert first_sample["frames"] == 30
+    assert [sample["quantizer"] for sample in report["samples"][:5]] == [16, 24, 32, 40, 48]
+
+
 def assert_vp8uya_encode_generates_ivf() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -584,6 +619,115 @@ def assert_libvpx_encode_generates_ivf() -> None:
         assert "--best" in command
         assert "--ivf" in command
         assert "--limit=2" in command
+
+
+def assert_quantizer_ladder_encode_generates_per_q_artifacts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest_path = root / "manifest.json"
+        i420_dir = root / "fixtures"
+        runs_dir = root / "runs"
+        fake_vp8uya = root / "vp8uya"
+        fake_vpxenc = root / "vpxenc"
+        command_log = root / "vp8uya.args"
+        i420_dir.mkdir()
+        (i420_dir / "unit_qcif.i420").write_bytes(bytes(384 * 2))
+        manifest_path.write_text(
+            json.dumps({
+                "samples": [{
+                    "name": "unit_qcif",
+                    "url": "https://example.test/unit_qcif.y4m",
+                    "width": 16,
+                    "height": 16,
+                    "frames": 2,
+                    "fps": "30/1",
+                    "sha256": "0" * 64,
+                    "groups": ["qcif"],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        write_fake_vp8uya_encoder(fake_vp8uya, command_log)
+        write_fake_vpxenc_encoder(fake_vpxenc)
+
+        vp8uya = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--i420-cache-dir",
+                str(i420_dir),
+                "--runs-dir",
+                str(runs_dir),
+                "--vp8uya-bin",
+                str(fake_vp8uya),
+                "--group",
+                "qcif",
+                "--quantizer-ladder",
+                "--encode-vp8uya",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if vp8uya.returncode != 0:
+            raise AssertionError(vp8uya.stdout)
+        vp8uya_report = json.loads(vp8uya.stdout)
+        assert vp8uya_report["ok"] is True
+        assert vp8uya_report["quantizer_ladder"] == [16, 24, 32, 40, 48]
+        assert len(vp8uya_report["results"]) == 5
+        first_vp8uya = vp8uya_report["results"][0]
+        assert first_vp8uya["sample"] == "unit_qcif"
+        assert first_vp8uya["artifact_name"] == "unit_qcif.q16"
+        assert first_vp8uya["quantizer"] == 16
+        assert first_vp8uya["output_path"] == str(runs_dir / "unit_qcif.q16.vp8uya.ivf")
+        assert "--quantizer" in first_vp8uya["vp8uya_command"]
+        assert "16" in first_vp8uya["vp8uya_command"]
+        assert (runs_dir / "unit_qcif.q48.vp8uya.ivf").exists()
+        assert (runs_dir / "unit_qcif.q48.vp8uya.encode.json").exists()
+
+        env = dict(os.environ)
+        env["VPXENC"] = str(fake_vpxenc)
+        libvpx = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--i420-cache-dir",
+                str(i420_dir),
+                "--runs-dir",
+                str(runs_dir),
+                "--group",
+                "qcif",
+                "--quantizer-ladder",
+                "--encode-libvpx",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if libvpx.returncode != 0:
+            raise AssertionError(libvpx.stdout)
+        libvpx_report = json.loads(libvpx.stdout)
+        first_libvpx = libvpx_report["results"][0]
+        assert libvpx_report["ok"] is True
+        assert first_libvpx["sample"] == "unit_qcif"
+        assert first_libvpx["artifact_name"] == "unit_qcif.q16"
+        assert first_libvpx["quantizer"] == 16
+        assert first_libvpx["output_path"] == str(runs_dir / "unit_qcif.q16.libvpx.ivf")
+        assert "--end-usage=q" in first_libvpx["libvpx_command"]
+        assert "--cq-level=16" in first_libvpx["libvpx_command"]
+        assert "--min-q=16" in first_libvpx["libvpx_command"]
+        assert "--max-q=16" in first_libvpx["libvpx_command"]
+        assert (runs_dir / "unit_qcif.q48.libvpx.ivf").exists()
+        assert (runs_dir / "unit_qcif.q48.libvpx.encode.json").exists()
 
 
 def assert_vpxdec_decodes_vp8uya_output() -> None:
@@ -986,6 +1130,127 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert math.isclose(result["libvpx_ssim_all"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
 
 
+def assert_results_ndjson_records_quantizer_ladder_metrics() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest_path = root / "manifest.json"
+        i420_dir = root / "fixtures"
+        runs_dir = root / "runs"
+        results_path = root / "results.ndjson"
+        i420_dir.mkdir()
+        runs_dir.mkdir()
+        manifest_path.write_text(
+            json.dumps({
+                "samples": [{
+                    "name": "unit_qcif",
+                    "url": "https://example.test/unit_qcif.y4m",
+                    "width": 16,
+                    "height": 16,
+                    "frames": 2,
+                    "fps": "30/1",
+                    "sha256": "0" * 64,
+                    "groups": ["qcif"],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        write_i420_constant(i420_dir / "unit_qcif.i420", 16, 16, 2, 0, 0, 0)
+        for quantizer in (16, 24, 32, 40, 48):
+            artifact = f"unit_qcif.q{quantizer}"
+            write_test_ivf(runs_dir / f"{artifact}.vp8uya.ivf", [quantizer, quantizer])
+            write_test_ivf(runs_dir / f"{artifact}.libvpx.ivf", [quantizer + 2, quantizer + 2])
+            write_i420_constant(runs_dir / f"{artifact}.vp8uya.decoded.i420", 16, 16, 2, 1, 2, 3)
+            write_i420_constant(runs_dir / f"{artifact}.libvpx.decoded.i420", 16, 16, 2, 1, 1, 1)
+            (runs_dir / f"{artifact}.vp8uya.encode.json").write_text(
+                json.dumps({
+                    "command": ["vp8uya", "encode", "unit_qcif.i420", "--quantizer", str(quantizer)],
+                    "vp8uya_mode_distribution": {
+                        "encoded_frame_count": 2,
+                        "key_frame_count": 1,
+                        "inter_frame_count": 1,
+                    },
+                    "vp8uya_macroblock_mode_distribution": {
+                        "macroblock_count": 2,
+                        "inter_macroblock_count": 1,
+                        "intra_macroblock_count": 1,
+                    },
+                    "vp8uya_skip_distribution": {
+                        "macroblock_count": 2,
+                        "skip_macroblock_count": 1,
+                        "skip_ratio_ppm": 500000,
+                    },
+                    "vp8uya_motion_distribution": {
+                        "macroblock_count": 2,
+                        "zero_mv_count": 1,
+                        "new_mv_count": 1,
+                        "nonzero_mv_count": 1,
+                    },
+                    "vp8uya_subpel_distribution": {
+                        "macroblock_count": 2,
+                        "half_pel_candidate_count": 18,
+                        "quarter_pel_candidate_count": 18,
+                    },
+                    "vp8uya_encode_elapsed_ns": 1000 + quantizer,
+                }),
+                encoding="utf-8",
+            )
+            (runs_dir / f"{artifact}.libvpx.encode.json").write_text(
+                json.dumps({
+                    "command": ["vpxenc", "--best", f"--cq-level={quantizer}", "unit_qcif.i420"],
+                    "libvpx_encode_elapsed_ns": 2000 + quantizer,
+                }),
+                encoding="utf-8",
+            )
+        tools_dir = root / "tools"
+        tools_dir.mkdir()
+        write_fake_vpxenc_encoder(tools_dir / "vpxenc")
+        write_fake_vpxdec_decoder(tools_dir / "vpxdec")
+        env = dict(os.environ)
+        env["PATH"] = str(tools_dir) + os.pathsep + env.get("PATH", "")
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--runs-dir",
+                str(runs_dir),
+                "--group",
+                "qcif",
+                "--i420-cache-dir",
+                str(i420_dir),
+                "--quantizer-ladder",
+                "--write-results-ndjson",
+                "--results-ndjson",
+                str(results_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        status = json.loads(completed.stdout)
+        assert status["ok"] is True
+        assert status["quantizer_ladder"] == [16, 24, 32, 40, 48]
+        assert status["sample_count"] == 5
+
+        records = [json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()]
+        assert [record["quantizer"] for record in records] == [16, 24, 32, 40, 48]
+        assert all(record["sample"] == "unit_qcif" for record in records)
+        assert all(record["artifact_name"].startswith("unit_qcif.q") for record in records)
+        assert all(isinstance(record["vp8uya_bits_per_pixel"], float) for record in records)
+        assert all(isinstance(record["libvpx_bits_per_pixel"], float) for record in records)
+        assert all(isinstance(record["vp8uya_psnr_all_db"], float) for record in records)
+        assert all(isinstance(record["libvpx_psnr_all_db"], float) for record in records)
+        assert all(record["vp8uya_fps"] > 0.0 for record in records)
+        assert all(record["libvpx_fps"] > 0.0 for record in records)
+
+
 def assert_summary_json_records_core_fields() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1030,6 +1295,8 @@ def assert_summary_json_records_core_fields() -> None:
         assert summary["sample_count"] == 1
         assert summary["passed_count"] == 1
         assert summary["failed_count"] == 0
+        assert summary["quantizer_ladder"] == []
+        assert summary["q_ladder_summary"] == []
         assert summary["vp8uya_bits_per_pixel"] == 0.75
         assert summary["libvpx_bits_per_pixel"] == 0.50
         assert summary["vp8uya_psnr_all_db"] == 35.0
@@ -1066,6 +1333,83 @@ def assert_summary_json_records_core_fields() -> None:
         assert isinstance(summary["vpxdec_version"], str)
 
 
+def assert_summary_json_records_quantizer_ladder() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        results_path = root / "results.ndjson"
+        summary_path = root / "summary.json"
+        records = [
+            make_result(
+                sample="unit_qcif",
+                quantizer=16,
+                vp8uya_bits_per_pixel=0.50,
+                libvpx_bits_per_pixel=0.40,
+                vp8uya_psnr_all_db=38.0,
+                libvpx_psnr_all_db=39.0,
+                vp8uya_fps=120.0,
+                libvpx_fps=100.0,
+            ),
+            make_result(
+                sample="unit_qcif",
+                quantizer=24,
+                vp8uya_bits_per_pixel=0.40,
+                libvpx_bits_per_pixel=0.30,
+                vp8uya_psnr_all_db=36.0,
+                libvpx_psnr_all_db=37.0,
+                vp8uya_fps=130.0,
+                libvpx_fps=110.0,
+            ),
+        ]
+        results_path.write_text(
+            "".join(json.dumps(record, sort_keys=True) + "\n" for record in records),
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--write-summary-json",
+                "--results-ndjson",
+                str(results_path),
+                "--summary-json",
+                str(summary_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        assert summary["quantizer_ladder"] == [16, 24]
+        assert summary["q_ladder_summary"] == [
+            {
+                "quantizer": 16,
+                "sample_count": 1,
+                "vp8uya_bits_per_pixel": 0.50,
+                "libvpx_bits_per_pixel": 0.40,
+                "vp8uya_psnr_all_db": 38.0,
+                "libvpx_psnr_all_db": 39.0,
+                "vp8uya_fps": 120.0,
+                "libvpx_fps": 100.0,
+            },
+            {
+                "quantizer": 24,
+                "sample_count": 1,
+                "vp8uya_bits_per_pixel": 0.40,
+                "libvpx_bits_per_pixel": 0.30,
+                "vp8uya_psnr_all_db": 36.0,
+                "libvpx_psnr_all_db": 37.0,
+                "vp8uya_fps": 130.0,
+                "libvpx_fps": 110.0,
+            },
+        ]
+
+
 def assert_markdown_report_records_summary_and_samples() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1074,6 +1418,7 @@ def assert_markdown_report_records_summary_and_samples() -> None:
         report_path = root / "report.md"
         result = make_result(
             sample="unit_qcif",
+            quantizer=16,
             vp8uya_bits_per_pixel=0.75,
             libvpx_bits_per_pixel=0.50,
             vp8uya_psnr_all_db=35.0,
@@ -1095,6 +1440,19 @@ def assert_markdown_report_records_summary_and_samples() -> None:
                 "passed_count": 0,
                 "failed_count": 1,
                 "passed": False,
+                "quantizer_ladder": [16],
+                "q_ladder_summary": [
+                    {
+                        "quantizer": 16,
+                        "sample_count": 1,
+                        "vp8uya_bits_per_pixel": 0.75,
+                        "libvpx_bits_per_pixel": 0.50,
+                        "vp8uya_psnr_all_db": 35.0,
+                        "libvpx_psnr_all_db": 36.0,
+                        "vp8uya_fps": 80.0,
+                        "libvpx_fps": 100.0,
+                    }
+                ],
                 "git_commit": "abc123",
                 "generated_at_unix": 1.0,
                 "libvpx_preset": "vpxenc --best",
@@ -1158,6 +1516,8 @@ def assert_markdown_report_records_summary_and_samples() -> None:
         assert "| unit_qcif | 0 | 0 | 0 |" in markdown
         assert "## VP8UYA Skip Distribution" in markdown
         assert "| unit_qcif | 0 | 0 | 0.00% |" in markdown
+        assert "## Q Ladder Summary" in markdown
+        assert "| 16 | 1 | 0.750000 | 0.500000 | 35.000000 | 36.000000 | 80.00 | 100.00 |" in markdown
         assert "bitrate_ratio too high" in markdown
         assert "vp8uya encode unit.i420" in markdown
         assert "vpxenc --best unit.i420" in markdown
@@ -1773,13 +2133,17 @@ def main() -> int:
     assert_frames_dry_run_override()
     assert_warmups_dry_run_recorded()
     assert_repeats_dry_run_recorded()
+    assert_quantizer_ladder_dry_run_expands_samples()
     assert_vp8uya_encode_generates_ivf()
     assert_libvpx_encode_generates_ivf()
+    assert_quantizer_ladder_encode_generates_per_q_artifacts()
     assert_vpxdec_decodes_vp8uya_output()
     assert_vpxdec_decodes_libvpx_output()
     assert_repro_report_records_failed_sample_commands()
     assert_results_ndjson_records_payload_bits()
+    assert_results_ndjson_records_quantizer_ladder_metrics()
     assert_summary_json_records_core_fields()
+    assert_summary_json_records_quantizer_ladder()
     assert_markdown_report_records_summary_and_samples()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)

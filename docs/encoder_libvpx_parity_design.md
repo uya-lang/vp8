@@ -239,9 +239,10 @@ docs/encoder_libvpx_compare_report.md
 docs/encoder_libvpx_compare_report_template.md
 ```
 
-`results.ndjson` 每行记录一个样本一次对比：
+`results.ndjson` 每行记录一个样本一次对比。普通对标每个样本一行；
+Q ladder 对标按 `Q=16/24/32/40/48` 展开，同一样本每个 Q 一行：
 
-- sample name、width、height、frames、fps
+- sample name、artifact name、width、height、frames、fps、quantizer
 - vp8uya command、libvpx command
 - tool paths、tool versions
 - encode elapsed ns、fps
@@ -259,6 +260,9 @@ docs/encoder_libvpx_compare_report_template.md
 - sample count
 - passed count
 - failed count
+- quantizer ladder fields:
+  - `quantizer_ladder`
+  - `q_ladder_summary`
 - aggregate bitrate fields:
   - `vp8uya_bits_per_pixel`
   - `libvpx_bits_per_pixel`

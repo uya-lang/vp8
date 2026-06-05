@@ -40,13 +40,16 @@ DEFAULT_SUMMARY_JSON_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "sum
 DEFAULT_MARKDOWN_REPORT_PATH = REPO_ROOT / "docs" / "encoder_libvpx_compare_report.md"
 LIBVPX_PRESET = "vpxenc --best"
 REPEAT_STATISTIC = "median"
+DEFAULT_QUANTIZER_LADDER = (16, 24, 32, 40, 48)
 
 REQUIRED_RESULT_FIELDS = (
     "sample",
+    "artifact_name",
     "width",
     "height",
     "frames",
     "fps",
+    "quantizer",
     "vp8uya_payload_bits",
     "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
@@ -105,6 +108,8 @@ REQUIRED_SUMMARY_FIELDS = (
     "vp8uya_subpel_distribution",
     "vpxenc_version",
     "vpxdec_version",
+    "quantizer_ladder",
+    "q_ladder_summary",
 )
 
 HARD_THRESHOLD_FIELDS = (
@@ -155,6 +160,23 @@ def positive_int_arg(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer")
     return parsed
+
+
+def quantizer_arg(value: str) -> int:
+    parsed = positive_int_arg(value)
+    if parsed > 127:
+        raise argparse.ArgumentTypeError("must be in range 1..127")
+    return parsed
+
+
+def quantizer_ladder_arg(value: str) -> list[int]:
+    parts = [part.strip() for part in value.split(",")]
+    if not parts or any(part == "" for part in parts):
+        raise argparse.ArgumentTypeError("must be a comma-separated quantizer list")
+    quantizers = [quantizer_arg(part) for part in parts]
+    if len(set(quantizers)) != len(quantizers):
+        raise argparse.ArgumentTypeError("must not contain duplicate quantizers")
+    return quantizers
 
 
 def nonnegative_int_arg(value: str) -> int:
@@ -567,6 +589,8 @@ def plan_sample_entries(samples: list[dict[str, Any]], frames_override: int | No
     planned_samples: list[dict[str, Any]] = []
     for sample in samples:
         planned = dict(sample)
+        planned["artifact_name"] = planned["name"]
+        planned["quantizer"] = None
         if frames_override is not None:
             planned["manifest_frames"] = planned.get("frames")
             planned["frames"] = frames_override
@@ -574,11 +598,37 @@ def plan_sample_entries(samples: list[dict[str, Any]], frames_override: int | No
     return planned_samples
 
 
+def expand_quantizer_ladder(samples: list[dict[str, Any]], quantizer_ladder: list[int] | None) -> list[dict[str, Any]]:
+    if quantizer_ladder is None:
+        return samples
+    expanded: list[dict[str, Any]] = []
+    for sample in samples:
+        name = sample.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("sample name must be a non-empty string")
+        for quantizer in quantizer_ladder:
+            q_sample = dict(sample)
+            q_sample["artifact_name"] = f"{name}.q{quantizer}"
+            q_sample["quantizer"] = quantizer
+            q_sample["quantizer_ladder"] = list(quantizer_ladder)
+            expanded.append(q_sample)
+    return expanded
+
+
+def plan_benchmark_entries(
+    samples: list[dict[str, Any]],
+    frames_override: int | None,
+    quantizer_ladder: list[int] | None,
+) -> list[dict[str, Any]]:
+    return expand_quantizer_ladder(plan_sample_entries(samples, frames_override), quantizer_ladder)
+
+
 def dry_run_samples(
     *,
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    quantizer_ladder: list[int] | None = None,
     warmups: int = 0,
     repeats: int = 1,
 ) -> dict[str, Any]:
@@ -590,6 +640,8 @@ def dry_run_samples(
             "ok": False,
             "manifest_path": str(manifest_path),
             "group": group,
+            "frames_override": frames_override,
+            "quantizer_ladder": quantizer_ladder or [],
             "warmups": warmups,
             "repeats": repeats,
             "repeat_statistic": REPEAT_STATISTIC,
@@ -597,13 +649,28 @@ def dry_run_samples(
             "error": str(exc),
         }
 
-    planned_samples = plan_sample_entries(selected, frames_override)
+    try:
+        planned_samples = plan_benchmark_entries(selected, frames_override, quantizer_ladder)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "manifest_path": str(manifest_path),
+            "group": group,
+            "frames_override": frames_override,
+            "quantizer_ladder": quantizer_ladder or [],
+            "warmups": warmups,
+            "repeats": repeats,
+            "repeat_statistic": REPEAT_STATISTIC,
+            "samples": [],
+            "error": str(exc),
+        }
 
     return {
         "ok": True,
         "manifest_path": str(manifest_path),
         "group": group,
         "frames_override": frames_override,
+        "quantizer_ladder": quantizer_ladder or [],
         "warmups": warmups,
         "repeats": repeats,
         "repeat_statistic": REPEAT_STATISTIC,
@@ -817,32 +884,36 @@ def sample_i420_path(sample: Mapping[str, Any], i420_dir: Path) -> Path:
     return i420_dir / f"{name}.i420"
 
 
-def sample_vp8uya_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
-    name = sample.get("name")
+def sample_artifact_name(sample: Mapping[str, Any]) -> str:
+    name = sample.get("artifact_name", sample.get("name"))
     if not isinstance(name, str) or not name:
-        raise ValueError("sample name must be a non-empty string")
-    return runs_dir / f"{name}.vp8uya.ivf"
+        raise ValueError("sample artifact_name must be a non-empty string")
+    return name
+
+
+def sample_quantizer(sample: Mapping[str, Any]) -> int | None:
+    quantizer = sample.get("quantizer")
+    if quantizer is None:
+        return None
+    if isinstance(quantizer, bool) or not isinstance(quantizer, int) or quantizer <= 0 or quantizer > 127:
+        raise ValueError("sample quantizer must be an integer in range 1..127")
+    return quantizer
+
+
+def sample_vp8uya_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
+    return runs_dir / f"{sample_artifact_name(sample)}.vp8uya.ivf"
 
 
 def sample_libvpx_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
-    name = sample.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("sample name must be a non-empty string")
-    return runs_dir / f"{name}.libvpx.ivf"
+    return runs_dir / f"{sample_artifact_name(sample)}.libvpx.ivf"
 
 
 def sample_decoded_i420_path(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> Path:
-    name = sample.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("sample name must be a non-empty string")
-    return runs_dir / f"{name}.{encoder_label}.decoded.i420"
+    return runs_dir / f"{sample_artifact_name(sample)}.{encoder_label}.decoded.i420"
 
 
 def sample_encode_metadata_path(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> Path:
-    name = sample.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("sample name must be a non-empty string")
-    return runs_dir / f"{name}.{encoder_label}.encode.json"
+    return runs_dir / f"{sample_artifact_name(sample)}.{encoder_label}.encode.json"
 
 
 def sample_frames(sample: Mapping[str, Any]) -> int:
@@ -1168,6 +1239,7 @@ def encode_vp8uya_samples(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    quantizer_ladder: list[int] | None = None,
     i420_dir: Path = DEFAULT_I420_CACHE_DIR,
     runs_dir: Path = DEFAULT_RUNS_DIR,
     vp8uya_bin: Path = DEFAULT_VP8UYA_BIN,
@@ -1185,9 +1257,10 @@ def encode_vp8uya_samples(
 
     try:
         manifest = load_sample_manifest(manifest_path)
-        selected = plan_sample_entries(
+        selected = plan_benchmark_entries(
             filter_samples_by_group(manifest_samples(manifest), group),
             frames_override,
+            quantizer_ladder,
         )
     except ValueError as exc:
         return {
@@ -1206,6 +1279,8 @@ def encode_vp8uya_samples(
             height = sample_dimension(sample, "height")
             frames = sample_frames(sample)
             fps = sample_fps(sample)
+            quantizer = sample_quantizer(sample)
+            artifact_name = sample_artifact_name(sample)
             output_path = sample_vp8uya_ivf_path(sample, runs_dir)
             metadata_path = sample_encode_metadata_path(sample, runs_dir, "vp8uya")
         except ValueError as exc:
@@ -1245,6 +1320,8 @@ def encode_vp8uya_samples(
             "--out",
             str(output_path),
         ]
+        if quantizer is not None:
+            command.extend(["--quantizer", str(quantizer)])
         started_ns = time.perf_counter_ns()
         try:
             completed = runner(command, REPO_ROOT)
@@ -1265,7 +1342,10 @@ def encode_vp8uya_samples(
             and motion_distribution is not None
             and subpel_distribution is not None
         )
-        extra_fields = {}
+        extra_fields = {
+            "artifact_name": artifact_name,
+            "quantizer": quantizer,
+        }
         if mode_distribution is not None:
             extra_fields["vp8uya_mode_distribution"] = mode_distribution
         if macroblock_mode_distribution is not None:
@@ -1290,6 +1370,8 @@ def encode_vp8uya_samples(
 
         results.append({
             "sample": sample["name"],
+            "artifact_name": artifact_name,
+            "quantizer": quantizer,
             "ok": encode_ok and metadata_error is None,
             "input": input_report,
             "output_path": str(output_path),
@@ -1319,6 +1401,7 @@ def encode_vp8uya_samples(
         "i420_cache_dir": str(i420_dir),
         "group": group,
         "frames_override": frames_override,
+        "quantizer_ladder": quantizer_ladder or [],
         "results": results,
     }
 
@@ -1328,6 +1411,7 @@ def encode_libvpx_samples(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    quantizer_ladder: list[int] | None = None,
     i420_dir: Path = DEFAULT_I420_CACHE_DIR,
     runs_dir: Path = DEFAULT_RUNS_DIR,
     runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
@@ -1345,9 +1429,10 @@ def encode_libvpx_samples(
 
     try:
         manifest = load_sample_manifest(manifest_path)
-        selected = plan_sample_entries(
+        selected = plan_benchmark_entries(
             filter_samples_by_group(manifest_samples(manifest), group),
             frames_override,
+            quantizer_ladder,
         )
     except ValueError as exc:
         return {
@@ -1366,6 +1451,8 @@ def encode_libvpx_samples(
             height = sample_dimension(sample, "height")
             frames = sample_frames(sample)
             fps = sample_fps(sample)
+            quantizer = sample_quantizer(sample)
+            artifact_name = sample_artifact_name(sample)
             output_path = sample_libvpx_ivf_path(sample, runs_dir)
             metadata_path = sample_encode_metadata_path(sample, runs_dir, "libvpx")
         except ValueError as exc:
@@ -1406,6 +1493,13 @@ def encode_libvpx_samples(
             str(output_path),
             input_report["path"],
         ]
+        if quantizer is not None:
+            command[10:10] = [
+                "--end-usage=q",
+                f"--cq-level={quantizer}",
+                f"--min-q={quantizer}",
+                f"--max-q={quantizer}",
+            ]
         started_ns = time.perf_counter_ns()
         try:
             completed = runner(command, REPO_ROOT)
@@ -1421,10 +1515,16 @@ def encode_libvpx_samples(
             output_path=output_path,
             ok=completed.returncode == 0 and output_path.exists(),
             returncode=completed.returncode,
+            extra_fields={
+                "artifact_name": artifact_name,
+                "quantizer": quantizer,
+            },
         )
 
         results.append({
             "sample": sample["name"],
+            "artifact_name": artifact_name,
+            "quantizer": quantizer,
             "ok": completed.returncode == 0 and output_path.exists() and metadata_error is None,
             "input": input_report,
             "output_path": str(output_path),
@@ -1444,6 +1544,7 @@ def encode_libvpx_samples(
         "i420_cache_dir": str(i420_dir),
         "group": group,
         "frames_override": frames_override,
+        "quantizer_ladder": quantizer_ladder or [],
         "results": results,
     }
 
@@ -1462,6 +1563,7 @@ def decode_vpxdec_samples(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    quantizer_ladder: list[int] | None = None,
     runs_dir: Path = DEFAULT_RUNS_DIR,
     runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
 ) -> dict[str, Any]:
@@ -1479,9 +1581,10 @@ def decode_vpxdec_samples(
 
     try:
         manifest = load_sample_manifest(manifest_path)
-        selected = plan_sample_entries(
+        selected = plan_benchmark_entries(
             filter_samples_by_group(manifest_samples(manifest), group),
             frames_override,
+            quantizer_ladder,
         )
     except ValueError as exc:
         return {
@@ -1498,6 +1601,8 @@ def decode_vpxdec_samples(
         try:
             input_path = encoded_ivf_path(sample, runs_dir, encoder_label)
             output_path = sample_decoded_i420_path(sample, runs_dir, encoder_label)
+            quantizer = sample_quantizer(sample)
+            artifact_name = sample_artifact_name(sample)
         except ValueError as exc:
             results.append({
                 "sample": sample.get("name", ""),
@@ -1533,6 +1638,8 @@ def decode_vpxdec_samples(
 
         results.append({
             "sample": sample["name"],
+            "artifact_name": artifact_name,
+            "quantizer": quantizer,
             "ok": completed.returncode == 0 and output_path.exists(),
             "input_path": str(input_path),
             "output_path": str(output_path),
@@ -1549,6 +1656,7 @@ def decode_vpxdec_samples(
         "encoder_label": encoder_label,
         "group": group,
         "frames_override": frames_override,
+        "quantizer_ladder": quantizer_ladder or [],
         "results": results,
     }
 
@@ -1922,6 +2030,34 @@ def first_string_field(records: list[dict[str, Any]], field: str) -> str:
     return ""
 
 
+def quantizer_ladder_from_records(records: list[dict[str, Any]]) -> list[int]:
+    quantizers: set[int] = set()
+    for record in records:
+        quantizer = record.get("quantizer")
+        if isinstance(quantizer, bool) or not isinstance(quantizer, int):
+            continue
+        if quantizer > 0:
+            quantizers.add(quantizer)
+    return sorted(quantizers)
+
+
+def build_q_ladder_summary(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for quantizer in quantizer_ladder_from_records(records):
+        q_records = [record for record in records if record.get("quantizer") == quantizer]
+        summary.append({
+            "quantizer": quantizer,
+            "sample_count": len(q_records),
+            "vp8uya_bits_per_pixel": mean_required_field(q_records, "vp8uya_bits_per_pixel"),
+            "libvpx_bits_per_pixel": mean_required_field(q_records, "libvpx_bits_per_pixel"),
+            "vp8uya_psnr_all_db": mean_required_field(q_records, "vp8uya_psnr_all_db"),
+            "libvpx_psnr_all_db": mean_required_field(q_records, "libvpx_psnr_all_db"),
+            "vp8uya_fps": mean_required_field(q_records, "vp8uya_fps"),
+            "libvpx_fps": mean_required_field(q_records, "libvpx_fps"),
+        })
+    return summary
+
+
 def aggregate_mode_distribution(records: list[dict[str, Any]], field: str) -> dict[str, int]:
     if not records:
         raise ValueError("summary requires at least one result record")
@@ -2051,6 +2187,8 @@ def build_summary(records: list[dict[str, Any]], *, results_path: Path) -> dict[
         "passed_count": passed_count,
         "failed_count": failed_count,
         "passed": failed_count == 0,
+        "quantizer_ladder": quantizer_ladder_from_records(records),
+        "q_ladder_summary": build_q_ladder_summary(records),
         "vp8uya_bits_per_pixel": mean_required_field(records, "vp8uya_bits_per_pixel"),
         "libvpx_bits_per_pixel": mean_required_field(records, "libvpx_bits_per_pixel"),
         "vp8uya_psnr_all_db": mean_required_field(records, "vp8uya_psnr_all_db"),
@@ -2222,8 +2360,8 @@ def build_markdown_report(summary: Mapping[str, Any], records: list[dict[str, An
         "",
         "## Sample Results",
         "",
-        "| Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Sample | Q | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
 
     for record in records:
@@ -2232,6 +2370,7 @@ def build_markdown_report(summary: Mapping[str, Any], records: list[dict[str, An
             + " | ".join(
                 [
                     markdown_cell(record.get("sample", record.get("name", ""))),
+                    markdown_cell(record.get("quantizer", "")),
                     markdown_cell(sample_groups(record)),
                     markdown_cell(record.get("frames", "")),
                     markdown_number(record.get("vp8uya_bits_per_pixel")),
@@ -2247,6 +2386,35 @@ def build_markdown_report(summary: Mapping[str, Any], records: list[dict[str, An
             )
             + " |"
         )
+
+    q_ladder_summary = summary.get("q_ladder_summary")
+    if isinstance(q_ladder_summary, list) and q_ladder_summary:
+        lines.extend([
+            "",
+            "## Q Ladder Summary",
+            "",
+            "| Q | Samples | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya fps | libvpx fps |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ])
+        for row in q_ladder_summary:
+            if not isinstance(row, Mapping):
+                continue
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        markdown_cell(row.get("quantizer", "")),
+                        markdown_cell(row.get("sample_count", "")),
+                        markdown_number(row.get("vp8uya_bits_per_pixel")),
+                        markdown_number(row.get("libvpx_bits_per_pixel")),
+                        markdown_number(row.get("vp8uya_psnr_all_db")),
+                        markdown_number(row.get("libvpx_psnr_all_db")),
+                        markdown_number(row.get("vp8uya_fps"), 2),
+                        markdown_number(row.get("libvpx_fps"), 2),
+                    ]
+                )
+                + " |"
+            )
 
     lines.extend([
         "",
@@ -3333,15 +3501,17 @@ def write_results_ndjson_payload_bits(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    quantizer_ladder: list[int] | None = None,
     i420_dir: Path = DEFAULT_I420_CACHE_DIR,
     runs_dir: Path = DEFAULT_RUNS_DIR,
     results_path: Path = DEFAULT_RESULTS_NDJSON_PATH,
 ) -> dict[str, Any]:
     try:
         manifest = load_sample_manifest(manifest_path)
-        selected = plan_sample_entries(
+        selected = plan_benchmark_entries(
             filter_samples_by_group(manifest_samples(manifest), group),
             frames_override,
+            quantizer_ladder,
         )
     except ValueError as exc:
         return {
@@ -3366,10 +3536,12 @@ def write_results_ndjson_payload_bits(
         try:
             result = {
                 "sample": sample_name,
+                "artifact_name": sample_artifact_name(sample),
                 "width": sample_dimension(sample, "width"),
                 "height": sample_dimension(sample, "height"),
                 "frames": sample_frames(sample),
                 "fps": sample_fps(sample),
+                "quantizer": sample_quantizer(sample),
             }
             vp8uya_path = sample_vp8uya_ivf_path(sample, runs_dir)
             libvpx_path = sample_libvpx_ivf_path(sample, runs_dir)
@@ -3377,10 +3549,12 @@ def write_results_ndjson_payload_bits(
             failure_reasons.append(str(exc))
             result = {
                 "sample": sample_name,
+                "artifact_name": sample.get("artifact_name", sample_name),
                 "width": sample.get("width"),
                 "height": sample.get("height"),
                 "frames": sample.get("frames"),
                 "fps": sample.get("fps"),
+                "quantizer": sample.get("quantizer"),
             }
             vp8uya_path = runs_dir / f"{sample_name}.vp8uya.ivf"
             libvpx_path = runs_dir / f"{sample_name}.libvpx.ivf"
@@ -3551,6 +3725,7 @@ def write_results_ndjson_payload_bits(
         "passed": all(result["passed"] for result in results),
         "passed_count": sum(1 for result in results if result["passed"]),
         "failed_count": sum(1 for result in results if not result["passed"]),
+        "quantizer_ladder": quantizer_ladder or [],
         "manifest_path": str(manifest_path),
         "runs_dir": str(runs_dir),
         "results_ndjson": str(results_path),
@@ -3668,6 +3843,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=f"number of measured encode runs; final statistic is {REPEAT_STATISTIC}",
     )
     parser.add_argument(
+        "--quantizer-ladder",
+        nargs="?",
+        const=",".join(str(value) for value in DEFAULT_QUANTIZER_LADDER),
+        type=quantizer_ladder_arg,
+        default=None,
+        help=(
+            "expand selected samples across a comma-separated VP8 quantizer ladder; "
+            f"passing the flag without a value uses {','.join(str(value) for value in DEFAULT_QUANTIZER_LADDER)}"
+        ),
+    )
+    parser.add_argument(
         "--manifest",
         type=Path,
         default=DEFAULT_MANIFEST_PATH,
@@ -3756,6 +3942,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            quantizer_ladder=args.quantizer_ladder,
             warmups=args.warmups,
             repeats=args.repeats,
         )
@@ -3766,6 +3953,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            quantizer_ladder=args.quantizer_ladder,
             i420_dir=args.i420_cache_dir,
             runs_dir=args.runs_dir,
             vp8uya_bin=args.vp8uya_bin or DEFAULT_VP8UYA_BIN,
@@ -3777,6 +3965,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            quantizer_ladder=args.quantizer_ladder,
             i420_dir=args.i420_cache_dir,
             runs_dir=args.runs_dir,
         )
@@ -3788,6 +3977,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            quantizer_ladder=args.quantizer_ladder,
             runs_dir=args.runs_dir,
         )
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -3798,6 +3988,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            quantizer_ladder=args.quantizer_ladder,
             runs_dir=args.runs_dir,
         )
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -3833,6 +4024,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            quantizer_ladder=args.quantizer_ladder,
             i420_dir=args.i420_cache_dir,
             runs_dir=args.runs_dir,
             results_path=args.results_ndjson,

@@ -42,14 +42,22 @@ names:
 - `libvpx_psnr_all_db`
 - `vp8uya_fps`
 - `libvpx_fps`
+- `quantizer_ladder`
+- `q_ladder_summary`
 - `vpxenc_version`
 - `vpxdec_version`
 
 ## Sample Results
 
-| Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `<sample>` | `<groups>` | `<frames>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<true/false>` |
+| Sample | Q | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `<sample>` | `<Q or blank>` | `<groups>` | `<frames>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<true/false>` |
+
+## Q Ladder Summary
+
+| Q | Samples | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya fps | libvpx fps |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `16/24/32/40/48` | `<count>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` | `<value>` |
 
 ## Failed Samples
 
