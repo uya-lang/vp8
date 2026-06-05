@@ -9,6 +9,9 @@ use vp8.encoder.mode_decision.ENCODER_MODE_DECISION_INTER_LAST;
 use vp8.encoder.mode_decision.ENCODER_MODE_DECISION_INTRA;
 use vp8.encoder.mode_decision.EncoderMacroblockModeDecision;
 use vp8.encoder.mode_decision.decide_last_frame_inter_or_intra;
+use vp8.encoder.mv_cost.inter_mv_mode_cost_q8;
+use vp8.encoder.mv_cost.mv_delta_cost_q8;
+use vp8.encoder.rd_cost.encoder_rd_score_q8;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.allocate_encoder_reference_frame_pool;
 use vp8.encoder.reference_pool.encoder_reference_begin_frame;
@@ -84,6 +87,10 @@ test "mode decision chooses last-frame inter when motion match beats intra" {
     try assert_eq_i32(decision.mv_x as i32, 24);
     try assert_eq_i32(decision.mv_y as i32, -16);
     try assert_eq_i32(decision.inter_luma_distortion as i32, 0);
+    const expected_inter_rate_cost_q8: u32 = (try inter_mv_mode_cost_q8(VP8_INTER_MV_MODE_NEW)) +
+        (try mv_delta_cost_q8(&probs, decision.mv_y, decision.mv_x, 0 as i16, 0 as i16));
+    try assert_eq_i32(decision.inter_rate_cost_q8 as i32, expected_inter_rate_cost_q8 as i32);
+    try assert_eq_i32(decision.inter_score_q8 as i32, (try encoder_rd_score_q8(decision.inter_luma_distortion, expected_inter_rate_cost_q8, 256 as u32)) as i32);
     try assert_eq_i32((decision.candidates_evaluated > 0) as i32, true as i32);
     try assert_eq_i32((decision.border_extension_count > 0) as i32, true as i32);
     try assert_eq_i32((decision.inter_score_q8 < decision.intra_score_q8) as i32, true as i32);
@@ -136,6 +143,9 @@ test "mode decision uses RD to keep zero inter mode when new motion is too costl
     try assert_eq_i32(decision.mv_x as i32, 0);
     try assert_eq_i32(decision.mv_y as i32, 0);
     try assert_eq_i32(decision.inter_luma_distortion as i32, 32);
+    const expected_zero_rate_cost_q8: u32 = try inter_mv_mode_cost_q8(VP8_INTER_MV_MODE_ZERO);
+    try assert_eq_i32(decision.inter_rate_cost_q8 as i32, expected_zero_rate_cost_q8 as i32);
+    try assert_eq_i32(decision.inter_score_q8 as i32, (try encoder_rd_score_q8(decision.inter_luma_distortion, expected_zero_rate_cost_q8, 65535 as u32)) as i32);
     try assert_eq_i32((decision.inter_score_q8 < decision.intra_score_q8) as i32, true as i32);
 }
 
