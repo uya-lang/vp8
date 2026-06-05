@@ -185,6 +185,8 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.psnr.all=34.59' $(ENCODE_CLI_DIR)/encode-speed-best.log
 	grep -q 'encode.speed.preset=best' $(ENCODE_CLI_DIR)/encode-speed-best.log
 	grep -q 'encode.speed.mode_search_work_units=112' $(ENCODE_CLI_DIR)/encode-speed-best.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --frames --out $(ENCODE_CLI_DIR)/bad-missing-frames.ivf > $(ENCODE_CLI_DIR)/bad-missing-frames.log 2>&1; test $$? -eq 2
+	grep -q 'error: --frames requires N' $(ENCODE_CLI_DIR)/bad-missing-frames.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 128 --out $(ENCODE_CLI_DIR)/bad-q.ivf >/dev/null; test $$? -eq 2
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --target-bitrate 0 --out $(ENCODE_CLI_DIR)/bad-vbr.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf

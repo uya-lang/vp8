@@ -1,6 +1,7 @@
 use libc.atoi;
 use libc.printf;
 use libc.strcmp;
+use libc.strncmp;
 use libc.FILE;
 use libc.fclose;
 use libc.fprintf;
@@ -298,6 +299,13 @@ fn parse_encode_speed_preset(value: &byte) !EncoderSpeedPreset {
         return EncoderSpeedPreset.best;
     }
     return error.ErrInvalidSpeedPreset;
+}
+
+fn cli_arg_is_option_like(value: &byte) bool {
+    if value == null {
+        return false;
+    }
+    return strncmp(value as *const byte, "--\0" as *const byte, 2) == 0;
 }
 
 fn print_encode_speed_report(speed_preset: EncoderSpeedPreset, mode_search_work_units: usize) void {
@@ -932,7 +940,7 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
                 height = parsed_height as usize;
                 encode_arg_index = encode_arg_index + 2;
             } else if strcmp(argv[encode_arg_index] as *const byte, "--frames\0" as *const byte) == 0 {
-                if (argc as usize) <= encode_arg_index + 1 {
+                if (argc as usize) <= encode_arg_index + 1 || cli_arg_is_option_like(argv[encode_arg_index + 1]) {
                     _ = printf("error: --frames requires N\n");
                     return 2;
                 }
