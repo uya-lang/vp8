@@ -28,10 +28,16 @@ commands currently return status `1`.
 | WebM decode | `error: invalid WebM subset`, `error: invalid WebM segment info`, `error: invalid WebM VP8 sample`, `error: invalid WebM video geometry` |
 | Decoder resources | `error: invalid decode scratch geometry`, `error: failed to allocate decoder context`, `error: failed to open output file`, `error: failed to open stats file` |
 | Decoder frame flow | `error: failed to decode VP8 frame`, `error: failed to write YUV output`, `error: failed to write decode stats`, `error: failed to release decoded frame`, `error: frame index not found` |
-| Encoder input/config | `error: encode width and height must be positive`, `error: invalid rate control config`, `error: failed to choose CQP quantizer`, `error: input YUV is too short for I420 width/height`, `error: input YUV must contain exactly one I420 frame`, `error: invalid encode output geometry` |
+| Encoder input/config | `error: encode width and height must be positive`, `error: invalid rate control config`, `error: failed to choose CQP quantizer`, `error: input YUV is too short for I420 width/height`, `error: input YUV must contain exactly the requested I420 frames`, `error: invalid encode output geometry` |
 | Encoder output/metrics | `error: failed to allocate encode output`, `error: failed to encode keyframe IVF`, `error: failed to compute encode quality metrics`, `error: failed to finish rate control frame`, `error: failed to open encode output file`, `error: failed to write encode output file`, `error: failed to compute encode bitrate report` |
 | Option parsing | `error: --threads requires N`, `error: --threads must be positive`, `error: info requires <input.ivf>`, `error: decode requires <input.ivf\|input.webm> --yuv <out.yuv> [--stats <out.jsonl>]`, `error: decode currently requires --yuv <out.yuv>`, `error: --stats requires <out.jsonl>`, `error: unknown decode option: %s`, `error: decode-frame requires <input.ivf> --index N --yuv <out.yuv>`, `error: decode-frame requires --index N`, `error: frame index must be non-negative`, `error: decode-frame requires --yuv <out.yuv>` |
 | Encode option parsing | `error: encode requires <input.yuv> --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest\|fast\|balanced\|best] --out <out.ivf>`, `error: --width requires W`, `error: --width must be positive`, `error: --height requires H`, `error: --height must be positive`, `error: --frames requires N`, `error: --frames must be positive`, `error: --fps requires NUM/DEN`, `error: --fps must be NUM/DEN with positive integers`, `error: --quantizer requires Q`, `error: --quantizer must be in 0..127`, `error: --target-bitrate requires BPS`, `error: --target-bitrate must be positive`, `error: --speed requires fastest\|fast\|balanced\|best`, `error: --speed must be fastest, fast, balanced, or best`, `error: --out requires <out.ivf>`, `error: unknown encode option: %s`, `error: encode requires --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest\|fast\|balanced\|best] --out <out.ivf>` |
+
+Encode `--frames` and `--fps` argument validation failures are controlled
+option parsing errors and return status `2`. Encode input length validation uses
+the requested I420 frame count: too few bytes report `error: input YUV is too
+short for I420 width/height`, while extra bytes report `error: input YUV must
+contain exactly the requested I420 frames`.
 
 CLI-only internal helpers are declared in `src/main.uya`:
 
