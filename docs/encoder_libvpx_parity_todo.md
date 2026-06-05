@@ -138,7 +138,7 @@ Date: 2026-06-05
   - 验收命令：`vpxdec --rawvideo -o out.vpxdec.i420 out.ivf` 输出大小为 `384 * 3` 字节。
 - [x] 验证 deterministic。
   - 验收命令：相同输入编码两次后 `md5sum first.ivf second.ivf` 相同。
-- [ ] 增加非 16 对齐多帧测试。
+- [x] 增加非 16 对齐多帧测试。
   - 验收：17x17 三帧 encode/decode 输出大小正确。
 - [ ] 增加 forced scalar 测试。
   - 验收命令：`VP8UYA_FORCE_SCALAR=1 build/vp8uya encode ... --frames 3 ...` 成功。

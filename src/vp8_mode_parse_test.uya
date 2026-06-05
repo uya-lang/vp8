@@ -427,9 +427,19 @@ test "clamp motion vector to visible reference frame bounds" {
     try expect(!(try inter_motion_vector_inside_frame(&out_of_bounds, 1, 1, 32, 32, 16, 16)));
 }
 
-test "motion vector bounds reject invalid frame and block geometry" {
+test "motion vector bounds allow visible edge macroblocks" {
     const mv: Vp8MotionVector = Vp8MotionVector{ y: 0, x: 0, mode: VP8_INTER_MV_MODE_ZERO };
-    _ = clamp_inter_motion_vector(&mv, 0, 0, 15, 16, 16, 16) catch {
+    const clamped: Vp8MotionVector = try clamp_inter_motion_vector(&mv, 1, 1, 17, 17, 16, 16);
+
+    try assert_eq_i32(clamped.mode as i32, VP8_INTER_MV_MODE_ZERO as i32);
+    try assert_eq_i32(clamped.y as i32, 0);
+    try assert_eq_i32(clamped.x as i32, 0);
+    try expect(try inter_motion_vector_inside_frame(&clamped, 1, 1, 17, 17, 16, 16));
+}
+
+test "motion vector bounds reject invalid frame and macroblock origin" {
+    const mv: Vp8MotionVector = Vp8MotionVector{ y: 0, x: 0, mode: VP8_INTER_MV_MODE_ZERO };
+    _ = clamp_inter_motion_vector(&mv, 1, 0, 16, 16, 16, 16) catch {
         return;
     };
     try expect(false);

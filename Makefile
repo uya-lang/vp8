@@ -168,7 +168,9 @@ test: build check-toolchain $(SAMPLE_IVF)
 	mkdir -p $(ENCODE_CLI_DIR)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
 	head -c 451 /dev/zero > $(ENCODE_CLI_DIR)/input-17x17.yuv
+	head -c 1353 /dev/zero > $(ENCODE_CLI_DIR)/input-17x17-3frames.yuv
 	head -c 1152 /dev/zero > $(ENCODE_CLI_DIR)/input-3frames.yuv
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/input-17x17-3frames.yuv)" -eq 1353
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/input-3frames.yuv)" -eq 1152
 	head -c 767 /dev/zero > $(ENCODE_CLI_DIR)/short-2frames.yuv
 	head -c 769 /dev/zero > $(ENCODE_CLI_DIR)/extra-2frames.yuv
@@ -177,6 +179,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.ssim.all=' $(ENCODE_CLI_DIR)/encode.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --frames 1 --out $(ENCODE_CLI_DIR)/out-frames1.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-17x17.yuv --width 17 --height 17 --frames 1 --out $(ENCODE_CLI_DIR)/out-17x17.ivf
+	$(BIN) encode $(ENCODE_CLI_DIR)/input-17x17-3frames.yuv --width 17 --height 17 --frames 3 --out $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input-3frames.yuv --width 16 --height 16 --frames 3 --out $(ENCODE_CLI_DIR)/out-3frames-repeat.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps 30/1 --out $(ENCODE_CLI_DIR)/out-fps.ivf
@@ -231,11 +234,15 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.height=16'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17.ivf | grep -q 'ivf.width=17'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17.ivf | grep -q 'ivf.height=17'
+	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf | grep -q 'ivf.frame_count=3'
+	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf | grep -q 'ivf.width=17'
+	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf | grep -q 'ivf.height=17'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-3frames.ivf | grep -q 'ivf.frame_count=3'
 	python3 tests/ivf_timestamps.py $(ENCODE_CLI_DIR)/out-3frames.ivf 0 1 2
 	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-vbr.ivf --yuv $(ENCODE_CLI_DIR)/decoded-vbr.yuv >/dev/null
+	$(BIN) decode $(ENCODE_CLI_DIR)/out-17x17-3frames.ivf --yuv $(ENCODE_CLI_DIR)/decoded-17x17-3frames.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-3frames.ivf --yuv $(ENCODE_CLI_DIR)/decoded-3frames.yuv >/dev/null
 	if test -n "$(VPXDEC)"; then \
 		"$(VPXDEC)" --rawvideo -o $(ENCODE_CLI_DIR)/decoded-3frames.vpxdec.i420 $(ENCODE_CLI_DIR)/out-3frames.ivf > $(ENCODE_CLI_DIR)/vpxdec-3frames.stdout 2> $(ENCODE_CLI_DIR)/vpxdec-3frames.stderr; \
@@ -246,6 +253,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded.yuv)" -eq 384
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-q16.yuv)" -eq 384
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-vbr.yuv)" -eq 384
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-17x17-3frames.yuv)" -eq 1353
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames.yuv)" -eq 1152
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2

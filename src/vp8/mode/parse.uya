@@ -442,16 +442,10 @@ fn validate_mv_geometry(mb_x: usize, mb_y: usize, frame_width: usize, frame_heig
     if frame_width == 0 || frame_height == 0 || block_width == 0 || block_height == 0 {
         return error.ErrVp8MvInvalidGeometry;
     }
-    if block_width > frame_width || block_height > frame_height {
-        return error.ErrVp8MvInvalidGeometry;
-    }
 
     const origin_x: usize = mb_x * (16 as usize);
     const origin_y: usize = mb_y * (16 as usize);
-    if origin_x > frame_width || origin_y > frame_height {
-        return error.ErrVp8MvInvalidGeometry;
-    }
-    if origin_x + block_width > frame_width || origin_y + block_height > frame_height {
+    if origin_x >= frame_width || origin_y >= frame_height {
         return error.ErrVp8MvInvalidGeometry;
     }
 }
@@ -468,9 +462,15 @@ fn clamp_i32_to_i16(value: i32, min_value: i32, max_value: i32) i16 {
 }
 
 fn motion_vector_bounds(mb_coord: usize, frame_size: usize, block_size: usize, min_out: &i32, max_out: &i32) void {
-    const origin_subpel: i32 = (mb_coord as i32) * 16 * 8;
+    const origin: usize = mb_coord * (16 as usize);
+    const origin_subpel: i32 = (origin as i32) * 8;
+    const remaining: usize = frame_size - origin;
+    var visible_block_size: usize = block_size;
+    if visible_block_size > remaining {
+        visible_block_size = remaining;
+    }
     min_out[0] = 0 - origin_subpel;
-    max_out[0] = (((frame_size - block_size) as i32) * 8) - origin_subpel;
+    max_out[0] = (((frame_size - visible_block_size) as i32) * 8) - origin_subpel;
 }
 
 export fn clamp_inter_motion_vector(mv: &Vp8MotionVector, mb_x: usize, mb_y: usize, frame_width: usize, frame_height: usize, block_width: usize, block_height: usize) !Vp8MotionVector {
