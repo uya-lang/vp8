@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TABLE_PATH = REPO_ROOT / "docs" / "encoder_lambda_q_table.json"
+RD_COST_PATH = REPO_ROOT / "src" / "vp8" / "encoder" / "rd_cost.uya"
 EXPECTED_ANCHORS = {
     16: 128,
     24: 160,
@@ -70,6 +72,26 @@ def main() -> None:
     }
     if actual_anchors != EXPECTED_ANCHORS:
         raise AssertionError(f"unexpected ladder anchors: {actual_anchors}")
+
+    rd_cost_source = RD_COST_PATH.read_text(encoding="utf-8")
+    if "const ENCODER_RD_LAMBDA_Q_TABLE: [u32: 128]" not in rd_cost_source:
+        raise AssertionError("rd_cost.uya must define the lambda q table")
+    if "encoder_rd_lambda_q8_from_qindex" not in rd_cost_source:
+        raise AssertionError("rd_cost.uya must expose a qindex-to-lambda table lookup")
+    if "64 + ((quantizer as u32) * 4)" in rd_cost_source:
+        raise AssertionError("make_encoder_quantizer_rd_cost_model must not keep the old inline formula")
+
+    source_table_match = re.search(
+        r"const ENCODER_RD_LAMBDA_Q_TABLE: \[u32: 128\] = \[(.*?)\];",
+        rd_cost_source,
+        re.S,
+    )
+    if source_table_match is None:
+        raise AssertionError("rd_cost.uya lambda table must be parseable")
+    source_values = [int(value) for value in re.findall(r"\d+", source_table_match.group(1))]
+    expected_values = [entry["lambda_q8"] for entry in entries]
+    if source_values != expected_values:
+        raise AssertionError("rd_cost.uya lambda table must match docs/encoder_lambda_q_table.json")
 
 
 if __name__ == "__main__":

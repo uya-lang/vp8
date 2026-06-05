@@ -4,6 +4,17 @@ error ErrEncoderRdCostOverflow;
 const ENCODER_RD_COST_U32_MAX: u64 = 4294967295 as u64;
 export const ENCODER_RD_CHROMA_DISTORTION_WEIGHT_Q8: u32 = 512 as u32;
 
+const ENCODER_RD_LAMBDA_Q_TABLE: [u32: 128] = [
+    64, 68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 116, 120, 124,
+    128, 132, 136, 140, 144, 148, 152, 156, 160, 164, 168, 172, 176, 180, 184, 188,
+    192, 196, 200, 204, 208, 212, 216, 220, 224, 228, 232, 236, 240, 244, 248, 252,
+    256, 260, 264, 268, 272, 276, 280, 284, 288, 292, 296, 300, 304, 308, 312, 316,
+    320, 324, 328, 332, 336, 340, 344, 348, 352, 356, 360, 364, 368, 372, 376, 380,
+    384, 388, 392, 396, 400, 404, 408, 412, 416, 420, 424, 428, 432, 436, 440, 444,
+    448, 452, 456, 460, 464, 468, 472, 476, 480, 484, 488, 492, 496, 500, 504, 508,
+    512, 516, 520, 524, 528, 532, 536, 540, 544, 548, 552, 556, 560, 564, 568, 572
+];
+
 export struct EncoderRdCostModel {
     lambda_q8: u32
 }
@@ -23,12 +34,16 @@ export fn make_encoder_rd_cost_model(lambda_q8: u32) !EncoderRdCostModel {
     };
 }
 
-export fn make_encoder_quantizer_rd_cost_model(quantizer: u8) !EncoderRdCostModel {
-    if quantizer > (127 as u8) {
+export fn encoder_rd_lambda_q8_from_qindex(qindex: u8) !u32 {
+    if qindex > (127 as u8) {
         return error.ErrEncoderRdCostInvalidInput;
     }
+    return ENCODER_RD_LAMBDA_Q_TABLE[qindex as usize];
+}
+
+export fn make_encoder_quantizer_rd_cost_model(quantizer: u8) !EncoderRdCostModel {
     return EncoderRdCostModel{
-        lambda_q8: 64 + ((quantizer as u32) * 4)
+        lambda_q8: try encoder_rd_lambda_q8_from_qindex(quantizer)
     };
 }
 

@@ -249,7 +249,7 @@ Date: 2026-06-05
   - 验收：Q=16/24/32/40/48 均输出 bpp、`PSNR-all`、fps。
 - [x] 拟合 lambda-Q 表。
   - 产物：lambda table 文档或 JSON。
-- [ ] 替换简单 lambda 逻辑。
+- [x] 替换简单 lambda 逻辑。
   - 验收：mode decision 使用新 lambda table。
 - [ ] 增加 token bit estimate。
   - 验收：RD score 包含 token rate cost。

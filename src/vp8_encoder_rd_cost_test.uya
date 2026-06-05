@@ -4,6 +4,7 @@ use vp8.encoder.rd_cost.EncoderRdCost;
 use vp8.encoder.rd_cost.EncoderRdCostModel;
 use vp8.encoder.rd_cost.encoder_rd_cost_q8;
 use vp8.encoder.rd_cost.encoder_rd_is_better;
+use vp8.encoder.rd_cost.encoder_rd_lambda_q8_from_qindex;
 use vp8.encoder.rd_cost.encoder_rd_score_q8;
 use vp8.encoder.rd_cost.encoder_rd_weight_chroma_distortion;
 use vp8.encoder.rd_cost.encoder_rd_weighted_luma_chroma_distortion;
@@ -50,6 +51,19 @@ test "RD cost model can derive lambda from quantizer" {
 
     const q127: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(127 as u8);
     try assert_eq_i32(q127.lambda_q8 as i32, 572);
+}
+
+test "RD lambda table covers q ladder anchors and boundaries" {
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(0 as u8)) as i32, 64);
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(16 as u8)) as i32, 128);
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(24 as u8)) as i32, 160);
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(32 as u8)) as i32, 192);
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(40 as u8)) as i32, 224);
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(48 as u8)) as i32, 256);
+    try assert_eq_i32((try encoder_rd_lambda_q8_from_qindex(127 as u8)) as i32, 572);
+
+    const q40: EncoderRdCostModel = try make_encoder_quantizer_rd_cost_model(40 as u8);
+    try assert_eq_i32(q40.lambda_q8 as i32, (try encoder_rd_lambda_q8_from_qindex(40 as u8)) as i32);
 }
 
 test "RD cost weights chroma distortion before combining with luma" {
