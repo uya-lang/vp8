@@ -204,7 +204,7 @@ Date: 2026-06-05
 - [x] 所有样本通过时返回 0。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --threshold` 的 shell `$?` 为 0。
   - 注：本项验证“所有样本已通过时”的返回码；当前默认真实样本会被 PSNR/fps 硬门禁拦下，达标由后续质量/性能任务处理。
-- [ ] 任一样本失败时返回非 0。
+- [x] 任一样本失败时返回非 0。
   - 验收命令：构造失败样本后 `python3 bench/libvpx_encode_compare.py --threshold` 的 shell `$?` 非 0。
 
 ## Phase 9: Makefile 与 CI 集成

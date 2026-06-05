@@ -264,6 +264,53 @@ def assert_threshold_cli_passes_all_result_records() -> None:
         assert report["failed_results"] == []
 
 
+def assert_threshold_cli_fails_any_result_record() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        results_path = tmp_path / "results.ndjson"
+        results_path.write_text(
+            json.dumps(make_result(sample="unit_ok"), sort_keys=True)
+            + "\n"
+            + json.dumps(
+                make_result(
+                    sample="unit_bad",
+                    vp8uya_bits_per_pixel=1.11,
+                    libvpx_bits_per_pixel=1.0,
+                ),
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--threshold",
+                "--results-ndjson",
+                str(results_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert completed.returncode != 0
+        report = json.loads(completed.stdout)
+        assert report["passed"] is False
+        assert report["sample_count"] == 2
+        assert report["passed_count"] == 1
+        assert report["failed_count"] == 1
+        assert report["failed_samples"] == ["unit_bad"]
+        assert len(report["failed_results"]) == 1
+        assert any(
+            "bitrate_ratio" in reason
+            for reason in report["failed_results"][0]["failure_reasons"]
+        )
+
+
 def assert_vp8uya_bin_missing_cli_path() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         missing = Path(tmp) / "missing-vp8uya"
@@ -1445,6 +1492,7 @@ def main() -> int:
     assert_fps_threshold(module)
     assert_threshold_cli_return_codes()
     assert_threshold_cli_passes_all_result_records()
+    assert_threshold_cli_fails_any_result_record()
     assert_vp8uya_bin_missing_cli_path()
     assert_group_dry_run_filters_qcif()
     assert_frames_dry_run_override()
