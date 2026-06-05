@@ -72,7 +72,7 @@ Date: 2026-06-05
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `low-motion`。
 - [x] 在 manifest 中添加 `foreman_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `motion`。
-- [ ] 在 manifest 中添加 `coastguard_qcif`。
+- [x] 在 manifest 中添加 `coastguard_qcif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `pan`。
 - [ ] 在 manifest 中添加 `mobile_cif`。
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `texture`。
