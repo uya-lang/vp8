@@ -199,7 +199,7 @@ Date: 2026-06-05
   - 验收：`vp8uya_psnr_all_db >= libvpx_psnr_all_db - 0.50` 时质量项通过。
 - [x] 实现 fps 门禁。
   - 验收：`vp8uya_fps >= libvpx_fps * 0.80` 时速度项通过。
-- [ ] 输出失败原因。
+- [x] 输出失败原因。
   - 验收：任一门禁失败时 `failure_reasons` 至少包含一个原因。
 - [ ] 所有样本通过时返回 0。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --threshold` 的 shell `$?` 为 0。
