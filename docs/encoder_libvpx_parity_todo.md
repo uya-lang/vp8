@@ -97,7 +97,7 @@ Date: 2026-06-05
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames 1 --out out.ivf` 与不传 `--frames` 行为一致。
 - [x] 拒绝缺少值的 `--frames`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames --out out.ivf` 返回参数错误。
-- [ ] 拒绝 `--frames 0`。
+- [x] 拒绝 `--frames 0`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames 0 --out out.ivf` 返回参数错误。
 - [ ] 拒绝非数字 `--frames`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames abc --out out.ivf` 返回参数错误。
