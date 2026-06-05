@@ -119,3 +119,32 @@ jobs:
 
       - name: Run optional libvpx differential gate
         run: make ci-libvpx-diff
+
+  libvpx-encode-threshold:
+    name: libvpx encode threshold
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout vp8uya
+        uses: actions/checkout@v4
+
+      - name: Checkout UYA compiler source
+        uses: actions/checkout@v4
+        with:
+          repository: uya-lang/uya
+          path: .ci/uya-src
+
+      - name: Install optional media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Build and install UYA compiler
+        run: |
+          make -C .ci/uya-src from-c
+          make -C .ci/uya-src install PREFIX="$UYA_PREFIX"
+          "$UYA" -v
+
+      - name: Run optional libvpx encode threshold gate
+        run: make test-libvpx-encode-threshold
