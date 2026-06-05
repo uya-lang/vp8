@@ -119,7 +119,7 @@ Date: 2026-06-05
   - 验收：解析 IVF frame headers 时 timestamp 为 `0..N-1`。
 - [x] 复用公共 `Vp8Encoder` API。
   - 验收：CLI 不复制 reference pool、inter frame 状态机或 rate control 状态。
-- [ ] 保持单帧 encode 行为兼容。
+- [x] 保持单帧 encode 行为兼容。
   - 验收命令：`make test` 中现有单帧 encode 用例通过。
 - [ ] 更新 CLI 文档。
   - 产物：`docs/cli.md` 说明 `--frames` 和 `--fps`。
