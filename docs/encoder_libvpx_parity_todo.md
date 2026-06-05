@@ -84,7 +84,7 @@ Date: 2026-06-05
   - 验收：sha256 不匹配时脚本返回非 0，并拒绝生成 I420 fixture。
 - [x] 实现缓存复用。
   - 验收：第二次运行同一 sha256 样本不重新下载。
-- [ ] 实现 Y4M 到 I420 转换。
+- [x] 实现 Y4M 到 I420 转换。
   - 验收命令：`ffmpeg -y -i <sample>.y4m -frames:v 60 -pix_fmt yuv420p -f rawvideo <sample>.i420` 生成 raw I420。
 - [ ] 校验 I420 文件大小。
   - 验收：`stat -c %s <sample>.i420` 等于 `frame_size * frames`。
