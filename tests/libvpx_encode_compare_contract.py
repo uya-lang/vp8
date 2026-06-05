@@ -692,6 +692,8 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert result["libvpx_bits_per_pixel"] == 0.234375
         assert result["vp8uya_encode_elapsed_ns"] == 1234
         assert result["libvpx_encode_elapsed_ns"] == 2345
+        assert result["vp8uya_fps"] == 2_000_000_000.0 / 1234.0
+        assert result["libvpx_fps"] == 2_000_000_000.0 / 2345.0
 
 
 def assert_ssim_is_record_only(module: object) -> None:

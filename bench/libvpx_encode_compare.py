@@ -1712,6 +1712,14 @@ def bits_per_pixel(payload_bits: int | float, width: int, height: int, frames: i
     return float(payload_bits) / float(denominator)
 
 
+def encode_fps(frames: int, elapsed_ns: int) -> float:
+    if frames <= 0:
+        raise ValueError("encode fps frames must be positive")
+    if elapsed_ns <= 0:
+        raise ValueError("encode elapsed ns must be positive")
+    return (float(frames) * 1_000_000_000.0) / float(elapsed_ns)
+
+
 def write_encode_metadata(
     path: Path,
     *,
@@ -1865,9 +1873,13 @@ def write_results_ndjson_payload_bits(
                 int(result["height"]),
                 int(result["frames"]),
             )
+            vp8uya_fps = encode_fps(int(result["frames"]), int(vp8uya_elapsed["elapsed_ns"]))
+            libvpx_fps = encode_fps(int(result["frames"]), int(libvpx_elapsed["elapsed_ns"]))
         except (TypeError, ValueError) as exc:
             vp8uya_bpp = 0.0
             libvpx_bpp = 0.0
+            vp8uya_fps = 0.0
+            libvpx_fps = 0.0
             failure_reasons.append(str(exc))
 
         result.update({
@@ -1879,6 +1891,8 @@ def write_results_ndjson_payload_bits(
             "libvpx_bits_per_pixel": libvpx_bpp,
             "vp8uya_encode_elapsed_ns": vp8uya_elapsed["elapsed_ns"],
             "libvpx_encode_elapsed_ns": libvpx_elapsed["elapsed_ns"],
+            "vp8uya_fps": vp8uya_fps,
+            "libvpx_fps": libvpx_fps,
             "vp8uya_encode_metadata_path": vp8uya_elapsed["path"],
             "libvpx_encode_metadata_path": libvpx_elapsed["path"],
             "vp8uya_payload_bytes": vp8uya_payload["payload_bytes"],

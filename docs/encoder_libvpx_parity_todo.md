@@ -178,7 +178,7 @@ Date: 2026-06-05
   - 验收产物：`results.ndjson` 包含 `vp8uya_bits_per_pixel` 和 `libvpx_bits_per_pixel`。
 - [x] 统计 encoding elapsed ns。
   - 验收产物：`results.ndjson` 包含 `vp8uya_encode_elapsed_ns` 和 `libvpx_encode_elapsed_ns`。
-- [ ] 统计 encoding fps。
+- [x] 统计 encoding fps。
   - 验收产物：`results.ndjson` 包含 `vp8uya_fps` 和 `libvpx_fps`。
 - [ ] 计算 PSNR Y/U/V/all。
   - 验收产物：`results.ndjson` 包含 `psnr_y_db`、`psnr_u_db`、`psnr_v_db`、`psnr_all_db`。
