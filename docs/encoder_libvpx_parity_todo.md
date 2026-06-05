@@ -47,7 +47,7 @@ Date: 2026-06-05
   - 验收命令：`VPXENC=/tmp/fake-vpxenc python3 bench/libvpx_encode_compare.py --probe-tools` 优先报告该路径。
 - [x] 新增 `vpxdec` 查找 helper。
   - 验收命令：`VPXDEC=/tmp/fake-vpxdec python3 bench/libvpx_encode_compare.py --probe-tools` 优先报告该路径。
-- [ ] 支持从 `PATH` 查找工具。
+- [x] 支持从 `PATH` 查找工具。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 能打印 PATH 中发现的 `vpxenc` 和 `vpxdec`。
 - [ ] 支持从 `build/deps/vpx-tools-root/usr/bin/` 查找工具。
   - 验收：把可执行 `vpxenc`、`vpxdec` 放入该目录后，不设置环境变量也能发现。
