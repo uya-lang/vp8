@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shlex
 import shutil
@@ -50,6 +51,10 @@ REQUIRED_RESULT_FIELDS = (
     "libvpx_bits_per_pixel",
     "vp8uya_encode_elapsed_ns",
     "libvpx_encode_elapsed_ns",
+    "psnr_y_db",
+    "psnr_u_db",
+    "psnr_v_db",
+    "psnr_all_db",
     "bitrate_ratio",
     "vp8uya_psnr_y_db",
     "vp8uya_psnr_u_db",
@@ -1720,6 +1725,147 @@ def encode_fps(frames: int, elapsed_ns: int) -> float:
     return (float(frames) * 1_000_000_000.0) / float(elapsed_ns)
 
 
+def psnr_db(sse: int, samples: int) -> float:
+    if samples <= 0:
+        raise ValueError("PSNR sample count must be positive")
+    if sse < 0:
+        raise ValueError("PSNR SSE must be non-negative")
+    if sse == 0:
+        return float("inf")
+    mse = float(sse) / float(samples)
+    return 10.0 * math.log10(65025.0 / mse)
+
+
+def psnr_all_delta_db(vp8uya_psnr_all: float, libvpx_psnr_all: float) -> float:
+    if math.isinf(vp8uya_psnr_all) and math.isinf(libvpx_psnr_all):
+        return 0.0
+    return round(vp8uya_psnr_all - libvpx_psnr_all, 6)
+
+
+def psnr_failure_result(reference_path: Path | None, decoded_path: Path | None, error: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "reference_path": "" if reference_path is None else str(reference_path),
+        "decoded_path": "" if decoded_path is None else str(decoded_path),
+        "psnr_y_db": 0.0,
+        "psnr_u_db": 0.0,
+        "psnr_v_db": 0.0,
+        "psnr_all_db": 0.0,
+        "error": error,
+    }
+
+
+def read_i420_psnr(
+    reference_path: Path,
+    decoded_path: Path,
+    *,
+    width: int,
+    height: int,
+    frames: int,
+) -> dict[str, Any]:
+    try:
+        expected_size = i420_frame_size(width, height) * frames
+    except ValueError as exc:
+        return psnr_failure_result(reference_path, decoded_path, str(exc))
+    if frames <= 0:
+        return psnr_failure_result(reference_path, decoded_path, "I420 PSNR frames must be positive")
+
+    try:
+        reference = reference_path.read_bytes()
+    except OSError as exc:
+        return psnr_failure_result(reference_path, decoded_path, f"failed to read reference I420 {reference_path}: {exc}")
+    try:
+        decoded = decoded_path.read_bytes()
+    except OSError as exc:
+        return psnr_failure_result(reference_path, decoded_path, f"failed to read decoded I420 {decoded_path}: {exc}")
+
+    if len(reference) != expected_size:
+        return psnr_failure_result(
+            reference_path,
+            decoded_path,
+            f"reference I420 {reference_path} has {len(reference)} bytes, expected {expected_size}",
+        )
+    if len(decoded) != expected_size:
+        return psnr_failure_result(
+            reference_path,
+            decoded_path,
+            f"decoded I420 {decoded_path} has {len(decoded)} bytes, expected {expected_size}",
+        )
+
+    y_size = width * height
+    chroma_width = (width + 1) // 2
+    chroma_height = (height + 1) // 2
+    uv_size = chroma_width * chroma_height
+    frame_size = y_size + (2 * uv_size)
+    y_sse = 0
+    u_sse = 0
+    v_sse = 0
+    for frame_index in range(frames):
+        frame_offset = frame_index * frame_size
+        y_start = frame_offset
+        u_start = y_start + y_size
+        v_start = u_start + uv_size
+        y_sse += sum(
+            (reference_value - decoded_value) * (reference_value - decoded_value)
+            for reference_value, decoded_value in zip(
+                reference[y_start:u_start],
+                decoded[y_start:u_start],
+            )
+        )
+        u_sse += sum(
+            (reference_value - decoded_value) * (reference_value - decoded_value)
+            for reference_value, decoded_value in zip(
+                reference[u_start:v_start],
+                decoded[u_start:v_start],
+            )
+        )
+        v_sse += sum(
+            (reference_value - decoded_value) * (reference_value - decoded_value)
+            for reference_value, decoded_value in zip(
+                reference[v_start:v_start + uv_size],
+                decoded[v_start:v_start + uv_size],
+            )
+        )
+
+    y_samples = y_size * frames
+    uv_samples = uv_size * frames
+    return {
+        "ok": True,
+        "reference_path": str(reference_path),
+        "decoded_path": str(decoded_path),
+        "psnr_y_db": psnr_db(y_sse, y_samples),
+        "psnr_u_db": psnr_db(u_sse, uv_samples),
+        "psnr_v_db": psnr_db(v_sse, uv_samples),
+        "psnr_all_db": psnr_db(y_sse + u_sse + v_sse, y_samples + (2 * uv_samples)),
+        "error": None,
+    }
+
+
+def read_sample_psnr(
+    sample: Mapping[str, Any],
+    *,
+    i420_dir: Path,
+    runs_dir: Path,
+    encoder_label: str,
+) -> dict[str, Any]:
+    try:
+        decoded_path = sample_decoded_i420_path(sample, runs_dir, encoder_label)
+        width = sample_dimension(sample, "width")
+        height = sample_dimension(sample, "height")
+        frames = sample_frames(sample)
+    except ValueError as exc:
+        return psnr_failure_result(None, None, str(exc))
+    input_report = prepare_i420_encode_input(sample, i420_dir=i420_dir, runs_dir=runs_dir)
+    if not input_report["ok"]:
+        return psnr_failure_result(
+            Path(str(input_report["path"])) if input_report["path"] else None,
+            decoded_path,
+            str(input_report["error"]),
+        )
+    reference_path = Path(str(input_report["path"]))
+    return read_i420_psnr(reference_path, decoded_path, width=width, height=height, frames=frames)
+
+
 def write_encode_metadata(
     path: Path,
     *,
@@ -1802,6 +1948,7 @@ def write_results_ndjson_payload_bits(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
     runs_dir: Path = DEFAULT_RUNS_DIR,
     results_path: Path = DEFAULT_RESULTS_NDJSON_PATH,
 ) -> dict[str, Any]:
@@ -1859,6 +2006,12 @@ def write_results_ndjson_payload_bits(
             failure_reasons.append(f"vp8uya: {vp8uya_elapsed['error']}")
         if not libvpx_elapsed["ok"]:
             failure_reasons.append(f"libvpx: {libvpx_elapsed['error']}")
+        vp8uya_psnr = read_sample_psnr(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="vp8uya")
+        libvpx_psnr = read_sample_psnr(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="libvpx")
+        if not vp8uya_psnr["ok"]:
+            failure_reasons.append(f"vp8uya psnr: {vp8uya_psnr['error']}")
+        if not libvpx_psnr["ok"]:
+            failure_reasons.append(f"libvpx psnr: {libvpx_psnr['error']}")
 
         try:
             vp8uya_bpp = bits_per_pixel(
@@ -1882,6 +2035,15 @@ def write_results_ndjson_payload_bits(
             libvpx_fps = 0.0
             failure_reasons.append(str(exc))
 
+        try:
+            psnr_delta = psnr_all_delta_db(
+                float(vp8uya_psnr["psnr_all_db"]),
+                float(libvpx_psnr["psnr_all_db"]),
+            )
+        except (TypeError, ValueError) as exc:
+            psnr_delta = 0.0
+            failure_reasons.append(str(exc))
+
         result.update({
             "vp8uya_ivf_path": str(vp8uya_path),
             "libvpx_ivf_path": str(libvpx_path),
@@ -1893,6 +2055,23 @@ def write_results_ndjson_payload_bits(
             "libvpx_encode_elapsed_ns": libvpx_elapsed["elapsed_ns"],
             "vp8uya_fps": vp8uya_fps,
             "libvpx_fps": libvpx_fps,
+            "psnr_y_db": vp8uya_psnr["psnr_y_db"],
+            "psnr_u_db": vp8uya_psnr["psnr_u_db"],
+            "psnr_v_db": vp8uya_psnr["psnr_v_db"],
+            "psnr_all_db": vp8uya_psnr["psnr_all_db"],
+            "vp8uya_psnr_y_db": vp8uya_psnr["psnr_y_db"],
+            "vp8uya_psnr_u_db": vp8uya_psnr["psnr_u_db"],
+            "vp8uya_psnr_v_db": vp8uya_psnr["psnr_v_db"],
+            "vp8uya_psnr_all_db": vp8uya_psnr["psnr_all_db"],
+            "libvpx_psnr_y_db": libvpx_psnr["psnr_y_db"],
+            "libvpx_psnr_u_db": libvpx_psnr["psnr_u_db"],
+            "libvpx_psnr_v_db": libvpx_psnr["psnr_v_db"],
+            "libvpx_psnr_all_db": libvpx_psnr["psnr_all_db"],
+            "psnr_all_delta_db": psnr_delta,
+            "vp8uya_psnr_reference_path": vp8uya_psnr["reference_path"],
+            "vp8uya_psnr_decoded_path": vp8uya_psnr["decoded_path"],
+            "libvpx_psnr_reference_path": libvpx_psnr["reference_path"],
+            "libvpx_psnr_decoded_path": libvpx_psnr["decoded_path"],
             "vp8uya_encode_metadata_path": vp8uya_elapsed["path"],
             "libvpx_encode_metadata_path": libvpx_elapsed["path"],
             "vp8uya_payload_bytes": vp8uya_payload["payload_bytes"],
@@ -2157,6 +2336,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            i420_dir=args.i420_cache_dir,
             runs_dir=args.runs_dir,
             results_path=args.results_ndjson,
         )

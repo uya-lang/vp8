@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import os
 import hashlib
 import subprocess
@@ -623,12 +624,31 @@ def write_test_ivf(path: Path, payload_sizes: list[int]) -> None:
     path.write_bytes(data)
 
 
+def write_i420_constant(path: Path, width: int, height: int, frames: int, y: int, u: int, v: int) -> None:
+    chroma_width = (width + 1) // 2
+    chroma_height = (height + 1) // 2
+    y_size = width * height
+    uv_size = chroma_width * chroma_height
+    data = bytearray()
+    for _ in range(frames):
+        data.extend(bytes([y]) * y_size)
+        data.extend(bytes([u]) * uv_size)
+        data.extend(bytes([v]) * uv_size)
+    path.write_bytes(data)
+
+
+def psnr_for_mse(mse: float) -> float:
+    return 10.0 * math.log10(65025.0 / mse)
+
+
 def assert_results_ndjson_records_payload_bits() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         manifest_path = root / "manifest.json"
+        i420_dir = root / "fixtures"
         runs_dir = root / "runs"
         results_path = root / "results.ndjson"
+        i420_dir.mkdir()
         runs_dir.mkdir()
         manifest_path.write_text(
             json.dumps({
@@ -647,6 +667,9 @@ def assert_results_ndjson_records_payload_bits() -> None:
         )
         write_test_ivf(runs_dir / "unit_qcif.vp8uya.ivf", [10, 20])
         write_test_ivf(runs_dir / "unit_qcif.libvpx.ivf", [7, 8])
+        write_i420_constant(i420_dir / "unit_qcif.i420", 16, 16, 2, 0, 0, 0)
+        write_i420_constant(runs_dir / "unit_qcif.vp8uya.decoded.i420", 16, 16, 2, 1, 2, 3)
+        write_i420_constant(runs_dir / "unit_qcif.libvpx.decoded.i420", 16, 16, 2, 1, 1, 1)
         (runs_dir / "unit_qcif.vp8uya.encode.json").write_text(
             json.dumps({"vp8uya_encode_elapsed_ns": 1234}),
             encoding="utf-8",
@@ -666,6 +689,8 @@ def assert_results_ndjson_records_payload_bits() -> None:
                 str(runs_dir),
                 "--group",
                 "qcif",
+                "--i420-cache-dir",
+                str(i420_dir),
                 "--write-results-ndjson",
                 "--results-ndjson",
                 str(results_path),
@@ -694,6 +719,18 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert result["libvpx_encode_elapsed_ns"] == 2345
         assert result["vp8uya_fps"] == 2_000_000_000.0 / 1234.0
         assert result["libvpx_fps"] == 2_000_000_000.0 / 2345.0
+        assert math.isclose(result["psnr_y_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["psnr_u_db"], psnr_for_mse(4.0), rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["psnr_v_db"], psnr_for_mse(9.0), rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["psnr_all_db"], psnr_for_mse(17.0 / 6.0), rel_tol=0.0, abs_tol=1e-12)
+        assert result["vp8uya_psnr_y_db"] == result["psnr_y_db"]
+        assert result["vp8uya_psnr_u_db"] == result["psnr_u_db"]
+        assert result["vp8uya_psnr_v_db"] == result["psnr_v_db"]
+        assert result["vp8uya_psnr_all_db"] == result["psnr_all_db"]
+        assert math.isclose(result["libvpx_psnr_y_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["libvpx_psnr_u_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["libvpx_psnr_v_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
+        assert math.isclose(result["libvpx_psnr_all_db"], psnr_for_mse(1.0), rel_tol=0.0, abs_tol=1e-12)
 
 
 def assert_ssim_is_record_only(module: object) -> None:
