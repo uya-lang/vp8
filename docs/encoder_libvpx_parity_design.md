@@ -236,6 +236,7 @@ vpxdec --rawvideo -o foreman_qcif.libvpx.decoded.i420 foreman_qcif.libvpx.ivf
 build/libvpx-encode-compare/results.ndjson
 build/libvpx-encode-compare/summary.json
 docs/encoder_libvpx_compare_report.md
+docs/encoder_libvpx_compare_report_template.md
 ```
 
 `results.ndjson` 每行记录一个样本一次对比：
@@ -266,6 +267,11 @@ docs/encoder_libvpx_compare_report.md
 - 未达标样本的复现命令
 - 工具版本
 - 后续优化建议
+
+`docs/encoder_libvpx_compare_report_template.md` 是未来 Markdown 报告模板，
+不包含真实样本结论。模板必须固定写明 libvpx 对标 preset 为
+`vpxenc --best`，避免后续报告把默认 preset、realtime preset 或其他
+libvpx 配置混入同一套阈值。
 
 ## 9. 硬阈值判定
 

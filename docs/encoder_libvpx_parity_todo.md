@@ -22,7 +22,7 @@ Date: 2026-06-05
 
 ## Phase 1: 指标契约
 
-- [ ] 固化对标对象为 libvpx `vpxenc --best`。
+- [x] 固化对标对象为 libvpx `vpxenc --best`。
   - 验收：设计文档和未来报告模板都出现 `vpxenc --best`。
 - [ ] 固化码率指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_bits_per_pixel` 和 `libvpx_bits_per_pixel`。
