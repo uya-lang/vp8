@@ -268,6 +268,9 @@ docs/encoder_libvpx_compare_report_template.md
 - aggregate speed fields:
   - `vp8uya_fps`
   - `libvpx_fps`
+- tool version fields:
+  - `vpxenc_version`
+  - `vpxdec_version`
 
 `docs/encoder_libvpx_compare_report.md` 记录：
 

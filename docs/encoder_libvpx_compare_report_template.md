@@ -42,6 +42,8 @@ names:
 - `libvpx_psnr_all_db`
 - `vp8uya_fps`
 - `libvpx_fps`
+- `vpxenc_version`
+- `vpxdec_version`
 
 ## Sample Results
 

@@ -59,7 +59,7 @@ Date: 2026-06-05
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxenc_probe_returncode`。
 - [x] 校验 `vpxdec` 可执行。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --probe-tools` 返回 0，并记录 `vpxdec_probe_returncode`。
-- [ ] 记录工具版本。
+- [x] 记录工具版本。
   - 验收产物：未来 `summary.json` 包含 `vpxenc_version` 和 `vpxdec_version`。
 - [ ] 工具缺失时输出明确修复建议。
   - 验收：无工具时脚本返回非 0，stderr 包含 `VPXENC`、`VPXDEC`、`--fetch-vpx-tools`。
