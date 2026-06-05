@@ -490,6 +490,8 @@ def assert_download_y4m_sample(module: object) -> None:
 
         def ok_downloader(url: str, dest: Path) -> None:
             assert url == sample["url"]
+            assert dest == y4m_dir / "unit_sample.y4m.part"
+            assert not (y4m_dir / "unit_sample.y4m").exists()
             dest.write_bytes(b"YUV4MPEG2\nFRAME\n")
 
         ok_report = module.download_y4m_sample(sample, y4m_dir=y4m_dir, downloader=ok_downloader)

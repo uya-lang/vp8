@@ -78,7 +78,7 @@ Date: 2026-06-05
   - 验收：记录 URL、width、height、frames、fps、sha256、groups，groups 包含 `texture`。
 - [x] 实现样本下载缓存目录。
   - 产物：`build/real-y4m/`，且该目录不进入 git。
-- [ ] 实现 Y4M 原子下载。
+- [x] 实现 Y4M 原子下载。
   - 验收：下载完成前只存在临时文件，失败时不留下可被复用的半截 `.y4m`。
 - [ ] 实现 sha256 校验。
   - 验收：sha256 不匹配时脚本返回非 0，并拒绝生成 I420 fixture。
