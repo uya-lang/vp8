@@ -275,6 +275,22 @@ def assert_warmups_dry_run_recorded() -> None:
     assert report["warmups"] == 2
 
 
+def assert_repeats_dry_run_recorded() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--group", "qcif", "--repeats", "3", "--dry-run"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stdout)
+    report = json.loads(completed.stdout)
+    assert report["repeats"] == 3
+    assert report["repeat_statistic"] == "median"
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -732,6 +748,7 @@ def main() -> int:
     assert_group_dry_run_filters_qcif()
     assert_frames_dry_run_override()
     assert_warmups_dry_run_recorded()
+    assert_repeats_dry_run_recorded()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

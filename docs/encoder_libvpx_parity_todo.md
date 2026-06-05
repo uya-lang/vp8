@@ -157,7 +157,7 @@ Date: 2026-06-05
   - 验收：`--frames 30` 时报告中 sample frame count 为 30。
 - [x] 支持 `--warmups`。
   - 验收：JSON 记录 warmup 次数。
-- [ ] 支持 `--repeats`。
+- [x] 支持 `--repeats`。
   - 验收：JSON 记录 repeat 次数和最终采用的统计值。
 - [ ] 调用 `vp8uya encode --frames N --fps NUM/DEN`。
   - 验收产物：生成 `<sample>.vp8uya.ivf`。

@@ -30,6 +30,7 @@ DEFAULT_I420_CACHE_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "fixtur
 DEFAULT_VP8UYA_BIN = REPO_ROOT / "build" / "vp8uya"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "fixtures" / "encoder_libvpx_real_samples.json"
 LIBVPX_PRESET = "vpxenc --best"
+REPEAT_STATISTIC = "median"
 
 REQUIRED_RESULT_FIELDS = (
     "sample",
@@ -405,6 +406,7 @@ def dry_run_samples(
     group: str | None = None,
     frames_override: int | None = None,
     warmups: int = 0,
+    repeats: int = 1,
 ) -> dict[str, Any]:
     try:
         manifest = load_sample_manifest(manifest_path)
@@ -415,6 +417,8 @@ def dry_run_samples(
             "manifest_path": str(manifest_path),
             "group": group,
             "warmups": warmups,
+            "repeats": repeats,
+            "repeat_statistic": REPEAT_STATISTIC,
             "samples": [],
             "error": str(exc),
         }
@@ -433,6 +437,8 @@ def dry_run_samples(
         "group": group,
         "frames_override": frames_override,
         "warmups": warmups,
+        "repeats": repeats,
+        "repeat_statistic": REPEAT_STATISTIC,
         "samples": planned_samples,
         "sample_count": len(planned_samples),
     }
@@ -944,6 +950,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="number of warmup encode runs to record in the benchmark plan",
     )
     parser.add_argument(
+        "--repeats",
+        type=positive_int_arg,
+        default=1,
+        help=f"number of measured encode runs; final statistic is {REPEAT_STATISTIC}",
+    )
+    parser.add_argument(
         "--manifest",
         type=Path,
         default=DEFAULT_MANIFEST_PATH,
@@ -1003,6 +1015,7 @@ def main(argv: list[str]) -> int:
             group=args.group,
             frames_override=args.frames,
             warmups=args.warmups,
+            repeats=args.repeats,
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
