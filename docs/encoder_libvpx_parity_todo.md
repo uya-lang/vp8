@@ -225,7 +225,7 @@ Date: 2026-06-05
 
 ## Phase 10: 质量追赶优化
 
-- [ ] 记录 key/inter/skip frame 或 macroblock 计数。
+- [x] 记录 key/inter/skip frame 或 macroblock 计数。
   - 验收产物：benchmark JSON 包含 mode distribution 字段。
 - [ ] 接入 integer-pel motion search 到实际 encode path。
   - 验收：运动样本报告中 non-zero MV count 大于 0。

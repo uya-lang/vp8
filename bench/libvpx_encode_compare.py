@@ -51,6 +51,7 @@ REQUIRED_RESULT_FIELDS = (
     "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
+    "vp8uya_mode_distribution",
     "vp8uya_encode_elapsed_ns",
     "libvpx_encode_elapsed_ns",
     "psnr_y_db",
@@ -93,6 +94,7 @@ REQUIRED_SUMMARY_FIELDS = (
     "libvpx_psnr_all_db",
     "vp8uya_fps",
     "libvpx_fps",
+    "vp8uya_mode_distribution",
     "vpxenc_version",
     "vpxdec_version",
 )
@@ -182,6 +184,29 @@ def extract_help_version(text: str) -> str:
         if "WebM Project VP8" in stripped and ("Encoder" in stripped or "Decoder" in stripped):
             return stripped
     return ""
+
+
+def parse_vp8uya_mode_distribution(stdout: str) -> dict[str, int] | None:
+    field_map = {
+        "encode.frames.total": "encoded_frame_count",
+        "encode.frames.key": "key_frame_count",
+        "encode.frames.inter": "inter_frame_count",
+    }
+    parsed: dict[str, int] = {}
+    for line in stdout.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep != "=" or key not in field_map:
+            continue
+        try:
+            count = int(value, 10)
+        except ValueError:
+            continue
+        if count < 0:
+            continue
+        parsed[field_map[key]] = count
+    if all(field in parsed for field in field_map.values()):
+        return parsed
+    return None
 
 
 def attach_tool_metadata(lookup: dict[str, Any]) -> dict[str, Any]:
@@ -1125,6 +1150,11 @@ def encode_vp8uya_samples(
         except OSError as exc:
             completed = subprocess.CompletedProcess(command, 127, "", str(exc))
         elapsed_ns = time.perf_counter_ns() - started_ns
+        mode_distribution = parse_vp8uya_mode_distribution(completed.stdout)
+        encode_ok = completed.returncode == 0 and output_path.exists() and mode_distribution is not None
+        extra_fields = {}
+        if mode_distribution is not None:
+            extra_fields["vp8uya_mode_distribution"] = mode_distribution
 
         metadata_error = write_encode_metadata(
             metadata_path,
@@ -1132,19 +1162,22 @@ def encode_vp8uya_samples(
             elapsed_ns=elapsed_ns,
             command=command,
             output_path=output_path,
-            ok=completed.returncode == 0 and output_path.exists(),
+            ok=encode_ok,
             returncode=completed.returncode,
+            extra_fields=extra_fields,
         )
 
         results.append({
             "sample": sample["name"],
-            "ok": completed.returncode == 0 and output_path.exists() and metadata_error is None,
+            "ok": encode_ok and metadata_error is None,
             "input": input_report,
             "output_path": str(output_path),
             "encode_metadata_path": str(metadata_path),
             "encode_metadata_error": metadata_error,
             "vp8uya_command": command,
             "vp8uya_encode_elapsed_ns": elapsed_ns,
+            "vp8uya_mode_distribution": mode_distribution,
+            "vp8uya_mode_distribution_error": None if mode_distribution is not None else "missing encode.frames.* stdout report",
             "returncode": completed.returncode,
             "stdout": completed.stdout,
             "stderr": completed.stderr,
@@ -1760,6 +1793,26 @@ def first_string_field(records: list[dict[str, Any]], field: str) -> str:
     return ""
 
 
+def aggregate_mode_distribution(records: list[dict[str, Any]], field: str) -> dict[str, int]:
+    if not records:
+        raise ValueError("summary requires at least one result record")
+    totals = {
+        "encoded_frame_count": 0,
+        "key_frame_count": 0,
+        "inter_frame_count": 0,
+    }
+    for record in records:
+        distribution = record.get(field)
+        if not isinstance(distribution, dict):
+            raise ValueError(f"summary requires object {field}")
+        for count_field in totals:
+            value = distribution.get(count_field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"summary requires non-negative integer {field}.{count_field}")
+            totals[count_field] += value
+    return totals
+
+
 def current_git_commit() -> str:
     completed = run_command(["git", "rev-parse", "HEAD"], REPO_ROOT)
     if completed.returncode != 0:
@@ -1791,6 +1844,7 @@ def build_summary(records: list[dict[str, Any]], *, results_path: Path) -> dict[
         "libvpx_psnr_all_db": mean_required_field(records, "libvpx_psnr_all_db"),
         "vp8uya_fps": mean_required_field(records, "vp8uya_fps"),
         "libvpx_fps": mean_required_field(records, "libvpx_fps"),
+        "vp8uya_mode_distribution": aggregate_mode_distribution(records, "vp8uya_mode_distribution"),
         "vpxenc_version": first_string_field(records, "vpxenc_version"),
         "vpxdec_version": first_string_field(records, "vpxdec_version"),
     }
@@ -2478,6 +2532,7 @@ def write_encode_metadata(
     output_path: Path,
     ok: bool,
     returncode: int | None,
+    extra_fields: Mapping[str, Any] | None = None,
 ) -> str | None:
     metadata = {
         elapsed_field: elapsed_ns,
@@ -2486,6 +2541,8 @@ def write_encode_metadata(
         "output_path": str(output_path),
         "returncode": returncode,
     }
+    if extra_fields is not None:
+        metadata.update(dict(extra_fields))
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8")
@@ -2542,6 +2599,71 @@ def read_encode_elapsed_ns(sample: Mapping[str, Any], runs_dir: Path, encoder_la
         "ok": True,
         "path": str(path),
         "elapsed_ns": elapsed_ns,
+        "error": None,
+    }
+
+
+def read_vp8uya_mode_distribution(sample: Mapping[str, Any], runs_dir: Path) -> dict[str, Any]:
+    try:
+        path = sample_encode_metadata_path(sample, runs_dir, "vp8uya")
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "path": "",
+            "mode_distribution": {},
+            "error": str(exc),
+        }
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "mode_distribution": {},
+            "error": f"failed to read encode metadata {path}: {exc}",
+        }
+    except json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "mode_distribution": {},
+            "error": f"failed to parse encode metadata {path}: {exc}",
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "mode_distribution": {},
+            "error": f"encode metadata {path} must contain an object",
+        }
+
+    distribution = data.get("vp8uya_mode_distribution")
+    if not isinstance(distribution, dict):
+        return {
+            "ok": False,
+            "path": str(path),
+            "mode_distribution": {},
+            "error": f"encode metadata {path} must contain vp8uya_mode_distribution",
+        }
+
+    parsed: dict[str, int] = {}
+    for field in ("encoded_frame_count", "key_frame_count", "inter_frame_count"):
+        value = distribution.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {
+                "ok": False,
+                "path": str(path),
+                "mode_distribution": {},
+                "error": f"vp8uya_mode_distribution.{field} must be a non-negative integer",
+            }
+        parsed[field] = value
+
+    return {
+        "ok": True,
+        "path": str(path),
+        "mode_distribution": parsed,
         "error": None,
     }
 
@@ -2635,6 +2757,9 @@ def write_results_ndjson_payload_bits(
             failure_reasons.append(f"vp8uya: {vp8uya_elapsed['error']}")
         if not libvpx_elapsed["ok"]:
             failure_reasons.append(f"libvpx: {libvpx_elapsed['error']}")
+        vp8uya_mode_distribution = read_vp8uya_mode_distribution(sample, runs_dir)
+        if not vp8uya_mode_distribution["ok"]:
+            failure_reasons.append(f"vp8uya mode distribution: {vp8uya_mode_distribution['error']}")
         vp8uya_psnr = read_sample_psnr(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="vp8uya")
         libvpx_psnr = read_sample_psnr(sample, i420_dir=i420_dir, runs_dir=runs_dir, encoder_label="libvpx")
         if not vp8uya_psnr["ok"]:
@@ -2702,6 +2827,7 @@ def write_results_ndjson_payload_bits(
             "libvpx_bits_per_pixel": libvpx_bpp,
             "vp8uya_encode_elapsed_ns": vp8uya_elapsed["elapsed_ns"],
             "libvpx_encode_elapsed_ns": libvpx_elapsed["elapsed_ns"],
+            "vp8uya_mode_distribution": vp8uya_mode_distribution["mode_distribution"],
             "vp8uya_fps": vp8uya_fps,
             "libvpx_fps": libvpx_fps,
             "psnr_y_db": vp8uya_psnr["psnr_y_db"],

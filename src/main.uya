@@ -383,6 +383,16 @@ fn print_encode_speed_report(speed_preset: EncoderSpeedPreset, mode_search_work_
     _ = printf("encode.speed.mode_search_work_units=%lu\n", mode_search_work_units);
 }
 
+fn print_encode_frame_report(encoded_frame_count: u64, keyframe_count: u64) void {
+    var inter_frame_count: u64 = 0 as u64;
+    if encoded_frame_count >= keyframe_count {
+        inter_frame_count = encoded_frame_count - keyframe_count;
+    }
+    _ = printf("encode.frames.total=%lu\n", encoded_frame_count);
+    _ = printf("encode.frames.key=%lu\n", keyframe_count);
+    _ = printf("encode.frames.inter=%lu\n", inter_frame_count);
+}
+
 fn env_flag_enabled(name: &const byte) bool {
     const value: &byte = getenv(name);
     if value == null {
@@ -892,6 +902,7 @@ fn run_encode_multiframe(file: &FileBuffer, width: usize, height: usize, frame_c
     }
 
     const stats: Vp8EncoderStats = vp8_encoder_stats(&encoder);
+    print_encode_frame_report(stats.encoded_frame_count, stats.keyframe_count);
     print_encode_speed_report(config.speed_preset, stats.last_mode_search_work_units);
     return 0;
 }
@@ -1002,6 +1013,7 @@ fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize
     }
     print_encode_psnr_report(&analysis.quality.psnr);
     print_encode_ssim_report(&analysis.quality.ssim);
+    print_encode_frame_report(1 as u64, 1 as u64);
     print_encode_speed_report(config.speed_preset, encode_stats.mode_search_work_units);
     if decision.target_bits != 0 {
         const bitrate_report: EncoderRateControlFrameReport = make_encoder_rate_control_frame_report(decision.target_bits, analysis.payload_bits, CLI_ENCODE_BITRATE_TOLERANCE_PPM) catch {
