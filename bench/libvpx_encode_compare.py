@@ -679,6 +679,13 @@ def sample_libvpx_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
     return runs_dir / f"{name}.libvpx.ivf"
 
 
+def sample_decoded_i420_path(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> Path:
+    name = sample.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("sample name must be a non-empty string")
+    return runs_dir / f"{name}.{encoder_label}.decoded.i420"
+
+
 def sample_frames(sample: Mapping[str, Any]) -> int:
     frames = sample.get("frames", 60)
     if not isinstance(frames, int) or frames <= 0:
@@ -1131,6 +1138,111 @@ def encode_libvpx_samples(
     }
 
 
+def encoded_ivf_path(sample: Mapping[str, Any], runs_dir: Path, encoder_label: str) -> Path:
+    if encoder_label == "vp8uya":
+        return sample_vp8uya_ivf_path(sample, runs_dir)
+    if encoder_label == "libvpx":
+        return sample_libvpx_ivf_path(sample, runs_dir)
+    raise ValueError(f"unsupported encoder label: {encoder_label}")
+
+
+def decode_vpxdec_samples(
+    *,
+    encoder_label: str,
+    manifest_path: Path = DEFAULT_MANIFEST_PATH,
+    group: str | None = None,
+    frames_override: int | None = None,
+    runs_dir: Path = DEFAULT_RUNS_DIR,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    vpxdec = attach_tool_metadata(find_vpx_tool("vpxdec", "VPXDEC"))
+    vpxdec_report = compact_tool_metadata(vpxdec)
+    if vpxdec["path"] is None or vpxdec["probe_returncode"] != 0:
+        return {
+            "ok": False,
+            "vpxdec": vpxdec_report,
+            "runs_dir": str(runs_dir),
+            "encoder_label": encoder_label,
+            "results": [],
+            "error": vpxdec.get("error") or "vpxdec probe failed",
+        }
+
+    try:
+        manifest = load_sample_manifest(manifest_path)
+        selected = plan_sample_entries(
+            filter_samples_by_group(manifest_samples(manifest), group),
+            frames_override,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "vpxdec": vpxdec_report,
+            "runs_dir": str(runs_dir),
+            "encoder_label": encoder_label,
+            "results": [],
+            "error": str(exc),
+        }
+
+    results: list[dict[str, Any]] = []
+    for sample in selected:
+        try:
+            input_path = encoded_ivf_path(sample, runs_dir, encoder_label)
+            output_path = sample_decoded_i420_path(sample, runs_dir, encoder_label)
+        except ValueError as exc:
+            results.append({
+                "sample": sample.get("name", ""),
+                "ok": False,
+                "error": str(exc),
+            })
+            continue
+
+        if not input_path.exists():
+            results.append({
+                "sample": sample["name"],
+                "ok": False,
+                "input_path": str(input_path),
+                "output_path": str(output_path),
+                "vpxdec_command": [],
+                "returncode": None,
+                "stdout": "",
+                "stderr": f"missing encoded IVF input: {input_path}",
+            })
+            continue
+
+        command = [
+            str(vpxdec["path"]),
+            "--rawvideo",
+            "-o",
+            str(output_path),
+            str(input_path),
+        ]
+        try:
+            completed = runner(command, REPO_ROOT)
+        except OSError as exc:
+            completed = subprocess.CompletedProcess(command, 127, "", str(exc))
+
+        results.append({
+            "sample": sample["name"],
+            "ok": completed.returncode == 0 and output_path.exists(),
+            "input_path": str(input_path),
+            "output_path": str(output_path),
+            "vpxdec_command": command,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        })
+
+    return {
+        "ok": all(result["ok"] for result in results),
+        "vpxdec": vpxdec_report,
+        "runs_dir": str(runs_dir),
+        "encoder_label": encoder_label,
+        "group": group,
+        "frames_override": frames_override,
+        "results": results,
+    }
+
+
 def require_number(result: dict[str, Any], field: str) -> float:
     value = result.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -1293,6 +1405,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="run vpxenc --best for selected prepared I420 samples",
     )
     parser.add_argument(
+        "--decode-vp8uya",
+        action="store_true",
+        help="run vpxdec on selected vp8uya IVF outputs",
+    )
+    parser.add_argument(
         "--group",
         help="only select samples whose manifest groups include this value",
     )
@@ -1404,6 +1521,16 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.decode_vp8uya:
+        report = decode_vpxdec_samples(
+            encoder_label="vp8uya",
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+            runs_dir=args.runs_dir,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
     if args.prepare_sample_dirs:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -1413,7 +1540,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
     return 2
 
 

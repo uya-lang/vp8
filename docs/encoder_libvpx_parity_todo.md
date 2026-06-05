@@ -163,7 +163,7 @@ Date: 2026-06-05
   - 验收产物：生成 `<sample>.vp8uya.ivf`。
 - [x] 调用 `vpxenc --best`。
   - 验收产物：生成 `<sample>.libvpx.ivf`。
-- [ ] 调用 `vpxdec` 解码 UYA 输出。
+- [x] 调用 `vpxdec` 解码 UYA 输出。
   - 验收产物：生成 `<sample>.vp8uya.decoded.i420`。
 - [ ] 调用 `vpxdec` 解码 libvpx 输出。
   - 验收产物：生成 `<sample>.libvpx.decoded.i420`。
