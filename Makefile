@@ -64,6 +64,8 @@ UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uy
 SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
+LOCAL_VPXDEC := $(BUILD_DIR)/deps/vpx-tools-root/usr/bin/vpxdec
+VPXDEC ?= $(shell if command -v vpxdec >/dev/null 2>&1; then command -v vpxdec; elif test -x "$(LOCAL_VPXDEC)"; then printf '%s' "$(LOCAL_VPXDEC)"; fi)
 
 .PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
@@ -231,6 +233,12 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-vbr.ivf --yuv $(ENCODE_CLI_DIR)/decoded-vbr.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-3frames.ivf --yuv $(ENCODE_CLI_DIR)/decoded-3frames.yuv >/dev/null
+	if test -n "$(VPXDEC)"; then \
+		"$(VPXDEC)" --rawvideo -o $(ENCODE_CLI_DIR)/decoded-3frames.vpxdec.i420 $(ENCODE_CLI_DIR)/out-3frames.ivf > $(ENCODE_CLI_DIR)/vpxdec-3frames.stdout 2> $(ENCODE_CLI_DIR)/vpxdec-3frames.stderr; \
+		test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames.vpxdec.i420)" -eq 1152; \
+	else \
+		echo "skip: vpxdec not found"; \
+	fi
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded.yuv)" -eq 384
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-q16.yuv)" -eq 384
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-vbr.yuv)" -eq 384

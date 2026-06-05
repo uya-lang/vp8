@@ -53,7 +53,8 @@ test "encoder bool partition output flushes writers writes size table and roundt
         0,
         &first_writer,
         &token_writers[0] as &BoolWriter,
-        4 as u8
+        4 as u8,
+        0
     );
 
     try assert_eq_i32(output.first_partition_size as i32, bool_writer_byte_count(&first_writer) as i32);
@@ -100,7 +101,8 @@ test "encoder bool partition output supports a single token partition without si
         3,
         &first_writer,
         &token_writers[0] as &BoolWriter,
-        1 as u8
+        1 as u8,
+        0
     );
 
     try assert_eq_i32(output.size_table_offset as i32, (3 + output.first_partition_size) as i32);
@@ -123,14 +125,14 @@ test "encoder bool partition output rejects invalid partition counts and short o
 
     var frame: [byte: 4] = [];
     var failed: i32 = 0;
-    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 4, 0, &first_writer, &token_writers[0] as &BoolWriter, 3 as u8) catch {
+    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 4, 0, &first_writer, &token_writers[0] as &BoolWriter, 3 as u8, 0) catch {
         failed = 1;
         empty_output();
     };
     try assert_eq_i32(failed, 1);
 
     failed = 0;
-    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 1, 0, &first_writer, &token_writers[0] as &BoolWriter, 1 as u8) catch {
+    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 1, 0, &first_writer, &token_writers[0] as &BoolWriter, 1 as u8, 0) catch {
         failed = 1;
         empty_output();
     };

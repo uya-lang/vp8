@@ -1015,7 +1015,8 @@ fn encode_keyframe_ivf_with_stats_and_kernel_table_internal(
         partition_offset,
         &first_writer,
         &token_writers[0] as &BoolWriter,
-        1 as u8
+        1 as u8,
+        0
     );
     const vp8_payload_size: usize = try encoder_keyframe_checked_add(VP8_KEY_FRAME_HEADER_BYTES, partition_output.payload_size);
     if vp8_payload_size > ENCODER_KEYFRAME_U32_MAX {

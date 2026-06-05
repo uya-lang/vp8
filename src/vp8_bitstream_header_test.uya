@@ -5,6 +5,8 @@ use vp8.bitstream.header.Vp8FrameTag;
 use vp8.bitstream.header.Vp8KeyFrameSize;
 use vp8.bitstream.header.Vp8KeyFrameColorConfig;
 use vp8.bitstream.header.Vp8LoopFilterHeader;
+use vp8.bitstream.header.Vp8InterFrameModeProbs;
+use vp8.bitstream.header.Vp8InterFrameReferenceHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
@@ -16,6 +18,8 @@ use vp8.bitstream.header.parse_vp8_key_frame_header;
 use vp8.bitstream.header.parse_vp8_key_frame_color_config;
 use vp8.bitstream.header.parse_vp8_refresh_entropy;
 use vp8.bitstream.header.parse_vp8_skip_coeff_header;
+use vp8.bitstream.header.parse_vp8_inter_frame_mode_probs;
+use vp8.bitstream.header.parse_vp8_inter_frame_reference_header;
 use vp8.bitstream.header.parse_vp8_loop_filter;
 use vp8.bitstream.header.parse_vp8_coeff_probability_updates;
 use vp8.bitstream.header.parse_vp8_frame_probability_updates;
@@ -599,6 +603,42 @@ test "parse refresh entropy and skip coeff headers" {
     try assert_eq_i32(refresh_entropy as i32, true as i32);
     try assert_eq_i32(skip.enabled as i32, true as i32);
     try assert_eq_i32(skip.prob_skip_false as i32, 0);
+}
+
+test "parse inter reference refresh and mode probability headers" {
+    var out: [byte: 16] = [];
+    var writer: BoolWriter = make_bool_writer(&out[0] as &byte, 16);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 0, 2 as u8);
+    try write_literal_for_header(&writer, 0, 2 as u8);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 1 as u8, 128 as byte);
+    try bool_writer_write(&writer, 0 as u8, 128 as byte);
+    try write_literal_for_header(&writer, 145, 8 as u8);
+    try write_literal_for_header(&writer, 156, 8 as u8);
+    try write_literal_for_header(&writer, 163, 8 as u8);
+    try bool_writer_flush(&writer);
+
+    var reader: BoolReader = try make_bool_reader(&out[0] as &byte, bool_writer_byte_count(&writer));
+    const refs: Vp8InterFrameReferenceHeader = try parse_vp8_inter_frame_reference_header(&reader);
+    const skip: Vp8SkipCoeffHeader = try parse_vp8_skip_coeff_header(&reader);
+    const mode_probs: Vp8InterFrameModeProbs = try parse_vp8_inter_frame_mode_probs(&reader);
+
+    try assert_eq_i32(refs.refresh_golden as i32, false as i32);
+    try assert_eq_i32(refs.refresh_altref as i32, false as i32);
+    try assert_eq_i32(refs.copy_buffer_to_golden as i32, 0);
+    try assert_eq_i32(refs.copy_buffer_to_altref as i32, 0);
+    try assert_eq_i32(refs.sign_bias_golden as i32, false as i32);
+    try assert_eq_i32(refs.sign_bias_altref as i32, false as i32);
+    try assert_eq_i32(refs.refresh_entropy as i32, true as i32);
+    try assert_eq_i32(refs.refresh_last as i32, true as i32);
+    try assert_eq_i32(skip.enabled as i32, false as i32);
+    try assert_eq_i32(mode_probs.prob_inter as i32, 145);
+    try assert_eq_i32(mode_probs.prob_last as i32, 156);
+    try assert_eq_i32(mode_probs.prob_gf as i32, 163);
 }
 
 test "parse VP8 loop filter type level sharpness and delta updates" {

@@ -89,7 +89,8 @@ export fn write_encoder_bool_partition_output(
     offset: usize,
     first_partition_writer: &BoolWriter,
     token_partition_writers: &BoolWriter,
-    token_partition_count: u8
+    token_partition_count: u8,
+    first_partition_min_size: usize
 ) !EncoderBoolPartitionOutput {
     if token_partition_writers == null {
         return error.ErrEncoderBoolPartitionOutputInvalidInput;
@@ -99,7 +100,18 @@ export fn write_encoder_bool_partition_output(
     const token_partition_count_usize: usize = token_partition_count as usize;
     var token_partition_sizes: [usize: 8] = [];
 
-    const first_partition_size: usize = try flush_bool_partition(first_partition_writer);
+    var first_partition_size: usize = try flush_bool_partition(first_partition_writer);
+    if first_partition_size < first_partition_min_size {
+        if first_partition_min_size > first_partition_writer.len {
+            return error.ErrEncoderBoolPartitionOutputOutOfBounds;
+        }
+        var first_pad_offset: usize = first_partition_size;
+        while first_pad_offset < first_partition_min_size {
+            first_partition_writer.out[first_pad_offset] = 0 as byte;
+            first_pad_offset = first_pad_offset + 1;
+        }
+        first_partition_size = first_partition_min_size;
+    }
     if first_partition_size > VP8_MAX_FIRST_PARTITION_SIZE {
         return error.ErrEncoderBoolPartitionOutputPartitionTooLarge;
     }

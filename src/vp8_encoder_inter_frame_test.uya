@@ -159,6 +159,7 @@ test "inter frame writer emits LAST zero-MV copy frame with empty residual" {
 
     try assert_eq_i32(tag.frame_type as i32, 1);
     try assert_eq_i32(tag.show_frame as i32, true as i32);
+    try assert_eq_i32((tag.first_partition_size >= (24 as u32)) as i32, true as i32);
     try assert_eq_i32(stats.nonzero_coefficient_count as i32, 0);
     try assert_eq_i32(current.y.plane.origin[0] as i32, 100);
     try assert_eq_i32(current.u.plane.origin[0] as i32, 128);

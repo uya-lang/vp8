@@ -84,7 +84,8 @@ test "token partition packing selects row writers and roundtrips packed payload"
         0,
         &first_writer,
         &token_writers[0] as &BoolWriter,
-        plan.token_partition_count
+        plan.token_partition_count,
+        0
     );
 
     var first_reader: BoolReader = try make_bool_reader_for_partition(&frame[0] as &byte, output.first_partition_size, -1);
@@ -137,7 +138,7 @@ test "token partition packing rejects invalid counts rows and writers" {
     try bool_writer_write(&token_writers[0] as &BoolWriter, 0 as u8, 128 as byte);
     var frame: [byte: 4] = [];
     failed = 0;
-    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 4, 0, &first_writer, &token_writers[0] as &BoolWriter, 3 as u8) catch {
+    _ = write_encoder_bool_partition_output(&frame[0] as &byte, 4, 0, &first_writer, &token_writers[0] as &BoolWriter, 3 as u8, 0) catch {
         failed = 1;
         dummy_partition_output();
     };

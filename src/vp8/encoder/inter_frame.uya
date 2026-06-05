@@ -114,6 +114,7 @@ const ENCODER_INTER_FIRST_BASE_CAPACITY: usize = 4096;
 const ENCODER_INTER_FIRST_BYTES_PER_MB: usize = 32;
 const ENCODER_INTER_TOKEN_BASE_CAPACITY: usize = 4096;
 const ENCODER_INTER_TOKEN_BYTES_PER_MB: usize = 2048;
+const ENCODER_INTER_MIN_FIRST_PARTITION_BYTES: usize = 24;
 const ENCODER_INTER_U32_MAX: usize = 4294967295;
 const ENCODER_INTER_IVF_HEADER_BYTES: usize = 32;
 const ENCODER_INTER_IVF_FRAME_HEADER_BYTES: usize = 12;
@@ -296,7 +297,20 @@ fn encoder_inter_write_fixed_header_bits(writer: &BoolWriter, config: &EncoderCo
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
 
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try encoder_inter_write_literal(writer, 0 as u32, 2);
+    try encoder_inter_write_literal(writer, 0 as u32, 2);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 1 as u8, 128 as byte);
+    try bool_writer_write(writer, 1 as u8, 128 as byte);
+
     try encoder_inter_write_probability_updates(writer);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try encoder_inter_write_literal(writer, 145 as u32, 8);
+    try encoder_inter_write_literal(writer, 156 as u32, 8);
+    try encoder_inter_write_literal(writer, 163 as u32, 8);
 }
 
 fn encoder_inter_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid, probs: &Vp8Probs, decisions: &EncoderInterMacroblockDecision) !void {
@@ -898,7 +912,8 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         partition_offset,
         &first_writer,
         &token_writers[0] as &BoolWriter,
-        1 as u8
+        1 as u8,
+        ENCODER_INTER_MIN_FIRST_PARTITION_BYTES
     );
     const vp8_payload_size: usize = try encoder_inter_checked_add(VP8_FRAME_TAG_BYTES, partition_output.payload_size);
     if vp8_payload_size > ENCODER_INTER_U32_MAX {

@@ -392,6 +392,7 @@ fn write_minimal_inter_first_partition(writer: &BoolWriter) !void {
     try write_literal(writer, 0, 1 as u8);
     try write_literal(writer, 0, 6 as u8);
     try write_literal(writer, 0, 3 as u8);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
     try write_literal(writer, 0, 2 as u8);
     try write_literal(writer, 0, 7 as u8);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
@@ -399,6 +400,15 @@ fn write_minimal_inter_first_partition(writer: &BoolWriter) !void {
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
     try bool_writer_write(writer, 0 as u8, 128 as byte);
+
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try write_literal(writer, 0, 2 as u8);
+    try write_literal(writer, 0, 2 as u8);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 1 as u8, 128 as byte);
+    try bool_writer_write(writer, 1 as u8, 128 as byte);
 
     var index: usize = 0;
     while index < 1056 {
@@ -411,9 +421,12 @@ fn write_minimal_inter_first_partition(writer: &BoolWriter) !void {
         index = index + 1;
     }
 
+    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try write_literal(writer, 145, 8 as u8);
+    try write_literal(writer, 156, 8 as u8);
+    try write_literal(writer, 163, 8 as u8);
     try bool_writer_write(writer, 1 as u8, 145 as byte);
     try bool_writer_write(writer, 0 as u8, 156 as byte);
-    try bool_writer_write(writer, 0 as u8, 163 as byte);
     try bool_writer_flush(writer);
 }
 
@@ -802,8 +815,6 @@ test "inter frame decode copies last reference for zero motion macroblock" {
     var first_partition: [byte: 256] = [];
     var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
     try write_minimal_inter_first_partition(&first_writer);
-    // Minimal reference-reader marker for is_inter=1, ref=LAST, mv=ZERO after update flags.
-    first_partition[5] = 0x65 as byte;
 
     var token_partition: [byte: 64] = [];
     var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 64);
@@ -862,7 +873,6 @@ test "inter frame non-split macroblock decodes Y2 before Y1 tokens" {
     var first_partition: [byte: 256] = [];
     var first_writer: BoolWriter = make_bool_writer(&first_partition[0] as &byte, 256);
     try write_minimal_inter_first_partition(&first_writer);
-    first_partition[5] = 0x65 as byte;
 
     var token_partition: [byte: 128] = [];
     var token_writer: BoolWriter = make_bool_writer(&token_partition[0] as &byte, 128);

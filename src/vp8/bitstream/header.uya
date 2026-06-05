@@ -449,6 +449,23 @@ export struct Vp8SkipCoeffHeader {
     prob_skip_false: byte
 }
 
+export struct Vp8InterFrameReferenceHeader {
+    refresh_golden: bool,
+    refresh_altref: bool,
+    copy_buffer_to_golden: u8,
+    copy_buffer_to_altref: u8,
+    sign_bias_golden: bool,
+    sign_bias_altref: bool,
+    refresh_entropy: bool,
+    refresh_last: bool
+}
+
+export struct Vp8InterFrameModeProbs {
+    prob_inter: byte,
+    prob_last: byte,
+    prob_gf: byte
+}
+
 export fn parse_vp8_key_frame_color_config(reader: &BoolReader) !Vp8KeyFrameColorConfig {
     return Vp8KeyFrameColorConfig{
         color_space: try read_bit_with_probability(reader, 128 as byte),
@@ -458,6 +475,30 @@ export fn parse_vp8_key_frame_color_config(reader: &BoolReader) !Vp8KeyFrameColo
 
 export fn parse_vp8_refresh_entropy(reader: &BoolReader) !bool {
     return (try read_bit_with_probability(reader, 128 as byte)) != 0;
+}
+
+export fn parse_vp8_inter_frame_reference_header(reader: &BoolReader) !Vp8InterFrameReferenceHeader {
+    const refresh_golden: bool = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+    const refresh_altref: bool = (try read_bit_with_probability(reader, 128 as byte)) != 0;
+    var copy_buffer_to_golden: u8 = 0 as u8;
+    var copy_buffer_to_altref: u8 = 0 as u8;
+    if !refresh_golden {
+        copy_buffer_to_golden = (try read_literal(reader, 2 as u8)) as u8;
+    }
+    if !refresh_altref {
+        copy_buffer_to_altref = (try read_literal(reader, 2 as u8)) as u8;
+    }
+
+    return Vp8InterFrameReferenceHeader{
+        refresh_golden: refresh_golden,
+        refresh_altref: refresh_altref,
+        copy_buffer_to_golden: copy_buffer_to_golden,
+        copy_buffer_to_altref: copy_buffer_to_altref,
+        sign_bias_golden: (try read_bit_with_probability(reader, 128 as byte)) != 0,
+        sign_bias_altref: (try read_bit_with_probability(reader, 128 as byte)) != 0,
+        refresh_entropy: (try read_bit_with_probability(reader, 128 as byte)) != 0,
+        refresh_last: (try read_bit_with_probability(reader, 128 as byte)) != 0
+    };
 }
 
 export fn parse_vp8_skip_coeff_header(reader: &BoolReader) !Vp8SkipCoeffHeader {
@@ -470,6 +511,14 @@ export fn parse_vp8_skip_coeff_header(reader: &BoolReader) !Vp8SkipCoeffHeader {
     return Vp8SkipCoeffHeader{
         enabled: enabled,
         prob_skip_false: prob_skip_false
+    };
+}
+
+export fn parse_vp8_inter_frame_mode_probs(reader: &BoolReader) !Vp8InterFrameModeProbs {
+    return Vp8InterFrameModeProbs{
+        prob_inter: (try read_literal(reader, 8 as u8)) as byte,
+        prob_last: (try read_literal(reader, 8 as u8)) as byte,
+        prob_gf: (try read_literal(reader, 8 as u8)) as byte
     };
 }
 

@@ -4,12 +4,16 @@ use vp8.bitstream.header.VP8_COEFF_PROB_COUNT;
 use vp8.bitstream.header.VP8_MV_PROB_COUNT;
 use vp8.bitstream.header.Vp8FrameHeader;
 use vp8.bitstream.header.Vp8FrameTag;
+use vp8.bitstream.header.Vp8InterFrameModeProbs;
+use vp8.bitstream.header.Vp8InterFrameReferenceHeader;
 use vp8.bitstream.header.Vp8LoopFilterHeader;
 use vp8.bitstream.header.Vp8Probs;
 use vp8.bitstream.header.Vp8QuantHeader;
 use vp8.bitstream.header.Vp8Segmentation;
 use vp8.bitstream.header.Vp8SkipCoeffHeader;
 use vp8.bitstream.header.parse_vp8_frame_probability_updates;
+use vp8.bitstream.header.parse_vp8_inter_frame_mode_probs;
+use vp8.bitstream.header.parse_vp8_inter_frame_reference_header;
 use vp8.bitstream.header.parse_vp8_key_frame_color_config;
 use vp8.bitstream.header.parse_vp8_refresh_entropy;
 use vp8.bitstream.header.parse_vp8_skip_coeff_header;
@@ -902,7 +906,7 @@ fn reference_frame_for_macroblock(decoder: &Decoder, ref_frame: byte) !&FrameBuf
     return error.ErrDecoderInvalidFrame;
 }
 
-fn parse_inter_mode_map(decoder: &Decoder, reader: &BoolReader, probs: &Vp8Probs) !void {
+fn parse_inter_mode_map(decoder: &Decoder, reader: &BoolReader, probs: &Vp8Probs, skip_header: &Vp8SkipCoeffHeader, mode_probs: &Vp8InterFrameModeProbs) !void {
     const zero_mv: Vp8MotionVector = Vp8MotionVector{ y: 0, x: 0, mode: VP8_INTER_MV_MODE_ZERO };
 
     var mb_y: usize = 0;
@@ -910,11 +914,11 @@ fn parse_inter_mode_map(decoder: &Decoder, reader: &BoolReader, probs: &Vp8Probs
         var mb_x: usize = 0;
         while mb_x < decoder.context.grid.mb_cols {
             const mb_index: usize = (mb_y * decoder.context.grid.mb_cols) + mb_x;
-            const skip_coeff: bool = try parse_skip_coefficient_flag(reader, false, 0 as byte);
-            const is_inter: bool = try parse_inter_intra_flag(reader, 145 as byte);
+            const skip_coeff: bool = try parse_skip_coefficient_flag(reader, skip_header.enabled, skip_header.prob_skip_false);
+            const is_inter: bool = try parse_inter_intra_flag(reader, mode_probs.prob_inter);
 
             if is_inter {
-                const ref_frame: byte = try parse_inter_reference_frame(reader, 156 as byte, 163 as byte);
+                const ref_frame: byte = try parse_inter_reference_frame(reader, mode_probs.prob_last, mode_probs.prob_gf);
                 const parsed_mv: Vp8MotionVector = try parse_inter_motion_vector(reader, probs, &zero_mv, &zero_mv, &zero_mv);
                 const mv: Vp8MotionVector = try clamp_inter_motion_vector(&parsed_mv, mb_x, mb_y, decoder.context.width, decoder.context.height, 16, 16);
                 decoder.context.mb_info.y_mode[mb_index] = VP8_Y_MODE_DC;
@@ -1193,6 +1197,21 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
 
     var probs: Vp8Probs = decoder_probs(decoder);
     var skip_coeff_header: Vp8SkipCoeffHeader = Vp8SkipCoeffHeader{ enabled: false, prob_skip_false: 0 as byte };
+    var inter_reference_header: Vp8InterFrameReferenceHeader = Vp8InterFrameReferenceHeader{
+        refresh_golden: false,
+        refresh_altref: false,
+        copy_buffer_to_golden: 0 as u8,
+        copy_buffer_to_altref: 0 as u8,
+        sign_bias_golden: false,
+        sign_bias_altref: false,
+        refresh_entropy: false,
+        refresh_last: true
+    };
+    var inter_mode_probs: Vp8InterFrameModeProbs = Vp8InterFrameModeProbs{
+        prob_inter: 145 as byte,
+        prob_last: 156 as byte,
+        prob_gf: 163 as byte
+    };
     var first_partition_reader: BoolReader = try make_bool_reader_for_partition(&data[first_partition_reader_offset] as &byte, first_partition_reader_len, -1);
     if key_frame {
         _ = try parse_vp8_key_frame_color_config(&first_partition_reader);
@@ -1203,17 +1222,22 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     const quant: Vp8QuantHeader = try parse_vp8_quant(&first_partition_reader);
     if key_frame {
         _ = try parse_vp8_refresh_entropy(&first_partition_reader);
+    } else {
+        inter_reference_header = try parse_vp8_inter_frame_reference_header(&first_partition_reader);
     }
     try parse_vp8_frame_probability_updates(&first_partition_reader, &probs, key_frame);
     if key_frame {
         skip_coeff_header = try parse_vp8_skip_coeff_header(&first_partition_reader);
+    } else {
+        skip_coeff_header = try parse_vp8_skip_coeff_header(&first_partition_reader);
+        inter_mode_probs = try parse_vp8_inter_frame_mode_probs(&first_partition_reader);
     }
     store_tree_probs(decoder, &probs);
 
     if key_frame {
         try parse_key_frame_mode_map(&first_partition_reader, &probs, skip_coeff_header.enabled, skip_coeff_header.prob_skip_false, &decoder.context.mb_info);
     } else {
-        try parse_inter_mode_map(decoder, &first_partition_reader, &probs);
+        try parse_inter_mode_map(decoder, &first_partition_reader, &probs, &skip_coeff_header, &inter_mode_probs);
     }
 
     var token_readers: [BoolReader: 8] = [];
@@ -1230,7 +1254,7 @@ export fn decoder_decode_frame(decoder: &Decoder, data: &byte, len: usize) !Deco
     if key_frame {
         try frame_pool_refresh_references(&decoder.context.frame_pool, true, true, true);
     } else {
-        try frame_pool_refresh_references(&decoder.context.frame_pool, true, false, false);
+        try frame_pool_refresh_references(&decoder.context.frame_pool, inter_reference_header.refresh_last, inter_reference_header.refresh_golden, inter_reference_header.refresh_altref);
     }
 
     var output: DecodedFrame = empty_decoded_frame();
