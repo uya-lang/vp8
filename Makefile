@@ -167,6 +167,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
 	head -c 451 /dev/zero > $(ENCODE_CLI_DIR)/input-17x17.yuv
 	head -c 1152 /dev/zero > $(ENCODE_CLI_DIR)/input-3frames.yuv
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/input-3frames.yuv)" -eq 1152
 	head -c 767 /dev/zero > $(ENCODE_CLI_DIR)/short-2frames.yuv
 	head -c 769 /dev/zero > $(ENCODE_CLI_DIR)/extra-2frames.yuv
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf > $(ENCODE_CLI_DIR)/encode.log

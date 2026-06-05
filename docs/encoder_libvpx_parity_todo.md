@@ -128,7 +128,7 @@ Date: 2026-06-05
 
 ## Phase 5: 多帧 encode 测试
 
-- [ ] 增加 3 帧 16x16 I420 测试输入生成。
+- [x] 增加 3 帧 16x16 I420 测试输入生成。
   - 验收：生成文件大小为 `384 * 3` 字节。
 - [ ] 验证多帧 IVF frame count。
   - 验收命令：`build/vp8uya info out.ivf` 输出 `ivf.frame_count=3`。
