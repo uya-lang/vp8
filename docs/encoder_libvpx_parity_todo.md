@@ -193,7 +193,7 @@ Date: 2026-06-05
 
 ## Phase 8: 报告门禁
 
-- [ ] 实现码率门禁。
+- [x] 实现码率门禁。
   - 验收：`vp8uya_bits_per_pixel <= libvpx_bits_per_pixel * 1.10` 时码率项通过。
 - [ ] 实现 `PSNR-all` 门禁。
   - 验收：`vp8uya_psnr_all_db >= libvpx_psnr_all_db - 0.50` 时质量项通过。
