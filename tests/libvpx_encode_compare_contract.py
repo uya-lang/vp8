@@ -366,6 +366,39 @@ def assert_missing_tool_error(module: object) -> None:
         assert "--extract-vpx-tools" in missing["error"]
 
 
+def assert_probe_tools_missing_cli_suggestion() -> None:
+    extracted_root = REPO_ROOT / "build" / "deps" / "vpx-tools-root"
+    backup_root = extracted_root.with_name("vpx-tools-root.contract-test-backup")
+    moved_existing_root = False
+    if backup_root.exists():
+        raise AssertionError(f"stale test backup exists: {backup_root}")
+    if extracted_root.exists():
+        extracted_root.rename(backup_root)
+        moved_existing_root = True
+
+    try:
+        env = dict(os.environ)
+        env.pop("VPXENC", None)
+        env.pop("VPXDEC", None)
+        env["PATH"] = "/nonexistent"
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--probe-tools"],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert completed.returncode != 0
+        assert "VPXENC" in completed.stderr
+        assert "VPXDEC" in completed.stderr
+        assert "--fetch-vpx-tools" in completed.stderr
+    finally:
+        if moved_existing_root:
+            backup_root.rename(extracted_root)
+
+
 def assert_fetch_vpx_tools_download(module: object) -> None:
     calls: list[tuple[list[str], Path]] = []
 
@@ -634,6 +667,7 @@ def main() -> int:
     assert_probe_tools_help_version_fallback()
     assert_extracted_dir_lookup(module)
     assert_missing_tool_error(module)
+    assert_probe_tools_missing_cli_suggestion()
     assert_fetch_vpx_tools_download(module)
     assert_extract_vpx_tools(module)
     assert_prepare_sample_dirs(module)

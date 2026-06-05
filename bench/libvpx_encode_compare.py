@@ -831,6 +831,11 @@ def main(argv: list[str]) -> int:
     if args.probe_tools:
         report = probe_tools()
         print(json.dumps(report, indent=2, sort_keys=True))
+        if not report["ok"]:
+            for tool_name in ("vpxenc", "vpxdec"):
+                error = report[tool_name].get("error")
+                if error:
+                    print(error, file=sys.stderr)
         return 0 if report["ok"] else 2
     if args.fetch_vpx_tools:
         report = fetch_vpx_tools()
