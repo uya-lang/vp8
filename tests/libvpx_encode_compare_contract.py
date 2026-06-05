@@ -356,6 +356,71 @@ def assert_vp8uya_encode_generates_ivf() -> None:
         assert "30/1" in command
 
 
+def assert_libvpx_encode_generates_ivf() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest_path = root / "manifest.json"
+        i420_dir = root / "fixtures"
+        runs_dir = root / "runs"
+        fake_vpxenc = root / "vpxenc"
+        i420_dir.mkdir()
+        (i420_dir / "unit_qcif.i420").write_bytes(bytes(384 * 2))
+        manifest_path.write_text(
+            json.dumps({
+                "samples": [{
+                    "name": "unit_qcif",
+                    "url": "https://example.test/unit_qcif.y4m",
+                    "width": 16,
+                    "height": 16,
+                    "frames": 2,
+                    "fps": "30/1",
+                    "sha256": "0" * 64,
+                    "groups": ["qcif"],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        write_fake_vpxenc_encoder(fake_vpxenc)
+
+        env = dict(os.environ)
+        env["VPXENC"] = str(fake_vpxenc)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--i420-cache-dir",
+                str(i420_dir),
+                "--runs-dir",
+                str(runs_dir),
+                "--group",
+                "qcif",
+                "--encode-libvpx",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        report = json.loads(completed.stdout)
+        result = report["results"][0]
+        output_path = runs_dir / "unit_qcif.libvpx.ivf"
+        assert report["ok"] is True
+        assert result["output_path"] == str(output_path)
+        assert output_path.read_bytes() == b"DKIF"
+        command = result["libvpx_command"]
+        assert command[0] == str(fake_vpxenc)
+        assert "--codec=vp8" in command
+        assert "--best" in command
+        assert "--ivf" in command
+        assert "--limit=2" in command
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -385,6 +450,24 @@ def write_fake_vp8uya_encoder(path: Path, log_path: Path) -> None:
         "prev=''\n"
         "for arg in \"$@\"; do\n"
         "  if [ \"$prev\" = '--out' ]; then out=\"$arg\"; fi\n"
+        "  prev=\"$arg\"\n"
+        "done\n"
+        "if [ -z \"$out\" ]; then exit 3; fi\n"
+        "printf 'DKIF' > \"$out\"\n",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+
+
+def write_fake_vpxenc_encoder(path: Path) -> None:
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = '--version' ]; then echo 'fake vpxenc'; exit 0; fi\n"
+        "out=''\n"
+        "prev=''\n"
+        "for arg in \"$@\"; do\n"
+        "  if [ \"$prev\" = '-o' ]; then out=\"$arg\"; fi\n"
+        "  case \"$arg\" in --output=*) out=\"${arg#--output=}\" ;; esac\n"
         "  prev=\"$arg\"\n"
         "done\n"
         "if [ -z \"$out\" ]; then exit 3; fi\n"
@@ -832,6 +915,7 @@ def main() -> int:
     assert_warmups_dry_run_recorded()
     assert_repeats_dry_run_recorded()
     assert_vp8uya_encode_generates_ivf()
+    assert_libvpx_encode_generates_ivf()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

@@ -209,6 +209,16 @@ def attach_tool_metadata(lookup: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
+def compact_tool_metadata(tool: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "path": tool.get("path"),
+        "source": tool.get("source"),
+        "version": tool.get("version"),
+        "probe_returncode": tool.get("probe_returncode"),
+        "error": tool.get("error"),
+    }
+
+
 def find_vpx_tool(
     name: str,
     env_var: str,
@@ -662,6 +672,13 @@ def sample_vp8uya_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
     return runs_dir / f"{name}.vp8uya.ivf"
 
 
+def sample_libvpx_ivf_path(sample: Mapping[str, Any], runs_dir: Path) -> Path:
+    name = sample.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("sample name must be a non-empty string")
+    return runs_dir / f"{name}.libvpx.ivf"
+
+
 def sample_frames(sample: Mapping[str, Any]) -> int:
     frames = sample.get("frames", 60)
     if not isinstance(frames, int) or frames <= 0:
@@ -1005,6 +1022,115 @@ def encode_vp8uya_samples(
     }
 
 
+def encode_libvpx_samples(
+    *,
+    manifest_path: Path = DEFAULT_MANIFEST_PATH,
+    group: str | None = None,
+    frames_override: int | None = None,
+    i420_dir: Path = DEFAULT_I420_CACHE_DIR,
+    runs_dir: Path = DEFAULT_RUNS_DIR,
+    runner: Callable[[list[str], Path], subprocess.CompletedProcess[str]] = run_command,
+) -> dict[str, Any]:
+    vpxenc = attach_tool_metadata(find_vpx_tool("vpxenc", "VPXENC"))
+    vpxenc_report = compact_tool_metadata(vpxenc)
+    if vpxenc["path"] is None or vpxenc["probe_returncode"] != 0:
+        return {
+            "ok": False,
+            "vpxenc": vpxenc_report,
+            "runs_dir": str(runs_dir),
+            "results": [],
+            "error": vpxenc.get("error") or "vpxenc probe failed",
+        }
+
+    try:
+        manifest = load_sample_manifest(manifest_path)
+        selected = plan_sample_entries(
+            filter_samples_by_group(manifest_samples(manifest), group),
+            frames_override,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "vpxenc": vpxenc_report,
+            "runs_dir": str(runs_dir),
+            "results": [],
+            "error": str(exc),
+        }
+
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    results: list[dict[str, Any]] = []
+    for sample in selected:
+        try:
+            width = sample_dimension(sample, "width")
+            height = sample_dimension(sample, "height")
+            frames = sample_frames(sample)
+            fps = sample_fps(sample)
+            output_path = sample_libvpx_ivf_path(sample, runs_dir)
+        except ValueError as exc:
+            results.append({
+                "sample": sample.get("name", ""),
+                "ok": False,
+                "error": str(exc),
+            })
+            continue
+
+        input_report = prepare_i420_encode_input(sample, i420_dir=i420_dir, runs_dir=runs_dir)
+        if not input_report["ok"]:
+            results.append({
+                "sample": sample["name"],
+                "ok": False,
+                "input": input_report,
+                "output_path": str(output_path),
+                "libvpx_command": [],
+                "returncode": None,
+                "stdout": "",
+                "stderr": input_report["error"],
+            })
+            continue
+
+        command = [
+            str(vpxenc["path"]),
+            "--codec=vp8",
+            "--best",
+            "--ivf",
+            "--i420",
+            "--disable-warning-prompt",
+            "--quiet",
+            f"--width={width}",
+            f"--height={height}",
+            f"--fps={fps}",
+            f"--limit={frames}",
+            "-o",
+            str(output_path),
+            input_report["path"],
+        ]
+        try:
+            completed = runner(command, REPO_ROOT)
+        except OSError as exc:
+            completed = subprocess.CompletedProcess(command, 127, "", str(exc))
+
+        results.append({
+            "sample": sample["name"],
+            "ok": completed.returncode == 0 and output_path.exists(),
+            "input": input_report,
+            "output_path": str(output_path),
+            "libvpx_command": command,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        })
+
+    return {
+        "ok": all(result["ok"] for result in results),
+        "vpxenc": vpxenc_report,
+        "runs_dir": str(runs_dir),
+        "i420_cache_dir": str(i420_dir),
+        "group": group,
+        "frames_override": frames_override,
+        "results": results,
+    }
+
+
 def require_number(result: dict[str, Any], field: str) -> float:
     value = result.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -1162,6 +1288,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="run vp8uya encode for selected prepared I420 samples",
     )
     parser.add_argument(
+        "--encode-libvpx",
+        action="store_true",
+        help="run vpxenc --best for selected prepared I420 samples",
+    )
+    parser.add_argument(
         "--group",
         help="only select samples whose manifest groups include this value",
     )
@@ -1263,6 +1394,16 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.encode_libvpx:
+        report = encode_libvpx_samples(
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+            i420_dir=args.i420_cache_dir,
+            runs_dir=args.runs_dir,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
     if args.prepare_sample_dirs:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -1272,7 +1413,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
     return 2
 
 

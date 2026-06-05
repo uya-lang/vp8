@@ -161,7 +161,7 @@ Date: 2026-06-05
   - 验收：JSON 记录 repeat 次数和最终采用的统计值。
 - [x] 调用 `vp8uya encode --frames N --fps NUM/DEN`。
   - 验收产物：生成 `<sample>.vp8uya.ivf`。
-- [ ] 调用 `vpxenc --best`。
+- [x] 调用 `vpxenc --best`。
   - 验收产物：生成 `<sample>.libvpx.ivf`。
 - [ ] 调用 `vpxdec` 解码 UYA 输出。
   - 验收产物：生成 `<sample>.vp8uya.decoded.i420`。
