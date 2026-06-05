@@ -144,6 +144,7 @@ export struct Vp8EncoderStats {
     keyframe_count: u64,
     inter_macroblock_count: u64,
     intra_macroblock_count: u64,
+    skip_macroblock_count: u64,
     zero_mv_count: u64,
     newmv_count: u64,
     nonzero_mv_count: u64,
@@ -153,6 +154,7 @@ export struct Vp8EncoderStats {
     last_bytes_written: usize,
     last_inter_macroblock_count: usize,
     last_intra_macroblock_count: usize,
+    last_skip_macroblock_count: usize,
     last_zero_mv_count: usize,
     last_newmv_count: usize,
     last_nonzero_mv_count: usize,
@@ -329,6 +331,7 @@ export fn empty_vp8_encoder_stats() Vp8EncoderStats {
         keyframe_count: 0 as u64,
         inter_macroblock_count: 0 as u64,
         intra_macroblock_count: 0 as u64,
+        skip_macroblock_count: 0 as u64,
         zero_mv_count: 0 as u64,
         newmv_count: 0 as u64,
         nonzero_mv_count: 0 as u64,
@@ -338,6 +341,7 @@ export fn empty_vp8_encoder_stats() Vp8EncoderStats {
         last_bytes_written: 0,
         last_inter_macroblock_count: 0,
         last_intra_macroblock_count: 0,
+        last_skip_macroblock_count: 0,
         last_zero_mv_count: 0,
         last_newmv_count: 0,
         last_nonzero_mv_count: 0,
@@ -755,6 +759,7 @@ export fn vp8_encoder_encode_frame(
         encoder.stats.last_bytes_written = encode_stats.written_len;
         encoder.stats.last_inter_macroblock_count = 0;
         encoder.stats.last_intra_macroblock_count = 0;
+        encoder.stats.last_skip_macroblock_count = 0;
         encoder.stats.last_zero_mv_count = 0;
         encoder.stats.last_newmv_count = 0;
         encoder.stats.last_nonzero_mv_count = 0;
@@ -787,6 +792,7 @@ export fn vp8_encoder_encode_frame(
     encoder.stats.last_bytes_written = inter_stats.written_len;
     encoder.stats.inter_macroblock_count = encoder.stats.inter_macroblock_count + (inter_stats.inter_macroblock_count as u64);
     encoder.stats.intra_macroblock_count = encoder.stats.intra_macroblock_count + (inter_stats.intra_macroblock_count as u64);
+    encoder.stats.skip_macroblock_count = encoder.stats.skip_macroblock_count + (inter_stats.skip_macroblock_count as u64);
     encoder.stats.zero_mv_count = encoder.stats.zero_mv_count + (inter_stats.zero_mv_count as u64);
     encoder.stats.newmv_count = encoder.stats.newmv_count + (inter_stats.newmv_count as u64);
     encoder.stats.nonzero_mv_count = encoder.stats.nonzero_mv_count + (inter_stats.nonzero_mv_count as u64);
@@ -795,6 +801,7 @@ export fn vp8_encoder_encode_frame(
     encoder.stats.subpel_quarterpel_candidate_count = encoder.stats.subpel_quarterpel_candidate_count + (inter_stats.subpel_quarterpel_candidate_count as u64);
     encoder.stats.last_inter_macroblock_count = inter_stats.inter_macroblock_count;
     encoder.stats.last_intra_macroblock_count = inter_stats.intra_macroblock_count;
+    encoder.stats.last_skip_macroblock_count = inter_stats.skip_macroblock_count;
     encoder.stats.last_zero_mv_count = inter_stats.zero_mv_count;
     encoder.stats.last_newmv_count = inter_stats.newmv_count;
     encoder.stats.last_nonzero_mv_count = inter_stats.nonzero_mv_count;

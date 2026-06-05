@@ -166,9 +166,23 @@ test "inter frame writer emits LAST zero-MV copy frame with empty residual" {
     try assert_eq_i32(stats.nonzero_coefficient_count as i32, 0);
     try assert_eq_i32(stats.inter_macroblock_count as i32, 1);
     try assert_eq_i32(stats.intra_macroblock_count as i32, 0);
+    try assert_eq_i32(stats.skip_macroblock_count as i32, 1);
     try assert_eq_i32(current.y.plane.origin[0] as i32, 100);
     try assert_eq_i32(current.u.plane.origin[0] as i32, 128);
     try assert_eq_i32(current.v.plane.origin[0] as i32, 129);
+
+    const ivf: IvfHeader = try parse_ivf_header(&out[0] as &byte, stats.written_len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(&out[0] as &byte, stats.written_len, &ivf);
+    const encoded_frame: IvfFrame = try ivf_frame_iterator_next(&iterator);
+    var decode_context: DecoderContext = try allocate_decoder_context(16, 16, 32, 32, 4096);
+    defer free_decoder_context(&decode_context);
+    const decode_seed: &FrameBuffer = try frame_pool_get_slot(&decode_context.frame_pool, decode_context.frame_pool.current_slot);
+    fill_constant_reference(decode_seed, 100 as byte, 128 as byte, 129 as byte);
+    try frame_pool_refresh_references(&decode_context.frame_pool, true, false, false);
+    var decoder: Decoder = make_decoder(&decode_context);
+    const result: DecoderFrameResult = try decoder_decode_frame(&decoder, encoded_frame.payload.data, encoded_frame.payload.len);
+    defer decoded_frame_release(&result.output) catch {};
+    try assert_eq_i32(decode_context.mb_info.skip_coeff[0] as i32, 1);
 }
 
 test "inter frame writer refreshes intra macroblock when intra prediction wins" {

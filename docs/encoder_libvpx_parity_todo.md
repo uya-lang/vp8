@@ -237,7 +237,7 @@ Date: 2026-06-05
   - 验收：mode decision 分数包含 MV bit cost。
 - [x] 接入 inter/intra mode decision。
   - 验收：静态样本 inter 占优，复杂运动样本存在合理 intra refresh。
-- [ ] 接入 skip decision。
+- [x] 接入 skip decision。
   - 验收：`akiyo_qcif` 的 skip ratio 高于 `mobile_cif`。
 - [ ] 调整 chroma distortion 权重。
   - 验收：PSNR-U/V 不出现明显退化，`PSNR-all` 达到硬阈值。

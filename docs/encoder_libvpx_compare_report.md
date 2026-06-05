@@ -3,8 +3,8 @@
 ## Run Summary
 
 - Benchmark target: libvpx `vpxenc --best`
-- git commit: `6403a753920de758cf8e315fc20aef72eb416ac4`
-- generated at: `2026-06-05T07:34:53Z`
+- git commit: `00f3c9df0805ad03192a2ab23ca29e310280b291`
+- generated at: `2026-06-05T07:54:57Z`
 - sample count: 4
 - passed count: 0
 - failed count: 4
@@ -30,21 +30,21 @@
 
 | Field | Value |
 | --- | ---: |
-| vp8uya_bits_per_pixel | 1.135080 |
+| vp8uya_bits_per_pixel | 1.138569 |
 | libvpx_bits_per_pixel | 0.261376 |
-| vp8uya_psnr_all_db | 12.152230 |
+| vp8uya_psnr_all_db | 13.607930 |
 | libvpx_psnr_all_db | 38.421882 |
-| vp8uya_fps | 23.30 |
-| libvpx_fps | 122.01 |
+| vp8uya_fps | 23.35 |
+| libvpx_fps | 122.60 |
 
 ## Sample Results
 
 | Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| akiyo_qcif |  | 60 | 0.296628 | 0.261521 | 10.811141 | 48.320138 | 0.357118 | 0.999593 | 30.52 | 263.33 | false |
-| foreman_qcif |  | 60 | 0.925658 | 0.336706 | 12.138211 | 41.488222 | 0.347223 | 0.994510 | 27.76 | 101.91 | false |
-| coastguard_qcif |  | 60 | 1.048753 | 0.342419 | 14.037170 | 36.434307 | 0.443129 | 0.990787 | 28.40 | 96.96 | false |
-| mobile_cif |  | 60 | 2.269281 | 0.104857 | 11.622400 | 27.444861 | 0.245597 | 0.976963 | 6.53 | 25.86 | false |
+| akiyo_qcif |  | 60 | 0.298732 | 0.261521 | 12.431347 | 48.320138 | 0.475601 | 0.999593 | 30.57 | 267.14 | false |
+| foreman_qcif |  | 60 | 0.929603 | 0.336706 | 13.365196 | 41.488222 | 0.448745 | 0.994510 | 27.83 | 99.11 | false |
+| coastguard_qcif |  | 60 | 1.052878 | 0.342419 | 16.280590 | 36.434307 | 0.570368 | 0.990787 | 28.49 | 98.06 | false |
+| mobile_cif |  | 60 | 2.273064 | 0.104857 | 12.354588 | 27.444861 | 0.258488 | 0.976963 | 6.51 | 26.07 | false |
 
 ## VP8UYA Macroblock Mode Distribution
 
@@ -55,6 +55,16 @@
 | foreman_qcif | 5841 | 5817 | 24 |
 | coastguard_qcif | 5841 | 5838 | 3 |
 | mobile_cif | 23364 | 22877 | 487 |
+
+## VP8UYA Skip Distribution
+
+| Scope | Macroblocks | Skip MBs | Skip Ratio |
+| --- | ---: | ---: | ---: |
+| summary | 40887 | 1146 | 2.80% |
+| akiyo_qcif | 5841 | 875 | 14.98% |
+| foreman_qcif | 5841 | 72 | 1.23% |
+| coastguard_qcif | 5841 | 0 | 0.00% |
+| mobile_cif | 23364 | 199 | 0.85% |
 
 ## VP8UYA Motion Distribution
 
@@ -81,9 +91,9 @@
 ### akiyo_qcif
 
 Failure reasons:
-- bitrate_ratio 1.134239 exceeds max 1.100000
-- psnr_all_delta_db -37.508997 below min -0.500000
-- fps_ratio 0.115891 below min 0.800000
+- bitrate_ratio 1.142285 exceeds max 1.100000
+- psnr_all_delta_db -35.888791 below min -0.500000
+- fps_ratio 0.114430 below min 0.800000
 
 ### vp8uya
 ```sh
@@ -104,9 +114,9 @@ build/vp8uya encode /media/winger/_dde_home/winger/uya/vp8/build/libvpx-encode-c
 ### foreman_qcif
 
 Failure reasons:
-- bitrate_ratio 2.749160 exceeds max 1.100000
-- psnr_all_delta_db -29.350012 below min -0.500000
-- fps_ratio 0.272443 below min 0.800000
+- bitrate_ratio 2.760879 exceeds max 1.100000
+- psnr_all_delta_db -28.123026 below min -0.500000
+- fps_ratio 0.280817 below min 0.800000
 
 ### vp8uya
 ```sh
@@ -127,9 +137,9 @@ build/vp8uya encode /media/winger/_dde_home/winger/uya/vp8/build/libvpx-encode-c
 ### coastguard_qcif
 
 Failure reasons:
-- bitrate_ratio 3.062778 exceeds max 1.100000
-- psnr_all_delta_db -22.397137 below min -0.500000
-- fps_ratio 0.292892 below min 0.800000
+- bitrate_ratio 3.074823 exceeds max 1.100000
+- psnr_all_delta_db -20.153717 below min -0.500000
+- fps_ratio 0.290517 below min 0.800000
 
 ### vp8uya
 ```sh
@@ -150,9 +160,9 @@ build/vp8uya encode /media/winger/_dde_home/winger/uya/vp8/build/libvpx-encode-c
 ### mobile_cif
 
 Failure reasons:
-- bitrate_ratio 21.641643 exceeds max 1.100000
-- psnr_all_delta_db -15.822461 below min -0.500000
-- fps_ratio 0.252500 below min 0.800000
+- bitrate_ratio 21.677717 exceeds max 1.100000
+- psnr_all_delta_db -15.090273 below min -0.500000
+- fps_ratio 0.249630 below min 0.800000
 
 ### vp8uya
 ```sh

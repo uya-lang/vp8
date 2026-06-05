@@ -209,6 +209,9 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.mode.macroblocks=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.mode.inter_mbs=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.mode.intra_mbs=0' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.skip.macroblocks=0' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.skip.total_mbs=0' $(ENCODE_CLI_DIR)/encode.log
+	grep -q 'encode.skip.ratio_ppm=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.motion.macroblocks=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.motion.zero_mv=0' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.motion.new_mv=0' $(ENCODE_CLI_DIR)/encode.log
@@ -226,6 +229,9 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'encode.mode.macroblocks=2' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.mode.inter_mbs=2' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.mode.intra_mbs=0' $(ENCODE_CLI_DIR)/encode-3frames.log
+	grep -q 'encode.skip.macroblocks=2' $(ENCODE_CLI_DIR)/encode-3frames.log
+	grep -q 'encode.skip.total_mbs=2' $(ENCODE_CLI_DIR)/encode-3frames.log
+	grep -q 'encode.skip.ratio_ppm=1000000' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.motion.macroblocks=2' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.motion.zero_mv=0' $(ENCODE_CLI_DIR)/encode-3frames.log
 	grep -q 'encode.motion.new_mv=2' $(ENCODE_CLI_DIR)/encode-3frames.log

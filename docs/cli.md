@@ -176,7 +176,8 @@ Options:
 | `--speed fastest|fast|balanced|best` | Optional speed preset. Default is `balanced`. |
 | `--out <out.ivf>` | Required IVF output path. |
 
-For `--frames 1`, successful encode prints quality and speed metrics:
+For `--frames 1`, successful encode prints quality, macroblock, motion, subpel,
+and speed metrics:
 
 ```text
 encode.psnr.y=<value-or-inf>
@@ -187,13 +188,31 @@ encode.ssim.y=<value>
 encode.ssim.u=<value>
 encode.ssim.v=<value>
 encode.ssim.all=<value>
+encode.frames.total=1
+encode.frames.key=1
+encode.frames.inter=0
+encode.mode.macroblocks=0
+encode.mode.inter_mbs=0
+encode.mode.intra_mbs=0
+encode.skip.macroblocks=0
+encode.skip.total_mbs=0
+encode.skip.ratio_ppm=0
+encode.motion.macroblocks=0
+encode.motion.zero_mv=0
+encode.motion.new_mv=0
+encode.motion.nonzero_mv=0
+encode.subpel.macroblocks=0
+encode.subpel.half_pel_candidates=0
+encode.subpel.quarter_pel_candidates=0
 encode.speed.preset=<preset>
 encode.speed.mode_search_work_units=<count>
 ```
 
 For multi-frame encode, the current CLI writes all requested frames and prints
-the speed metrics. When `--target-bitrate` is provided for `--frames 1`, it
-also prints:
+frame, macroblock, motion, subpel, and speed metrics. Skip ratios are reported
+as parts per million in `encode.skip.ratio_ppm`.
+
+When `--target-bitrate` is provided for `--frames 1`, it also prints:
 
 ```text
 encode.bitrate.target_bits=<bits>

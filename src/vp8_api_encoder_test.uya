@@ -179,11 +179,13 @@ test "public encoder API emits inter frames after the first keyframe" {
     try assert_eq_i32(stats.keyframe_count as i32, 1);
     try assert_eq_i32(stats.inter_macroblock_count as i32, 2);
     try assert_eq_i32(stats.intra_macroblock_count as i32, 0);
+    try assert_eq_i32(stats.skip_macroblock_count as i32, 0);
     try assert_eq_i32(stats.zero_mv_count as i32, 2);
     try assert_eq_i32(stats.newmv_count as i32, 0);
     try assert_eq_i32(stats.nonzero_mv_count as i32, 0);
     try assert_eq_i32(stats.last_inter_macroblock_count as i32, 1);
     try assert_eq_i32(stats.last_intra_macroblock_count as i32, 0);
+    try assert_eq_i32(stats.last_skip_macroblock_count as i32, 0);
     try assert_eq_i32(stats.last_zero_mv_count as i32, 1);
     try assert_eq_i32(stats.last_newmv_count as i32, 0);
     try assert_eq_i32(stats.last_nonzero_mv_count as i32, 0);
@@ -194,6 +196,50 @@ test "public encoder API emits inter frames after the first keyframe" {
     try assert_eq_i32(stats.last_subpel_halfpel_candidate_count as i32, 9);
     try assert_eq_i32(stats.last_subpel_quarterpel_candidate_count as i32, 9);
     try assert_eq_i32((stats.last_mode_search_work_units > 0) as i32, true as i32);
+}
+
+test "public encoder API reports skipped inter macroblocks for static copy frames" {
+    var input: [byte: 384] = [];
+    fill_i420_constant(&input[0] as &byte, 100 as byte, 128 as byte, 129 as byte);
+
+    var first_out: [byte: 12000] = [];
+    var second_out: [byte: 12000] = [];
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(16, 16);
+    options.quantizer = 0 as u8;
+    var encoder: Vp8Encoder = try vp8_encoder_init(&options);
+    defer vp8_encoder_deinit(&encoder);
+    try vp8_encoder_set_simd_level(&encoder, SimdLevel.scalar);
+
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+    const frame: Vp8YuvFrameView = try vp8_encoder_make_i420_frame_view(&input[0] as &byte, 384, 16, 16);
+    const first_packet: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &frame, &first_out[0] as &byte, 12000, &flags);
+    const second_packet: Vp8EncodedPacket = try vp8_encoder_encode_frame(&encoder, &frame, &second_out[0] as &byte, 12000, &flags);
+
+    try assert_eq_i32(first_packet.key_frame as i32, true as i32);
+    try assert_eq_i32(second_packet.key_frame as i32, false as i32);
+
+    var decoder_options: Vp8DecoderOptions = try make_vp8_decoder_options(16, 16);
+    var decoder: Vp8Decoder = try vp8_decoder_init(&decoder_options);
+    defer vp8_decoder_deinit(&decoder);
+
+    var first_decoded: Vp8DecodedFrame = try decode_single_packet(&decoder, &first_packet);
+    try assert_eq_i32(first_decoded.has_output as i32, true as i32);
+    try vp8_decoded_frame_release(&first_decoded);
+
+    var second_decoded: Vp8DecodedFrame = try decode_single_packet(&decoder, &second_packet);
+    try assert_eq_i32(second_decoded.has_output as i32, true as i32);
+    try assert_eq_i32(second_decoded.key_frame as i32, false as i32);
+    try vp8_decoded_frame_release(&second_decoded);
+
+    const stats: Vp8EncoderStats = vp8_encoder_stats(&encoder);
+    try assert_eq_i32(stats.encoded_frame_count as i32, 2);
+    try assert_eq_i32(stats.keyframe_count as i32, 1);
+    try assert_eq_i32(stats.inter_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.intra_macroblock_count as i32, 0);
+    try assert_eq_i32(stats.skip_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.last_inter_macroblock_count as i32, 1);
+    try assert_eq_i32(stats.last_intra_macroblock_count as i32, 0);
+    try assert_eq_i32(stats.last_skip_macroblock_count as i32, 1);
 }
 
 test "public encoder API honors forced and interval keyframes" {

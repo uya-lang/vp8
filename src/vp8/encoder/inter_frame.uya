@@ -69,6 +69,8 @@ use vp8.encoder.reconstruct.reconstruct_quantized_block_4x4;
 use vp8.encoder.reconstruct.reconstruct_y_block_with_y2_dc;
 use vp8.encoder.reference_pool.EncoderReferenceFramePool;
 use vp8.encoder.reference_pool.encoder_reference_current;
+use vp8.encoder.skip_decision.EncoderSkipDecision;
+use vp8.encoder.skip_decision.decide_skip_coefficients;
 use vp8.encoder.token_partition_packing.write_encoder_token_partition_count;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.scalar.DequantFactors;
@@ -124,6 +126,7 @@ export struct EncoderInterFrameEncodeStats {
     nonzero_coefficient_count: usize,
     inter_macroblock_count: usize,
     intra_macroblock_count: usize,
+    skip_macroblock_count: usize,
     zero_mv_count: usize,
     newmv_count: usize,
     nonzero_mv_count: usize,
@@ -137,6 +140,7 @@ struct EncoderInterMacroblockDecision {
     ref_frame: byte,
     y_mode: byte,
     uv_mode: byte,
+    skip_coeff: bool,
     inter_mv_mode: byte,
     mv_x: i16,
     mv_y: i16,
@@ -155,6 +159,7 @@ const ENCODER_INTER_MIN_FIRST_PARTITION_BYTES: usize = 24;
 const ENCODER_INTER_U32_MAX: usize = 4294967295;
 const ENCODER_INTER_IVF_HEADER_BYTES: usize = 32;
 const ENCODER_INTER_IVF_FRAME_HEADER_BYTES: usize = 12;
+const ENCODER_INTER_SKIP_PROB_FALSE: byte = 128;
 
 var VP8_INTER_CAT1_PROBS_ENC: [byte: 1] = [ 159 ];
 var VP8_INTER_CAT2_PROBS_ENC: [byte: 2] = [ 165, 145 ];
@@ -392,7 +397,8 @@ fn encoder_inter_write_fixed_header_bits(writer: &BoolWriter, config: &EncoderCo
     try bool_writer_write(writer, 1 as u8, 128 as byte);
 
     try encoder_inter_write_probability_updates(writer);
-    try bool_writer_write(writer, 0 as u8, 128 as byte);
+    try bool_writer_write(writer, 1 as u8, 128 as byte);
+    try encoder_inter_write_literal(writer, ENCODER_INTER_SKIP_PROB_FALSE as u32, 8);
     try encoder_inter_write_literal(writer, 145 as u32, 8);
     try encoder_inter_write_literal(writer, 156 as u32, 8);
     try encoder_inter_write_literal(writer, 163 as u32, 8);
@@ -405,6 +411,7 @@ fn encoder_inter_write_mode_map(writer: &BoolWriter, grid: &MacroblockGrid, prob
         while mb_x < grid.mb_cols {
             const mb_index: usize = (mb_y * grid.mb_cols) + mb_x;
             const decision: &EncoderInterMacroblockDecision = &decisions[mb_index] as &EncoderInterMacroblockDecision;
+            try bool_writer_write(writer, decision.skip_coeff as u8, ENCODER_INTER_SKIP_PROB_FALSE);
             if decision.ref_frame == VP8_REF_CURRENT {
                 try bool_writer_write(writer, 0 as u8, 145 as byte);
                 try encoder_inter_write_y_mode(writer, probs, decision.y_mode);
@@ -446,6 +453,7 @@ fn encoder_inter_make_decision_from_search(result: &IntegerPelMotionSearchResult
         ref_frame: VP8_REF_LAST,
         y_mode: VP8_Y_MODE_DC,
         uv_mode: VP8_UV_MODE_DC,
+        skip_coeff: false,
         inter_mv_mode: mode,
         mv_x: result.mv_x,
         mv_y: result.mv_y,
@@ -533,6 +541,7 @@ fn encoder_inter_decide_intra_macroblock(
         ref_frame: VP8_REF_CURRENT,
         y_mode: intra_y.mode,
         uv_mode: intra_uv.mode,
+        skip_coeff: false,
         inter_mv_mode: VP8_INTER_MV_MODE_ZERO,
         mv_x: 0 as i16,
         mv_y: 0 as i16,
@@ -602,6 +611,7 @@ fn encoder_inter_decide_macroblock(
                 ref_frame: intra_decision.ref_frame,
                 y_mode: intra_decision.y_mode,
                 uv_mode: intra_decision.uv_mode,
+                skip_coeff: intra_decision.skip_coeff,
                 inter_mv_mode: intra_decision.inter_mv_mode,
                 mv_x: intra_decision.mv_x,
                 mv_y: intra_decision.mv_y,
@@ -1026,6 +1036,219 @@ fn encoder_inter_encode_uv_plane_blocks(
     return nonzero_coefficients;
 }
 
+fn encoder_inter_store_macroblock_zero(coeff_ctx: &AboveLeftCoeffContext, mb_x: usize) !void {
+    try coeff_context_store_y2_after_decode(coeff_ctx, mb_x, 0 as byte);
+
+    var y_block_y: usize = 0;
+    while y_block_y < 4 {
+        var y_block_x: usize = 0;
+        while y_block_x < 4 {
+            try coeff_context_store_y_after_decode(coeff_ctx, mb_x, y_block_x, y_block_y, 0 as byte);
+            y_block_x = y_block_x + 1;
+        }
+        y_block_y = y_block_y + 1;
+    }
+
+    var uv_block_y: usize = 0;
+    while uv_block_y < 2 {
+        var uv_block_x: usize = 0;
+        while uv_block_x < 2 {
+            try coeff_context_store_u_after_decode(coeff_ctx, mb_x, uv_block_x, uv_block_y, 0 as byte);
+            try coeff_context_store_v_after_decode(coeff_ctx, mb_x, uv_block_x, uv_block_y, 0 as byte);
+            uv_block_x = uv_block_x + 1;
+        }
+        uv_block_y = uv_block_y + 1;
+    }
+}
+
+fn encoder_inter_encode_macroblock_tokens(
+    writer: &BoolWriter,
+    probs: &Vp8Probs,
+    coeff_ctx: &AboveLeftCoeffContext,
+    frame: &YuvFrameView,
+    current: &FrameBuffer,
+    factors: &DequantFactors,
+    mb_x: usize,
+    mb_y: usize,
+    decision: &EncoderInterMacroblockDecision
+) !usize {
+    var y_dct: [i16: 256] = [];
+    var y_qcoeff: [i16: 256] = [];
+    var y_dqcoeff: [i16: 16] = [];
+    var y_summaries: [CoefficientBlockSummary: 16] = [];
+    var y2_input: [i16: 16] = [];
+    var y2_dct: [i16: 16] = [];
+    var y2_qcoeff: [i16: 16] = [];
+    var y2_dqcoeff: [i16: 16] = [];
+    var y2_dequantized: [i16: 16] = [];
+    var y2_dc: [i16: 16] = [];
+    var u_qcoeff: [i16: 64] = [];
+    var v_qcoeff: [i16: 64] = [];
+    var uv_dqcoeff: [i16: 16] = [];
+    var u_summaries: [CoefficientBlockSummary: 4] = [];
+    var v_summaries: [CoefficientBlockSummary: 4] = [];
+
+    encoder_inter_build_y_dct_blocks(frame, current, mb_x, mb_y, &y_dct[0] as &i16, &y2_input[0] as &i16);
+    forward_walsh_hadamard_y2_4x4(&y2_input[0] as &i16, 4, &y2_dct[0] as &i16);
+    const y2_summary: CoefficientBlockSummary = try quantize_block_4x4(&y2_dct[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_qcoeff[0] as &i16, &y2_dqcoeff[0] as &i16);
+
+    var block_y: usize = 0;
+    while block_y < 4 {
+        var block_x: usize = 0;
+        while block_x < 4 {
+            const block_index: usize = (block_y * (4 as usize)) + block_x;
+            const block_base: usize = block_index * (16 as usize);
+            y_summaries[block_index] = try quantize_block_4x4(&y_dct[block_base] as &i16, factors.y1_dc, factors.y1_ac, &y_qcoeff[block_base] as &i16, &y_dqcoeff[0] as &i16);
+            block_x = block_x + 1;
+        }
+        block_y = block_y + 1;
+    }
+
+    var uv_block_y: usize = 0;
+    while uv_block_y < 2 {
+        var uv_block_x: usize = 0;
+        while uv_block_x < 2 {
+            const block_index: usize = (uv_block_y * (2 as usize)) + uv_block_x;
+            const block_base: usize = block_index * (16 as usize);
+            const x: usize = (mb_x * (8 as usize)) + (uv_block_x * (4 as usize));
+            const y: usize = (mb_y * (8 as usize)) + (uv_block_y * (4 as usize));
+            var u_residual: [i16: 16] = [];
+            var u_dct: [i16: 16] = [];
+            encoder_inter_build_residual_4x4(&frame.u, &current.u.plane, x, y, &u_residual[0] as &i16);
+            forward_dct_4x4(&u_residual[0] as &i16, 4, &u_dct[0] as &i16);
+            u_summaries[block_index] = try quantize_block_4x4(&u_dct[0] as &i16, factors.uv_dc, factors.uv_ac, &u_qcoeff[block_base] as &i16, &uv_dqcoeff[0] as &i16);
+
+            var v_residual: [i16: 16] = [];
+            var v_dct: [i16: 16] = [];
+            encoder_inter_build_residual_4x4(&frame.v, &current.v.plane, x, y, &v_residual[0] as &i16);
+            forward_dct_4x4(&v_residual[0] as &i16, 4, &v_dct[0] as &i16);
+            v_summaries[block_index] = try quantize_block_4x4(&v_dct[0] as &i16, factors.uv_dc, factors.uv_ac, &v_qcoeff[block_base] as &i16, &uv_dqcoeff[0] as &i16);
+
+            uv_block_x = uv_block_x + 1;
+        }
+        uv_block_y = uv_block_y + 1;
+    }
+
+    const skip_decision: EncoderSkipDecision = try decide_skip_coefficients(
+        &y_summaries[0] as &CoefficientBlockSummary,
+        16,
+        &u_summaries[0] as &CoefficientBlockSummary,
+        4,
+        &v_summaries[0] as &CoefficientBlockSummary,
+        4,
+        &y2_summary as &CoefficientBlockSummary,
+        true
+    );
+    decision.skip_coeff = skip_decision.skip_coeff;
+    if skip_decision.skip_coeff {
+        try encoder_inter_store_macroblock_zero(coeff_ctx, mb_x);
+        return 0 as usize;
+    }
+
+    var nonzero_coefficients: usize = skip_decision.nonzero_coefficient_count;
+    const y2_context: CoeffContextPair = try coeff_context_get_y2(coeff_ctx, mb_x);
+    const written_y2_summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+        writer,
+        probs,
+        1,
+        0,
+        y2_context.above,
+        y2_context.left,
+        &y2_qcoeff[0] as &i16
+    );
+    try coeff_context_store_y2_after_decode(coeff_ctx, mb_x, written_y2_summary.has_coeff as byte);
+    dequant_block_4x4(&y2_qcoeff[0] as &i16, factors.y2_dc, factors.y2_ac, &y2_dequantized[0] as &i16);
+    inverse_walsh_hadamard_y2_4x4(&y2_dequantized[0] as &i16, &y2_dc[0] as &i16);
+
+    block_y = 0;
+    while block_y < 4 {
+        var block_x_y: usize = 0;
+        while block_x_y < 4 {
+            const block_index: usize = (block_y * (4 as usize)) + block_x_y;
+            const block_base: usize = block_index * (16 as usize);
+            const x: usize = (mb_x * (16 as usize)) + (block_x_y * (4 as usize));
+            const y: usize = (mb_y * (16 as usize)) + (block_y * (4 as usize));
+            const context: CoeffContextPair = try coeff_context_get_y(coeff_ctx, mb_x, block_x_y, block_y);
+            const summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+                writer,
+                probs,
+                0,
+                1,
+                context.above,
+                context.left,
+                &y_qcoeff[block_base] as &i16
+            );
+            try coeff_context_store_y_after_decode(coeff_ctx, mb_x, block_x_y, block_y, (summary.has_coeff || y2_dc[block_index] != (0 as i16)) as byte);
+            try reconstruct_y_block_with_y2_dc(
+                &y_qcoeff[block_base] as &i16,
+                y2_dc[block_index],
+                factors.y1_ac,
+                &current.y.plane.origin[(y * current.y.plane.stride) + x] as &byte,
+                current.y.plane.stride,
+                summary.has_coeff
+            );
+            block_x_y = block_x_y + 1;
+        }
+        block_y = block_y + 1;
+    }
+
+    uv_block_y = 0;
+    while uv_block_y < 2 {
+        var uv_block_x_write: usize = 0;
+        while uv_block_x_write < 2 {
+            const block_index: usize = (uv_block_y * (2 as usize)) + uv_block_x_write;
+            const block_base: usize = block_index * (16 as usize);
+            const x: usize = (mb_x * (8 as usize)) + (uv_block_x_write * (4 as usize));
+            const y: usize = (mb_y * (8 as usize)) + (uv_block_y * (4 as usize));
+
+            const u_context: CoeffContextPair = try coeff_context_get_u(coeff_ctx, mb_x, uv_block_x_write, uv_block_y);
+            const u_summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+                writer,
+                probs,
+                2,
+                0,
+                u_context.above,
+                u_context.left,
+                &u_qcoeff[block_base] as &i16
+            );
+            try coeff_context_store_u_after_decode(coeff_ctx, mb_x, uv_block_x_write, uv_block_y, u_summary.has_coeff as byte);
+            try reconstruct_quantized_block_4x4(
+                &u_qcoeff[block_base] as &i16,
+                factors.uv_dc,
+                factors.uv_ac,
+                &current.u.plane.origin[(y * current.u.plane.stride) + x] as &byte,
+                current.u.plane.stride,
+                u_summary.dc_only
+            );
+
+            const v_context: CoeffContextPair = try coeff_context_get_v(coeff_ctx, mb_x, uv_block_x_write, uv_block_y);
+            const v_summary: CoefficientBlockSummary = try encoder_inter_write_quantized_block_tokens(
+                writer,
+                probs,
+                2,
+                0,
+                v_context.above,
+                v_context.left,
+                &v_qcoeff[block_base] as &i16
+            );
+            try coeff_context_store_v_after_decode(coeff_ctx, mb_x, uv_block_x_write, uv_block_y, v_summary.has_coeff as byte);
+            try reconstruct_quantized_block_4x4(
+                &v_qcoeff[block_base] as &i16,
+                factors.uv_dc,
+                factors.uv_ac,
+                &current.v.plane.origin[(y * current.v.plane.stride) + x] as &byte,
+                current.v.plane.stride,
+                v_summary.dc_only
+            );
+
+            uv_block_x_write = uv_block_x_write + 1;
+        }
+        uv_block_y = uv_block_y + 1;
+    }
+
+    return nonzero_coefficients;
+}
+
 fn encoder_inter_predict_intra_y16x16(current: &FrameBuffer, mb_x: usize, mb_y: usize, mode: byte) void {
     var left: [byte: 16] = [];
     const x: usize = mb_x * (16 as usize);
@@ -1102,6 +1325,7 @@ fn encoder_inter_encode_tokens(
     probs: &Vp8Probs,
     decisions: &EncoderInterMacroblockDecision,
     border_extension_count: &usize,
+    skip_macroblock_count: &usize,
     nonzero_coefficient_count: &usize
 ) !void {
     const factors: DequantFactors = build_dequant_factors(quant);
@@ -1122,9 +1346,10 @@ fn encoder_inter_encode_tokens(
                 const prediction: EncoderInterPredictionResult = try predict_last_frame_macroblock(refs, kernels, mb_x, mb_y, decision.mv_x, decision.mv_y);
                 border_extension_count[0] = border_extension_count[0] + prediction.border_extension_count;
             }
-            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_y_blocks(writer, probs, &coeff_ctx, frame, current, &factors, mb_x, mb_y));
-            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.u, &current.u.plane, &factors, mb_x, mb_y, false));
-            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_uv_plane_blocks(writer, probs, &coeff_ctx, &frame.v, &current.v.plane, &factors, mb_x, mb_y, true));
+            nonzero_coefficient_count[0] = nonzero_coefficient_count[0] + (try encoder_inter_encode_macroblock_tokens(writer, probs, &coeff_ctx, frame, current, &factors, mb_x, mb_y, decision));
+            if decision.skip_coeff {
+                skip_macroblock_count[0] = skip_macroblock_count[0] + 1;
+            }
             mb_x = mb_x + 1;
         }
         mb_y = mb_y + 1;
@@ -1175,6 +1400,7 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
     var nonzero_coefficient_count: usize = 0;
     var inter_macroblock_count: usize = 0;
     var intra_macroblock_count: usize = 0;
+    var skip_macroblock_count: usize = 0;
     var zero_mv_count: usize = 0;
     var newmv_count: usize = 0;
     var nonzero_mv_count: usize = 0;
@@ -1202,7 +1428,6 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         &mode_search_work_units as &usize
     );
     try encoder_inter_write_fixed_header_bits(&first_writer, config);
-    try encoder_inter_write_mode_map(&first_writer, &grid, &probs, decisions);
     try encoder_inter_encode_tokens(
         &token_writers[0] as &BoolWriter,
         &grid,
@@ -1213,8 +1438,10 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         &probs,
         decisions,
         &border_extension_count,
+        &skip_macroblock_count,
         &nonzero_coefficient_count
     );
+    try encoder_inter_write_mode_map(&first_writer, &grid, &probs, decisions);
 
     const ivf_header: IvfHeader = IvfHeader{
         version: 0,
@@ -1260,6 +1487,7 @@ export fn encode_inter_frame_ivf_with_stats_and_kernel_table(
         nonzero_coefficient_count: nonzero_coefficient_count,
         inter_macroblock_count: inter_macroblock_count,
         intra_macroblock_count: intra_macroblock_count,
+        skip_macroblock_count: skip_macroblock_count,
         zero_mv_count: zero_mv_count,
         newmv_count: newmv_count,
         nonzero_mv_count: nonzero_mv_count,
