@@ -819,6 +819,89 @@ def assert_summary_json_records_core_fields() -> None:
         assert isinstance(summary["vpxdec_version"], str)
 
 
+def assert_markdown_report_records_summary_and_samples() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        results_path = root / "results.ndjson"
+        summary_path = root / "summary.json"
+        report_path = root / "report.md"
+        result = make_result(
+            sample="unit_qcif",
+            vp8uya_bits_per_pixel=0.75,
+            libvpx_bits_per_pixel=0.50,
+            vp8uya_psnr_all_db=35.0,
+            libvpx_psnr_all_db=36.0,
+            vp8uya_ssim_all=0.91,
+            libvpx_ssim_all=0.99,
+            vp8uya_fps=80.0,
+            libvpx_fps=100.0,
+            passed=False,
+            failure_reasons=["bitrate_ratio too high"],
+            vp8uya_command=["vp8uya", "encode", "unit.i420"],
+            libvpx_command=["vpxenc", "--best", "unit.i420"],
+            vpxdec_command=["vpxdec", "--rawvideo", "unit.ivf"],
+        )
+        results_path.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+        summary_path.write_text(
+            json.dumps({
+                "sample_count": 1,
+                "passed_count": 0,
+                "failed_count": 1,
+                "passed": False,
+                "git_commit": "abc123",
+                "generated_at_unix": 1.0,
+                "libvpx_preset": "vpxenc --best",
+                "thresholds": {
+                    "max_bitrate_ratio": 1.10,
+                    "min_psnr_all_delta_db": -0.50,
+                    "min_fps_ratio": 0.80,
+                },
+                "vp8uya_bits_per_pixel": 0.75,
+                "libvpx_bits_per_pixel": 0.50,
+                "vp8uya_psnr_all_db": 35.0,
+                "libvpx_psnr_all_db": 36.0,
+                "vp8uya_fps": 80.0,
+                "libvpx_fps": 100.0,
+                "vpxenc_version": "fake vpxenc",
+                "vpxdec_version": "fake vpxdec",
+            }, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--write-markdown-report",
+                "--results-ndjson",
+                str(results_path),
+                "--summary-json",
+                str(summary_path),
+                "--markdown-report-md",
+                str(report_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        status = json.loads(completed.stdout)
+        assert status["ok"] is True
+        assert status["report_md"] == str(report_path)
+
+        markdown = report_path.read_text(encoding="utf-8")
+        assert "# Encoder libvpx compare report" in markdown
+        assert "vpxenc --best" in markdown
+        assert "| unit_qcif |" in markdown
+        assert "| Bitrate |" in markdown
+        assert "bitrate_ratio too high" in markdown
+        assert "vp8uya encode unit.i420" in markdown
+        assert "vpxenc --best unit.i420" in markdown
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -1336,6 +1419,7 @@ def main() -> int:
     assert_repro_report_records_failed_sample_commands()
     assert_results_ndjson_records_payload_bits()
     assert_summary_json_records_core_fields()
+    assert_markdown_report_records_summary_and_samples()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

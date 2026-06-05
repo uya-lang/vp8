@@ -37,6 +37,7 @@ DEFAULT_RUNS_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "runs"
 DEFAULT_REPRO_REPORT_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "repro.md"
 DEFAULT_RESULTS_NDJSON_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "results.ndjson"
 DEFAULT_SUMMARY_JSON_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "summary.json"
+DEFAULT_MARKDOWN_REPORT_PATH = REPO_ROOT / "docs" / "encoder_libvpx_compare_report.md"
 LIBVPX_PRESET = "vpxenc --best"
 REPEAT_STATISTIC = "median"
 
@@ -1716,6 +1717,199 @@ def write_summary_json(
     }
 
 
+def load_summary_json(path: Path) -> tuple[dict[str, Any], str | None]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return {}, f"failed to read summary JSON {path}: {exc}"
+    except json.JSONDecodeError as exc:
+        return {}, f"failed to parse summary JSON {path}: {exc}"
+    if not isinstance(data, dict):
+        return {}, f"summary JSON {path} must contain an object"
+    return data, None
+
+
+def markdown_cell(value: Any) -> str:
+    text = str(value)
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def markdown_number(value: Any, digits: int = 6) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return ""
+    return f"{float(value):.{digits}f}"
+
+
+def markdown_timestamp(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return ""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(value)))
+
+
+def sample_groups(record: Mapping[str, Any]) -> str:
+    groups = record.get("groups")
+    if isinstance(groups, list):
+        return ",".join(str(group) for group in groups)
+    group = record.get("group")
+    if isinstance(group, str):
+        return group
+    return ""
+
+
+def build_markdown_report(summary: Mapping[str, Any], records: list[dict[str, Any]]) -> str:
+    thresholds = summary.get("thresholds")
+    if not isinstance(thresholds, dict):
+        thresholds = {}
+
+    lines = [
+        "# Encoder libvpx compare report",
+        "",
+        "## Run Summary",
+        "",
+        f"- Benchmark target: libvpx `{summary.get('libvpx_preset', LIBVPX_PRESET)}`",
+        f"- git commit: `{summary.get('git_commit', '')}`",
+        f"- generated at: `{markdown_timestamp(summary.get('generated_at_unix'))}`",
+        f"- sample count: {summary.get('sample_count', len(records))}",
+        f"- passed count: {summary.get('passed_count', '')}",
+        f"- failed count: {summary.get('failed_count', '')}",
+        "",
+        "## Tool Versions",
+        "",
+        "| Tool | Version |",
+        "| --- | --- |",
+        f"| vpxenc | {markdown_cell(summary.get('vpxenc_version', ''))} |",
+        f"| vpxdec | {markdown_cell(summary.get('vpxdec_version', ''))} |",
+        "",
+        "## Thresholds",
+        "",
+        "| Metric | Hard threshold |",
+        "| --- | --- |",
+        f"| Bitrate | `vp8uya_bits_per_pixel <= libvpx_bits_per_pixel * {thresholds.get('max_bitrate_ratio', THRESHOLDS['max_bitrate_ratio']):.2f}` |",
+        f"| PSNR-all | `vp8uya_psnr_all_db >= libvpx_psnr_all_db {thresholds.get('min_psnr_all_delta_db', THRESHOLDS['min_psnr_all_delta_db']):+.2f}` |",
+        f"| Encoding fps | `vp8uya_fps >= libvpx_fps * {thresholds.get('min_fps_ratio', THRESHOLDS['min_fps_ratio']):.2f}` |",
+        "",
+        "`SSIM-all` is recorded for diagnosis only and does not decide hard pass/fail in the first report version.",
+        "",
+        "## Aggregate Summary",
+        "",
+        "| Field | Value |",
+        "| --- | ---: |",
+        f"| vp8uya_bits_per_pixel | {markdown_number(summary.get('vp8uya_bits_per_pixel'))} |",
+        f"| libvpx_bits_per_pixel | {markdown_number(summary.get('libvpx_bits_per_pixel'))} |",
+        f"| vp8uya_psnr_all_db | {markdown_number(summary.get('vp8uya_psnr_all_db'))} |",
+        f"| libvpx_psnr_all_db | {markdown_number(summary.get('libvpx_psnr_all_db'))} |",
+        f"| vp8uya_fps | {markdown_number(summary.get('vp8uya_fps'), 2)} |",
+        f"| libvpx_fps | {markdown_number(summary.get('libvpx_fps'), 2)} |",
+        "",
+        "## Sample Results",
+        "",
+        "| Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+
+    for record in records:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    markdown_cell(record.get("sample", record.get("name", ""))),
+                    markdown_cell(sample_groups(record)),
+                    markdown_cell(record.get("frames", "")),
+                    markdown_number(record.get("vp8uya_bits_per_pixel")),
+                    markdown_number(record.get("libvpx_bits_per_pixel")),
+                    markdown_number(record.get("vp8uya_psnr_all_db")),
+                    markdown_number(record.get("libvpx_psnr_all_db")),
+                    markdown_number(record.get("vp8uya_ssim_all")),
+                    markdown_number(record.get("libvpx_ssim_all")),
+                    markdown_number(record.get("vp8uya_fps"), 2),
+                    markdown_number(record.get("libvpx_fps"), 2),
+                    "true" if record.get("passed") is True else "false",
+                ]
+            )
+            + " |"
+        )
+
+    failed_records = [record for record in records if result_failed(record)]
+    lines.extend(["", "## Failed Samples", ""])
+    if not failed_records:
+        lines.extend(["No failing samples.", ""])
+    for record in failed_records:
+        sample = markdown_cell(record.get("sample", record.get("name", "unknown")))
+        lines.extend([f"### {sample}", ""])
+        failure_reasons = record.get("failure_reasons")
+        if isinstance(failure_reasons, list) and failure_reasons:
+            lines.append("Failure reasons:")
+            for reason in failure_reasons:
+                lines.append(f"- {reason}")
+            lines.append("")
+        commands = collect_repro_commands(record)
+        for label in ("vp8uya", "vpxenc", "vpxdec"):
+            append_command_block(lines, label, commands[label])
+
+    conclusion = "PASS" if summary.get("passed") is True else "FAIL"
+    lines.extend([
+        "## Conclusion",
+        "",
+        f"{conclusion}: {summary.get('passed_count', '')}/{summary.get('sample_count', len(records))} samples passed.",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def write_markdown_report(
+    *,
+    results_path: Path = DEFAULT_RESULTS_NDJSON_PATH,
+    summary_path: Path = DEFAULT_SUMMARY_JSON_PATH,
+    report_path: Path = DEFAULT_MARKDOWN_REPORT_PATH,
+) -> dict[str, Any]:
+    records, error = load_repro_result_records(results_path)
+    if error is not None:
+        return {
+            "ok": False,
+            "results_ndjson": str(results_path),
+            "summary_json": str(summary_path),
+            "report_md": str(report_path),
+            "sample_count": 0,
+            "failed_sample_count": 0,
+            "error": error,
+        }
+    summary, error = load_summary_json(summary_path)
+    if error is not None:
+        return {
+            "ok": False,
+            "results_ndjson": str(results_path),
+            "summary_json": str(summary_path),
+            "report_md": str(report_path),
+            "sample_count": len(records),
+            "failed_sample_count": 0,
+            "error": error,
+        }
+    failed_records = [record for record in records if result_failed(record)]
+    markdown = build_markdown_report(summary, records)
+    try:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        return {
+            "ok": False,
+            "results_ndjson": str(results_path),
+            "summary_json": str(summary_path),
+            "report_md": str(report_path),
+            "sample_count": len(records),
+            "failed_sample_count": len(failed_records),
+            "error": f"failed to write Markdown report {report_path}: {exc}",
+        }
+    return {
+        "ok": True,
+        "results_ndjson": str(results_path),
+        "summary_json": str(summary_path),
+        "report_md": str(report_path),
+        "sample_count": len(records),
+        "failed_sample_count": len(failed_records),
+        "error": None,
+    }
+
+
 def read_ivf_payload_bits(path: Path) -> dict[str, Any]:
     try:
         data = path.read_bytes()
@@ -2460,6 +2654,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="read results NDJSON and write aggregate summary JSON",
     )
     parser.add_argument(
+        "--write-markdown-report",
+        action="store_true",
+        help="read results NDJSON and summary JSON and write Markdown report",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the selected sample plan without downloading, encoding, or decoding",
@@ -2552,6 +2751,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_SUMMARY_JSON_PATH,
         help=f"JSON summary path for --write-summary-json, defaulting to {DEFAULT_SUMMARY_JSON_PATH}",
+    )
+    parser.add_argument(
+        "--markdown-report-md",
+        type=Path,
+        default=DEFAULT_MARKDOWN_REPORT_PATH,
+        help=f"Markdown report path for --write-markdown-report, defaulting to {DEFAULT_MARKDOWN_REPORT_PATH}",
     )
     return parser.parse_args(argv[1:])
 
@@ -2664,8 +2869,16 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.write_markdown_report:
+        report = write_markdown_report(
+            results_path=args.results_ndjson,
+            summary_path=args.summary_json,
+            report_path=args.markdown_report_md,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --write-repro-report, --write-results-ndjson, or --write-summary-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --write-repro-report, --write-results-ndjson, --write-summary-json, or --write-markdown-report", file=sys.stderr)
     return 2
 
 

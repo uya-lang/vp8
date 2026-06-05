@@ -188,7 +188,7 @@ Date: 2026-06-05
   - 产物：`build/libvpx-encode-compare/results.ndjson`。
 - [x] 输出 JSON 汇总。
   - 产物：`build/libvpx-encode-compare/summary.json`。
-- [ ] 输出 Markdown 报告。
+- [x] 输出 Markdown 报告。
   - 产物：`docs/encoder_libvpx_compare_report.md`。
 
 ## Phase 8: 报告门禁
