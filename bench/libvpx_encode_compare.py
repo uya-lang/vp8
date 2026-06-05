@@ -1432,6 +1432,22 @@ def evaluate_result_json(path: Path) -> dict[str, Any]:
     return evaluate_thresholds(data)
 
 
+def evaluate_threshold_record(record: dict[str, Any]) -> dict[str, Any]:
+    evaluated = evaluate_thresholds(record)
+    failure_reasons = list(evaluated.get("failure_reasons", []))
+    existing_reasons = record.get("failure_reasons")
+    if isinstance(existing_reasons, list):
+        for reason in existing_reasons:
+            reason_text = str(reason)
+            if reason_text not in failure_reasons:
+                failure_reasons.append(reason_text)
+    if (record.get("passed") is False or record.get("ok") is False) and not failure_reasons:
+        failure_reasons.append("sample result was marked failed")
+    evaluated["failure_reasons"] = failure_reasons
+    evaluated["passed"] = len(failure_reasons) == 0
+    return evaluated
+
+
 def load_repro_result_records(path: Path) -> tuple[list[dict[str, Any]], str | None]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -1511,6 +1527,44 @@ def result_failed(result: Mapping[str, Any]) -> bool:
         return True
     failure_reasons = result.get("failure_reasons")
     return isinstance(failure_reasons, list) and len(failure_reasons) > 0
+
+
+def threshold_results(
+    *,
+    results_path: Path = DEFAULT_RESULTS_NDJSON_PATH,
+) -> dict[str, Any]:
+    records, error = load_repro_result_records(results_path)
+    if error is not None:
+        return {
+            "ok": False,
+            "passed": False,
+            "results_ndjson": str(results_path),
+            "sample_count": 0,
+            "passed_count": 0,
+            "failed_count": 0,
+            "failed_samples": [],
+            "failure_reasons": [error],
+        }
+
+    evaluated_records = [evaluate_threshold_record(record) for record in records]
+    failed_records = [record for record in evaluated_records if result_failed(record)]
+    failed_samples = [
+        str(record.get("sample", record.get("name", f"#{index}")))
+        for index, record in enumerate(evaluated_records)
+        if result_failed(record)
+    ]
+    return {
+        "ok": True,
+        "passed": len(failed_records) == 0,
+        "results_ndjson": str(results_path),
+        "sample_count": len(evaluated_records),
+        "passed_count": len(evaluated_records) - len(failed_records),
+        "failed_count": len(failed_records),
+        "failed_samples": failed_samples,
+        "failed_results": failed_records,
+        "thresholds": dict(THRESHOLDS),
+        "failure_reasons": [],
+    }
 
 
 def collect_repro_commands(result: Mapping[str, Any]) -> dict[str, list[str]]:
@@ -2639,6 +2693,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="read one benchmark result JSON object, apply hard thresholds, and return non-zero on failure",
     )
     parser.add_argument(
+        "--threshold",
+        action="store_true",
+        help="read results NDJSON, apply hard thresholds, and return non-zero on any failed sample",
+    )
+    parser.add_argument(
         "--write-repro-report",
         type=Path,
         help="read benchmark result JSON/NDJSON records and write failing-sample reproduction commands as Markdown",
@@ -2847,6 +2906,10 @@ def main(argv: list[str]) -> int:
         report = evaluate_result_json(args.evaluate_result_json)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
+    if args.threshold:
+        report = threshold_results(results_path=args.results_ndjson)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["passed"] else 2
     if args.write_repro_report is not None:
         report = write_repro_report(args.write_repro_report, report_path=args.repro_report_md)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -2878,7 +2941,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --write-repro-report, --write-results-ndjson, --write-summary-json, or --write-markdown-report", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --threshold, --write-repro-report, --write-results-ndjson, --write-summary-json, or --write-markdown-report", file=sys.stderr)
     return 2
 
 

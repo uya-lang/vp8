@@ -227,6 +227,43 @@ def assert_threshold_cli_return_codes() -> None:
         assert any("fps_ratio" in reason for reason in fps_report["failure_reasons"])
 
 
+def assert_threshold_cli_passes_all_result_records() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        results_path = tmp_path / "results.ndjson"
+        results_path.write_text(
+            json.dumps(make_result(sample="unit_a"), sort_keys=True)
+            + "\n"
+            + json.dumps(make_result(sample="unit_b", vp8uya_bits_per_pixel=1.10), sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--threshold",
+                "--results-ndjson",
+                str(results_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        report = json.loads(completed.stdout)
+        assert report["passed"] is True
+        assert report["sample_count"] == 2
+        assert report["passed_count"] == 2
+        assert report["failed_count"] == 0
+        assert report["failed_samples"] == []
+        assert report["failed_results"] == []
+
+
 def assert_vp8uya_bin_missing_cli_path() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         missing = Path(tmp) / "missing-vp8uya"
@@ -1407,6 +1444,7 @@ def main() -> int:
     assert_psnr_threshold(module)
     assert_fps_threshold(module)
     assert_threshold_cli_return_codes()
+    assert_threshold_cli_passes_all_result_records()
     assert_vp8uya_bin_missing_cli_path()
     assert_group_dry_run_filters_qcif()
     assert_frames_dry_run_override()
