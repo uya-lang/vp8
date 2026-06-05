@@ -165,10 +165,12 @@ test: build check-toolchain $(SAMPLE_IVF)
 	rm -rf $(ENCODE_CLI_DIR)
 	mkdir -p $(ENCODE_CLI_DIR)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
+	head -c 451 /dev/zero > $(ENCODE_CLI_DIR)/input-17x17.yuv
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf > $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.psnr.all=' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.ssim.all=' $(ENCODE_CLI_DIR)/encode.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --frames 1 --out $(ENCODE_CLI_DIR)/out-frames1.ivf
+	$(BIN) encode $(ENCODE_CLI_DIR)/input-17x17.yuv --width 17 --height 17 --frames 1 --out $(ENCODE_CLI_DIR)/out-17x17.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps 30/1 --out $(ENCODE_CLI_DIR)/out-fps.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out-repeat.ivf
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 16 --out $(ENCODE_CLI_DIR)/out-q16.ivf
@@ -212,6 +214,8 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.frame_count=1'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.width=16'
 	$(BIN) info $(ENCODE_CLI_DIR)/out.ivf | grep -q 'ivf.height=16'
+	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17.ivf | grep -q 'ivf.width=17'
+	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17.ivf | grep -q 'ivf.height=17'
 	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-vbr.ivf --yuv $(ENCODE_CLI_DIR)/decoded-vbr.yuv >/dev/null

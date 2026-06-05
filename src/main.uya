@@ -46,6 +46,8 @@ use vp8.encoder.context.EncoderConfig;
 use vp8.encoder.context.EncoderRateControlMode;
 use vp8.encoder.context.EncoderSpeedPreset;
 use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.i420_frame_size;
+use vp8.encoder.context.i420_frames_size;
 use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.context.yuv420_frame_view_size;
@@ -755,16 +757,32 @@ fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize
         _ = printf("error: --frames must be positive\n");
         return 2;
     }
-    if frame_count != 1 {
-        _ = printf("error: encode currently supports --frames 1 only\n");
-        return 2;
-    }
-
     const file: FileBuffer = read_file(input_path) catch {
         _ = printf("error: failed to read input YUV file\n");
         return 2;
     };
     defer free(file.data as &void);
+
+    const input_frame_len: usize = i420_frame_size(width, height) catch {
+        _ = printf("error: invalid encode output geometry\n");
+        return 2;
+    };
+    const expected_input_len: usize = i420_frames_size(width, height, frame_count) catch {
+        _ = printf("error: invalid encode output geometry\n");
+        return 2;
+    };
+    if file.len < expected_input_len {
+        _ = printf("error: input YUV is too short for I420 width/height\n");
+        return 2;
+    }
+    if file.len > expected_input_len {
+        _ = printf("error: input YUV must contain exactly the requested I420 frames\n");
+        return 2;
+    }
+    if frame_count != 1 {
+        _ = printf("error: encode currently supports --frames 1 only\n");
+        return 2;
+    }
 
     var config: EncoderConfig = make_default_encoder_config(width, height);
     config.fps_numerator = fps_numerator;
@@ -787,12 +805,12 @@ fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize
     };
     config.quantizer = decision.quantizer;
 
-    const frame: YuvFrameView = make_i420_frame_view(file.data, file.len, width, height) catch {
+    const frame: YuvFrameView = make_i420_frame_view(file.data, input_frame_len, width, height) catch {
         _ = printf("error: input YUV is too short for I420 width/height\n");
         return 2;
     };
-    if file.len != yuv420_frame_view_size(&frame) {
-        _ = printf("error: input YUV must contain exactly one I420 frame\n");
+    if input_frame_len != yuv420_frame_view_size(&frame) {
+        _ = printf("error: invalid encode output geometry\n");
         return 2;
     }
 

@@ -9,6 +9,8 @@ use vp8.encoder.context.YuvFrameView;
 use vp8.encoder.context.encoder_ivf_writer_begin;
 use vp8.encoder.context.encoder_ivf_writer_write_frame;
 use vp8.encoder.context.empty_yuv_frame_view;
+use vp8.encoder.context.i420_frame_size;
+use vp8.encoder.context.i420_frames_size;
 use vp8.encoder.context.make_default_encoder_config;
 use vp8.encoder.context.make_i420_frame_view;
 use vp8.encoder.context.make_yuv420_frame_view;
@@ -137,6 +139,12 @@ test "YuvFrameView splits contiguous I420 storage" {
     try assert_eq_i32(view.y.data[8] as i32, 8);
     try assert_eq_i32(view.u.data[0] as i32, 20);
     try assert_eq_i32(view.v.data[0] as i32, 30);
+}
+
+test "I420 frame size uses rounded chroma dimensions" {
+    try assert_eq_i32((try i420_frame_size(16, 16)) as i32, 384);
+    try assert_eq_i32((try i420_frame_size(17, 17)) as i32, 451);
+    try assert_eq_i32((try i420_frames_size(17, 17, 3)) as i32, 1353);
 }
 
 test "YuvFrameView rejects invalid strides and short storage" {

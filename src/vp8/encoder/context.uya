@@ -204,6 +204,24 @@ fn yuv_checked_mul(left: usize, right: usize) !usize {
     return value;
 }
 
+export fn i420_frame_size(width: usize, height: usize) !usize {
+    if width == 0 || height == 0 {
+        return error.ErrYuvFrameViewInvalidGeometry;
+    }
+
+    const chroma_width: usize = frame_buffer_chroma_dim(width);
+    const chroma_height: usize = frame_buffer_chroma_dim(height);
+    const y_size: usize = try yuv_checked_mul(width, height);
+    const uv_size: usize = try yuv_checked_mul(chroma_width, chroma_height);
+    const uv_total: usize = try yuv_checked_mul(uv_size, 2);
+    return try yuv_checked_add(y_size, uv_total);
+}
+
+export fn i420_frames_size(width: usize, height: usize, frame_count: usize) !usize {
+    const single_frame_size: usize = try i420_frame_size(width, height);
+    return try yuv_checked_mul(single_frame_size, frame_count);
+}
+
 fn yuv_plane_required_len(width: usize, height: usize, stride: usize) !usize {
     if width == 0 || height == 0 || stride < width {
         return error.ErrYuvFrameViewInvalidGeometry;
@@ -323,8 +341,7 @@ export fn make_i420_frame_view(data: &byte, len: usize, width: usize, height: us
     const chroma_height: usize = frame_buffer_chroma_dim(height);
     const y_size: usize = try yuv_checked_mul(width, height);
     const uv_size: usize = try yuv_checked_mul(chroma_width, chroma_height);
-    const uv_total: usize = try yuv_checked_mul(uv_size, 2);
-    const total_size: usize = try yuv_checked_add(y_size, uv_total);
+    const total_size: usize = try i420_frame_size(width, height);
     if len < total_size {
         return error.ErrYuvFrameViewInvalidGeometry;
     }
