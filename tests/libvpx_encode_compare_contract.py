@@ -8,6 +8,7 @@ import json
 import os
 import hashlib
 import subprocess
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -17,6 +18,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "bench" / "libvpx_encode_compare.py"
 
 REQUIRED_FIELDS = {
+    "vp8uya_payload_bits",
+    "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
     "vp8uya_psnr_all_db",
@@ -599,6 +602,84 @@ def assert_repro_report_records_failed_sample_commands() -> None:
         assert "vpxdec --rawvideo failing.libvpx.ivf" in markdown
 
 
+def write_test_ivf(path: Path, payload_sizes: list[int]) -> None:
+    header = bytearray(32)
+    header[0:4] = b"DKIF"
+    struct.pack_into("<H", header, 4, 0)
+    struct.pack_into("<H", header, 6, 32)
+    header[8:12] = b"VP80"
+    struct.pack_into("<H", header, 12, 16)
+    struct.pack_into("<H", header, 14, 16)
+    struct.pack_into("<I", header, 16, 1)
+    struct.pack_into("<I", header, 20, 30)
+    struct.pack_into("<I", header, 24, len(payload_sizes))
+
+    data = bytearray(header)
+    for timestamp, payload_size in enumerate(payload_sizes):
+        data.extend(struct.pack("<IQ", payload_size, timestamp))
+        data.extend(bytes(payload_size))
+    path.write_bytes(data)
+
+
+def assert_results_ndjson_records_payload_bits() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest_path = root / "manifest.json"
+        runs_dir = root / "runs"
+        results_path = root / "results.ndjson"
+        runs_dir.mkdir()
+        manifest_path.write_text(
+            json.dumps({
+                "samples": [{
+                    "name": "unit_qcif",
+                    "url": "https://example.test/unit_qcif.y4m",
+                    "width": 16,
+                    "height": 16,
+                    "frames": 2,
+                    "fps": "30/1",
+                    "sha256": "0" * 64,
+                    "groups": ["qcif"],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        write_test_ivf(runs_dir / "unit_qcif.vp8uya.ivf", [10, 20])
+        write_test_ivf(runs_dir / "unit_qcif.libvpx.ivf", [7, 8])
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--runs-dir",
+                str(runs_dir),
+                "--group",
+                "qcif",
+                "--write-results-ndjson",
+                "--results-ndjson",
+                str(results_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        status = json.loads(completed.stdout)
+        assert status["ok"] is True
+        assert status["results_ndjson"] == str(results_path)
+
+        lines = results_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        result = json.loads(lines[0])
+        assert result["sample"] == "unit_qcif"
+        assert result["vp8uya_payload_bits"] == 240
+        assert result["libvpx_payload_bits"] == 120
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -1114,6 +1195,7 @@ def main() -> int:
     assert_vpxdec_decodes_vp8uya_output()
     assert_vpxdec_decodes_libvpx_output()
     assert_repro_report_records_failed_sample_commands()
+    assert_results_ndjson_records_payload_bits()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

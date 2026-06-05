@@ -13,6 +13,7 @@ import json
 import os
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import urllib.request
@@ -32,6 +33,7 @@ DEFAULT_VP8UYA_BIN = REPO_ROOT / "build" / "vp8uya"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "fixtures" / "encoder_libvpx_real_samples.json"
 DEFAULT_RUNS_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "runs"
 DEFAULT_REPRO_REPORT_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "repro.md"
+DEFAULT_RESULTS_NDJSON_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "results.ndjson"
 LIBVPX_PRESET = "vpxenc --best"
 REPEAT_STATISTIC = "median"
 
@@ -41,6 +43,8 @@ REQUIRED_RESULT_FIELDS = (
     "height",
     "frames",
     "fps",
+    "vp8uya_payload_bits",
+    "libvpx_payload_bits",
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
     "bitrate_ratio",
@@ -1545,6 +1549,216 @@ def write_repro_report(results_path: Path, report_path: Path = DEFAULT_REPRO_REP
     }
 
 
+def read_ivf_payload_bits(path: Path) -> dict[str, Any]:
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        return {
+            "ok": False,
+            "path": str(path),
+            "payload_bytes": 0,
+            "payload_bits": 0,
+            "frame_count": 0,
+            "declared_frame_count": 0,
+            "error": f"failed to read IVF {path}: {exc}",
+        }
+
+    if len(data) < 32:
+        return {
+            "ok": False,
+            "path": str(path),
+            "payload_bytes": 0,
+            "payload_bits": 0,
+            "frame_count": 0,
+            "declared_frame_count": 0,
+            "error": f"IVF file is too short for header: {path}",
+        }
+    if data[0:4] != b"DKIF":
+        return {
+            "ok": False,
+            "path": str(path),
+            "payload_bytes": 0,
+            "payload_bits": 0,
+            "frame_count": 0,
+            "declared_frame_count": 0,
+            "error": f"invalid IVF signature: {path}",
+        }
+    if data[8:12] != b"VP80":
+        return {
+            "ok": False,
+            "path": str(path),
+            "payload_bytes": 0,
+            "payload_bits": 0,
+            "frame_count": 0,
+            "declared_frame_count": 0,
+            "error": f"unsupported IVF fourcc: {path}",
+        }
+
+    header_size = struct.unpack_from("<H", data, 6)[0]
+    declared_frame_count = struct.unpack_from("<I", data, 24)[0]
+    if header_size < 32 or header_size > len(data):
+        return {
+            "ok": False,
+            "path": str(path),
+            "payload_bytes": 0,
+            "payload_bits": 0,
+            "frame_count": 0,
+            "declared_frame_count": declared_frame_count,
+            "error": f"invalid IVF header size {header_size}: {path}",
+        }
+
+    offset = header_size
+    frame_count = 0
+    payload_bytes = 0
+    while offset < len(data):
+        if offset + 12 > len(data):
+            return {
+                "ok": False,
+                "path": str(path),
+                "payload_bytes": payload_bytes,
+                "payload_bits": payload_bytes * 8,
+                "frame_count": frame_count,
+                "declared_frame_count": declared_frame_count,
+                "error": f"truncated IVF frame header at byte {offset}: {path}",
+            }
+        payload_size = struct.unpack_from("<I", data, offset)[0]
+        payload_start = offset + 12
+        payload_end = payload_start + payload_size
+        if payload_end > len(data):
+            return {
+                "ok": False,
+                "path": str(path),
+                "payload_bytes": payload_bytes,
+                "payload_bits": payload_bytes * 8,
+                "frame_count": frame_count,
+                "declared_frame_count": declared_frame_count,
+                "error": f"truncated IVF frame payload at byte {payload_start}: {path}",
+            }
+        payload_bytes += payload_size
+        frame_count += 1
+        offset = payload_end
+
+    if declared_frame_count not in (0, frame_count):
+        return {
+            "ok": False,
+            "path": str(path),
+            "payload_bytes": payload_bytes,
+            "payload_bits": payload_bytes * 8,
+            "frame_count": frame_count,
+            "declared_frame_count": declared_frame_count,
+            "error": (
+                f"IVF declared frame_count={declared_frame_count} "
+                f"but observed {frame_count}: {path}"
+            ),
+        }
+
+    return {
+        "ok": True,
+        "path": str(path),
+        "payload_bytes": payload_bytes,
+        "payload_bits": payload_bytes * 8,
+        "frame_count": frame_count,
+        "declared_frame_count": declared_frame_count,
+        "error": None,
+    }
+
+
+def write_results_ndjson_payload_bits(
+    *,
+    manifest_path: Path = DEFAULT_MANIFEST_PATH,
+    group: str | None = None,
+    frames_override: int | None = None,
+    runs_dir: Path = DEFAULT_RUNS_DIR,
+    results_path: Path = DEFAULT_RESULTS_NDJSON_PATH,
+) -> dict[str, Any]:
+    try:
+        manifest = load_sample_manifest(manifest_path)
+        selected = plan_sample_entries(
+            filter_samples_by_group(manifest_samples(manifest), group),
+            frames_override,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "manifest_path": str(manifest_path),
+            "runs_dir": str(runs_dir),
+            "results_ndjson": str(results_path),
+            "sample_count": 0,
+            "error": str(exc),
+        }
+
+    results: list[dict[str, Any]] = []
+    for sample in selected:
+        sample_name = str(sample.get("name", ""))
+        failure_reasons: list[str] = []
+        try:
+            result = {
+                "sample": sample_name,
+                "width": sample_dimension(sample, "width"),
+                "height": sample_dimension(sample, "height"),
+                "frames": sample_frames(sample),
+                "fps": sample_fps(sample),
+            }
+            vp8uya_path = sample_vp8uya_ivf_path(sample, runs_dir)
+            libvpx_path = sample_libvpx_ivf_path(sample, runs_dir)
+        except ValueError as exc:
+            failure_reasons.append(str(exc))
+            result = {
+                "sample": sample_name,
+                "width": sample.get("width"),
+                "height": sample.get("height"),
+                "frames": sample.get("frames"),
+                "fps": sample.get("fps"),
+            }
+            vp8uya_path = runs_dir / f"{sample_name}.vp8uya.ivf"
+            libvpx_path = runs_dir / f"{sample_name}.libvpx.ivf"
+
+        vp8uya_payload = read_ivf_payload_bits(vp8uya_path)
+        libvpx_payload = read_ivf_payload_bits(libvpx_path)
+        if not vp8uya_payload["ok"]:
+            failure_reasons.append(f"vp8uya: {vp8uya_payload['error']}")
+        if not libvpx_payload["ok"]:
+            failure_reasons.append(f"libvpx: {libvpx_payload['error']}")
+
+        result.update({
+            "vp8uya_ivf_path": str(vp8uya_path),
+            "libvpx_ivf_path": str(libvpx_path),
+            "vp8uya_payload_bits": vp8uya_payload["payload_bits"],
+            "libvpx_payload_bits": libvpx_payload["payload_bits"],
+            "vp8uya_payload_bytes": vp8uya_payload["payload_bytes"],
+            "libvpx_payload_bytes": libvpx_payload["payload_bytes"],
+            "vp8uya_ivf_frame_count": vp8uya_payload["frame_count"],
+            "libvpx_ivf_frame_count": libvpx_payload["frame_count"],
+            "passed": len(failure_reasons) == 0,
+            "failure_reasons": failure_reasons,
+        })
+        results.append(result)
+
+    try:
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        with results_path.open("w", encoding="utf-8") as fh:
+            for result in results:
+                fh.write(json.dumps(result, sort_keys=True) + "\n")
+    except OSError as exc:
+        return {
+            "ok": False,
+            "manifest_path": str(manifest_path),
+            "runs_dir": str(runs_dir),
+            "results_ndjson": str(results_path),
+            "sample_count": len(results),
+            "error": f"failed to write results NDJSON {results_path}: {exc}",
+        }
+
+    return {
+        "ok": all(result["passed"] for result in results),
+        "manifest_path": str(manifest_path),
+        "runs_dir": str(runs_dir),
+        "results_ndjson": str(results_path),
+        "sample_count": len(results),
+        "error": None,
+    }
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare vp8uya encoder output against libvpx")
     parser.add_argument(
@@ -1581,6 +1795,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--write-repro-report",
         type=Path,
         help="read benchmark result JSON/NDJSON records and write failing-sample reproduction commands as Markdown",
+    )
+    parser.add_argument(
+        "--write-results-ndjson",
+        action="store_true",
+        help="write per-sample benchmark result records; currently records IVF payload bits",
     )
     parser.add_argument(
         "--dry-run",
@@ -1663,6 +1882,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_REPRO_REPORT_PATH,
         help=f"Markdown path for --write-repro-report, defaulting to {DEFAULT_REPRO_REPORT_PATH}",
+    )
+    parser.add_argument(
+        "--results-ndjson",
+        type=Path,
+        default=DEFAULT_RESULTS_NDJSON_PATH,
+        help=f"NDJSON path for --write-results-ndjson, defaulting to {DEFAULT_RESULTS_NDJSON_PATH}",
     )
     return parser.parse_args(argv[1:])
 
@@ -1757,8 +1982,18 @@ def main(argv: list[str]) -> int:
         report = write_repro_report(args.write_repro_report, report_path=args.repro_report_md)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.write_results_ndjson:
+        report = write_results_ndjson_payload_bits(
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+            runs_dir=args.runs_dir,
+            results_path=args.results_ndjson,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, or --write-repro-report", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --write-repro-report, or --write-results-ndjson", file=sys.stderr)
     return 2
 
 
