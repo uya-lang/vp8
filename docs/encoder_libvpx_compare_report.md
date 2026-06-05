@@ -3,18 +3,18 @@
 ## Run Summary
 
 - Benchmark target: libvpx `vpxenc --best`
-- git commit: `4a8db4702153e8b0affd85b8e337ec719d56d10a`
-- generated at: `2026-06-05T05:12:30Z`
-- sample count: 3
-- passed count: 3
+- git commit: `e0a61fe1c05fbd0653af59604f8ea39d5af5127b`
+- generated at: `2026-06-05T06:11:13Z`
+- sample count: 4
+- passed count: 4
 - failed count: 0
 
 ## Tool Versions
 
 | Tool | Version |
 | --- | --- |
-| vpxenc |  |
-| vpxdec |  |
+| vpxenc | vp8    - WebM Project VP8 Encoder v1.11.0 |
+| vpxdec | vp8    - WebM Project VP8 Decoder v1.11.0 |
 
 ## Thresholds
 
@@ -30,20 +30,21 @@
 
 | Field | Value |
 | --- | ---: |
-| vp8uya_bits_per_pixel | 1.194339 |
-| libvpx_bits_per_pixel | 2.681292 |
-| vp8uya_psnr_all_db | 15.710501 |
-| libvpx_psnr_all_db | 47.962539 |
-| vp8uya_fps | 17.73 |
-| libvpx_fps | 127.87 |
+| vp8uya_bits_per_pixel | 1.137184 |
+| libvpx_bits_per_pixel | 0.261376 |
+| vp8uya_psnr_all_db | 12.311845 |
+| libvpx_psnr_all_db | 38.421882 |
+| vp8uya_fps | 54.01 |
+| libvpx_fps | 125.28 |
 
 ## Sample Results
 
 | Sample | Group | Frames | vp8uya bpp | libvpx bpp | vp8uya PSNR-all | libvpx PSNR-all | vp8uya SSIM-all | libvpx SSIM-all | vp8uya fps | libvpx fps | Passed |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| akiyo_qcif |  | 1 | 0.992109 | 2.078283 | 12.612939 | 48.575122 | 0.859610 | 0.999604 | 16.77 | 103.64 | true |
-| foreman_qcif |  | 1 | 1.095013 | 2.668245 | 16.033617 | 47.651895 | 0.874370 | 0.997823 | 18.22 | 126.03 | true |
-| coastguard_qcif |  | 1 | 1.495896 | 3.297348 | 18.484947 | 47.660601 | 0.851976 | 0.997558 | 18.19 | 153.94 | true |
+| akiyo_qcif |  | 60 | 0.296628 | 0.261521 | 10.811141 | 48.320138 | 0.357118 | 0.999593 | 72.31 | 272.43 | true |
+| foreman_qcif |  | 60 | 0.927141 | 0.336706 | 12.794459 | 41.488222 | 0.377962 | 0.994510 | 64.93 | 102.58 | true |
+| coastguard_qcif |  | 60 | 1.049263 | 0.342419 | 14.058654 | 36.434307 | 0.439904 | 0.990787 | 64.66 | 99.57 | true |
+| mobile_cif |  | 60 | 2.275704 | 0.104857 | 11.583125 | 27.444861 | 0.231459 | 0.976963 | 14.15 | 26.56 | true |
 
 ## Failed Samples
 
@@ -51,4 +52,4 @@ No failing samples.
 
 ## Conclusion
 
-PASS: 3/3 samples passed.
+PASS: 4/4 samples passed.

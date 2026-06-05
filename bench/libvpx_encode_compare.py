@@ -2571,6 +2571,9 @@ def write_results_ndjson_payload_bits(
             "error": str(exc),
         }
 
+    tool_report = probe_tools()
+    vpxenc_version = tool_report.get("vpxenc_version") or ""
+    vpxdec_version = tool_report.get("vpxdec_version") or ""
     results: list[dict[str, Any]] = []
     for sample in selected:
         sample_name = str(sample.get("name", ""))
@@ -2656,6 +2659,8 @@ def write_results_ndjson_payload_bits(
         result.update({
             "vp8uya_ivf_path": str(vp8uya_path),
             "libvpx_ivf_path": str(libvpx_path),
+            "vpxenc_version": vpxenc_version,
+            "vpxdec_version": vpxdec_version,
             "vp8uya_payload_bits": vp8uya_payload["payload_bits"],
             "libvpx_payload_bits": libvpx_payload["payload_bits"],
             "vp8uya_bits_per_pixel": vp8uya_bpp,

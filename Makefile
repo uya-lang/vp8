@@ -64,13 +64,14 @@ ASM_X86_TEST := src/vp8_kernels_asm_x86_test.uya
 UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uya src/vp8_bitstream_bool_reader_test.uya src/vp8_bitstream_bool_writer_test.uya src/vp8_container_ivf_test.uya src/vp8_container_raw_test.uya src/vp8_container_webm_subset_test.uya src/vp8_container_rtp_vp8_test.uya src/vp8_api_decoder_test.uya src/vp8_api_encoder_test.uya src/vp8_common_plane_test.uya src/vp8_common_frame_alloc_test.uya src/vp8_common_frame_test.uya src/vp8_common_mb_grid_test.uya src/vp8_common_mb_info_test.uya src/vp8_common_mode_context_test.uya src/vp8_common_coeff_context_test.uya src/vp8_common_scratch_test.uya src/vp8_common_decode_context_test.uya src/vp8_common_cpu_test.uya src/vp8_encoder_config_test.uya src/vp8_encoder_rate_control_test.uya src/vp8_encoder_keyframe_interval_test.uya src/vp8_encoder_quantizer_delta_test.uya src/vp8_encoder_loop_filter_level_test.uya src/vp8_encoder_rd_cost_test.uya src/vp8_encoder_quality_test.uya src/vp8_encoder_keyframe_test.uya src/vp8_encoder_reference_pool_test.uya src/vp8_encoder_inter_prediction_test.uya src/vp8_encoder_motion_search_test.uya src/vp8_encoder_mv_cost_test.uya src/vp8_encoder_mode_decision_test.uya src/vp8_encoder_skip_decision_test.uya src/vp8_encoder_refresh_policy_test.uya src/vp8_encoder_segmentation_policy_test.uya src/vp8_encoder_token_partition_packing_test.uya src/vp8_encoder_token_stats_test.uya src/vp8_encoder_probability_update_test.uya src/vp8_encoder_inter_reconstruct_test.uya src/vp8_encoder_inter_frame_test.uya src/vp8_encoder_mode_search_test.uya src/vp8_encoder_transform_test.uya src/vp8_encoder_partition_output_test.uya src/vp8_encoder_reconstruct_test.uya src/vp8_encoder_loop_filter_test.uya $(VECTOR_CAPABILITY_TEST) src/vp8_mode_parse_test.uya src/vp8_token_parse_test.uya src/vp8_kernels_scalar_test.uya src/vp8_kernels_dispatch_test.uya src/vp8_kernels_simd_test.uya src/vp8_decoder_error_merge_test.uya src/vp8_decoder_token_partition_test.uya src/vp8_decoder_row_pipeline_test.uya src/vp8_decoder_scalar_test.uya
 SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
-UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
+LOCAL_UYA_HOME := /media/winger/_dde_home/winger/uya/gui-uya/uya/bin/uya
+UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; elif test -x "$(LOCAL_UYA_HOME)"; then printf '%s' "$(LOCAL_UYA_HOME)"; else printf '%s' uya; fi)
 LOCAL_VPXENC := $(BUILD_DIR)/deps/vpx-tools-root/usr/bin/vpxenc
 LOCAL_VPXDEC := $(BUILD_DIR)/deps/vpx-tools-root/usr/bin/vpxdec
 VPXENC ?= $(shell if command -v vpxenc >/dev/null 2>&1; then command -v vpxenc; elif test -x "$(LOCAL_VPXENC)"; then printf '%s' "$(LOCAL_VPXENC)"; fi)
 VPXDEC ?= $(shell if command -v vpxdec >/dev/null 2>&1; then command -v vpxdec; elif test -x "$(LOCAL_VPXDEC)"; then printf '%s' "$(LOCAL_VPXDEC)"; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff fetch-vpx-tools fetch-real-y4m test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff fetch-vpx-tools fetch-real-y4m test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-libvpx-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -145,6 +146,17 @@ fetch-vpx-tools:
 
 fetch-real-y4m:
 	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --fetch-real-y4m
+
+bench-libvpx-encode: build
+	$(MAKE) fetch-vpx-tools
+	$(MAKE) fetch-real-y4m
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --encode-vp8uya --vp8uya-bin $(BIN)
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --encode-libvpx
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --decode-vp8uya
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --decode-libvpx
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --write-results-ndjson
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --write-summary-json
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --write-markdown-report
 
 test-cli-doc: build
 	python3 $(CLI_DOC_SCRIPT) $(CLI_DOC) $(BIN)

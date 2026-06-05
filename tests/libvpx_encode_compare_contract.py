@@ -778,6 +778,12 @@ def assert_results_ndjson_records_payload_bits() -> None:
             json.dumps({"libvpx_encode_elapsed_ns": 2345}),
             encoding="utf-8",
         )
+        tools_dir = root / "tools"
+        tools_dir.mkdir()
+        write_fake_vpxenc_encoder(tools_dir / "vpxenc")
+        write_fake_vpxdec_decoder(tools_dir / "vpxdec")
+        env = dict(os.environ)
+        env["PATH"] = str(tools_dir) + os.pathsep + env.get("PATH", "")
 
         completed = subprocess.run(
             [
@@ -800,6 +806,7 @@ def assert_results_ndjson_records_payload_bits() -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=env,
         )
         if completed.returncode != 0:
             raise AssertionError(completed.stdout)
@@ -813,6 +820,8 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert result["sample"] == "unit_qcif"
         assert result["vp8uya_payload_bits"] == 240
         assert result["libvpx_payload_bits"] == 120
+        assert result["vpxenc_version"] == "fake vpxenc"
+        assert result["vpxdec_version"] == "fake vpxdec"
         assert result["vp8uya_bits_per_pixel"] == 0.46875
         assert result["libvpx_bits_per_pixel"] == 0.234375
         assert result["vp8uya_encode_elapsed_ns"] == 1234
