@@ -14,6 +14,7 @@ BENCH_DIR := $(BUILD_DIR)/bench
 BENCH_SCRIPT := bench/decode_bench.py
 ENCODE_BENCH_DIR := $(BUILD_DIR)/bench-encode
 ENCODE_BENCH_SCRIPT := bench/encode_bench.py
+LIBVPX_ENCODE_COMPARE_SCRIPT := bench/libvpx_encode_compare.py
 MOTION_SEARCH_BENCH_BIN := $(BUILD_DIR)/vp8_motion_search_bench
 MOTION_SEARCH_BENCH_DIR := $(BUILD_DIR)/bench-motion-search
 MOTION_SEARCH_BENCH_SCRIPT := bench/motion_search_bench.py
@@ -64,10 +65,12 @@ UYA_TESTS := src/vp8_bitstream_readers_test.uya src/vp8_bitstream_header_test.uy
 SCALAR_DECODER_TESTS := $(UYA_TESTS)
 LOCAL_UYA := /media/winger/_dde_data/winger/uya/gui-uya/uya/bin/uya
 UYA ?= $(shell if command -v uya >/dev/null 2>&1; then command -v uya; elif test -x "$(LOCAL_UYA)"; then printf '%s' "$(LOCAL_UYA)"; else printf '%s' uya; fi)
+LOCAL_VPXENC := $(BUILD_DIR)/deps/vpx-tools-root/usr/bin/vpxenc
 LOCAL_VPXDEC := $(BUILD_DIR)/deps/vpx-tools-root/usr/bin/vpxdec
+VPXENC ?= $(shell if command -v vpxenc >/dev/null 2>&1; then command -v vpxenc; elif test -x "$(LOCAL_VPXENC)"; then printf '%s' "$(LOCAL_VPXENC)"; fi)
 VPXDEC ?= $(shell if command -v vpxdec >/dev/null 2>&1; then command -v vpxdec; elif test -x "$(LOCAL_VPXDEC)"; then printf '%s' "$(LOCAL_VPXDEC)"; fi)
 
-.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
+.PHONY: all build check check-toolchain check-simd-codegen check-kernel-thresholds ci-scalar-only ci-simd-enabled ci-libvpx-diff fetch-vpx-tools test test-cli-doc test-release-notes test-error-codes-doc test-decoder-scalar test-examples test-vector-capabilities test-asm-x86 test-tiny-md5 test-scalar-vs-simd test-single-vs-multithread test-keyframe-md5 test-inter-md5 test-non16-md5 test-segmentation-md5 test-token-partition-md5 test-malformed-ivf test-malformed-vp8 test-multithread-malformed test-fuzz-minimized test-fuzz-smoke test-webm-subset-decode test-vpxdiff bench bench-decode bench-encode bench-motion-search bench-smoke bench-encode-smoke bench-motion-search-smoke bench-1080p-smoke clean require-uya
 
 all: build
 
@@ -134,6 +137,11 @@ ci-simd-enabled: build check-toolchain $(SAMPLE_IVF)
 
 ci-libvpx-diff: build
 	$(MAKE) test-vpxdiff
+
+fetch-vpx-tools:
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --fetch-vpx-tools
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --extract-vpx-tools
+	python3 $(LIBVPX_ENCODE_COMPARE_SCRIPT) --probe-tools
 
 test-cli-doc: build
 	python3 $(CLI_DOC_SCRIPT) $(CLI_DOC) $(BIN)
