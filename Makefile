@@ -192,6 +192,8 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'error: --frames must be positive' $(ENCODE_CLI_DIR)/bad-zero-frames.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --frames abc --out $(ENCODE_CLI_DIR)/bad-nonnumeric-frames.ivf > $(ENCODE_CLI_DIR)/bad-nonnumeric-frames.log 2>&1; test $$? -eq 2
 	grep -q 'error: --frames must be positive' $(ENCODE_CLI_DIR)/bad-nonnumeric-frames.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps --out $(ENCODE_CLI_DIR)/bad-missing-fps.ivf > $(ENCODE_CLI_DIR)/bad-missing-fps.log 2>&1; test $$? -eq 2
+	grep -q 'error: --fps requires NUM/DEN' $(ENCODE_CLI_DIR)/bad-missing-fps.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 128 --out $(ENCODE_CLI_DIR)/bad-q.ivf >/dev/null; test $$? -eq 2
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --target-bitrate 0 --out $(ENCODE_CLI_DIR)/bad-vbr.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf
