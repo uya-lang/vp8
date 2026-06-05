@@ -688,6 +688,7 @@ def probe_tools(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
             and vpxdec["probe_returncode"] == 0
         ),
         "vpxenc": vpxenc,
+        "vpxenc_probe_returncode": vpxenc["probe_returncode"],
         "vpxdec": vpxdec,
         "vpxenc_version": vpxenc["version"],
         "vpxdec_version": vpxdec["version"],
