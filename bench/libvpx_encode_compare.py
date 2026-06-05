@@ -59,6 +59,8 @@ REQUIRED_RESULT_FIELDS = (
 REQUIRED_SUMMARY_FIELDS = (
     "vp8uya_bits_per_pixel",
     "libvpx_bits_per_pixel",
+    "vp8uya_psnr_all_db",
+    "libvpx_psnr_all_db",
 )
 
 HARD_THRESHOLD_FIELDS = (

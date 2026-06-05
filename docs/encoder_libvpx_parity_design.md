@@ -262,6 +262,9 @@ docs/encoder_libvpx_compare_report_template.md
 - aggregate bitrate fields:
   - `vp8uya_bits_per_pixel`
   - `libvpx_bits_per_pixel`
+- aggregate quality fields:
+  - `vp8uya_psnr_all_db`
+  - `libvpx_psnr_all_db`
 
 `docs/encoder_libvpx_compare_report.md` 记录：
 

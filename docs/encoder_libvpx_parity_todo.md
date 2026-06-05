@@ -28,7 +28,7 @@ Date: 2026-06-05
   - 验收产物：未来 `summary.json` 包含 `vp8uya_bits_per_pixel` 和 `libvpx_bits_per_pixel`。
 - [x] 固化码率硬阈值。
   - 验收：当 `vp8uya_bits_per_pixel > libvpx_bits_per_pixel * 1.10` 时，未来门禁返回非 0。
-- [ ] 固化质量指标名。
+- [x] 固化质量指标名。
   - 验收产物：未来 `summary.json` 包含 `vp8uya_psnr_all_db` 和 `libvpx_psnr_all_db`。
 - [ ] 固化 `PSNR-all` 硬阈值。
   - 验收：当 `vp8uya_psnr_all_db < libvpx_psnr_all_db - 0.50` 时，未来门禁返回非 0。

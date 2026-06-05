@@ -33,10 +33,13 @@ the first report version.
 
 ## Summary JSON Contract
 
-Future `summary.json` output records bitrate fields with these exact names:
+Future `summary.json` output records core comparison fields with these exact
+names:
 
 - `vp8uya_bits_per_pixel`
 - `libvpx_bits_per_pixel`
+- `vp8uya_psnr_all_db`
+- `libvpx_psnr_all_db`
 
 ## Sample Results
 
