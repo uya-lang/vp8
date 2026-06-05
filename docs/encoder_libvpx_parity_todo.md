@@ -1,6 +1,6 @@
 # Encoder libvpx 追赶 TODO
 
-Date: 2026-06-04
+Date: 2026-06-05
 
 ## 状态说明
 
@@ -93,7 +93,7 @@ Date: 2026-06-04
 
 ## Phase 4: `encode --frames N --fps NUM/DEN`
 
-- [ ] 为 `encode` 增加 `--frames N` 参数解析。
+- [x] 为 `encode` 增加 `--frames N` 参数解析。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames 1 --out out.ivf` 与不传 `--frames` 行为一致。
 - [ ] 拒绝缺少值的 `--frames`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --frames --out out.ivf` 返回参数错误。

@@ -1,6 +1,6 @@
 # Encoder libvpx 追赶详细设计
 
-Date: 2026-06-04
+Date: 2026-06-05
 
 ## 1. 本轮范围
 
@@ -124,7 +124,7 @@ dpkg-deb -x vpx-tools_*.deb build/deps/vpx-tools-root
 
 ## 6. 真实样本设计
 
-后续使用 Xiph Derf 真实 Y4M 样本，不把媒体文件提交进 git。
+后续脚本需要自动下载 Xiph Derf 真实 Y4M 样本，不把媒体文件提交进 git。
 
 第一批建议样本：
 
