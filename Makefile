@@ -167,6 +167,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	head -c 384 /dev/zero > $(ENCODE_CLI_DIR)/input.yuv
 	head -c 451 /dev/zero > $(ENCODE_CLI_DIR)/input-17x17.yuv
 	head -c 767 /dev/zero > $(ENCODE_CLI_DIR)/short-2frames.yuv
+	head -c 769 /dev/zero > $(ENCODE_CLI_DIR)/extra-2frames.yuv
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --out $(ENCODE_CLI_DIR)/out.ivf > $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.psnr.all=' $(ENCODE_CLI_DIR)/encode.log
 	grep -q 'encode.ssim.all=' $(ENCODE_CLI_DIR)/encode.log
@@ -205,6 +206,8 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'error: --fps must be NUM/DEN with positive integers' $(ENCODE_CLI_DIR)/bad-fps-abc.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/short-2frames.yuv --width 16 --height 16 --frames 2 --out $(ENCODE_CLI_DIR)/bad-short-2frames.ivf > $(ENCODE_CLI_DIR)/bad-short-2frames.log 2>&1; test $$? -eq 2
 	grep -q 'error: input YUV is too short for I420 width/height' $(ENCODE_CLI_DIR)/bad-short-2frames.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/extra-2frames.yuv --width 16 --height 16 --frames 2 --out $(ENCODE_CLI_DIR)/bad-extra-2frames.ivf > $(ENCODE_CLI_DIR)/bad-extra-2frames.log 2>&1; test $$? -eq 2
+	grep -q 'error: input YUV must contain exactly the requested I420 frames' $(ENCODE_CLI_DIR)/bad-extra-2frames.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 128 --out $(ENCODE_CLI_DIR)/bad-q.ivf >/dev/null; test $$? -eq 2
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --target-bitrate 0 --out $(ENCODE_CLI_DIR)/bad-vbr.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf

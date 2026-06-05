@@ -111,7 +111,7 @@ Date: 2026-06-05
   - 验收：17x17 I420 使用 `17 * 17 + 2 * 9 * 9` 作为单帧大小。
 - [x] 拒绝输入不足。
   - 验收：输入小于 `frame_size * frames` 时返回明确错误。
-- [ ] 拒绝输入多余。
+- [x] 拒绝输入多余。
   - 验收：输入大于 `frame_size * frames` 时返回明确错误。
 - [ ] 输出多帧 IVF header。
   - 验收命令：`build/vp8uya info out.ivf` 显示 `ivf.frame_count=N`。
