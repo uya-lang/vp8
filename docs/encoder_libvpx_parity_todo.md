@@ -153,7 +153,7 @@ Date: 2026-06-05
   - 验收：二进制不存在时返回非 0，并打印传入路径。
 - [x] 支持 `--group` 样本过滤。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --group qcif --dry-run` 只列出 QCIF 样本。
-- [ ] 支持 `--frames` 覆盖。
+- [x] 支持 `--frames` 覆盖。
   - 验收：`--frames 30` 时报告中 sample frame count 为 30。
 - [ ] 支持 `--warmups`。
   - 验收：JSON 记录 warmup 次数。

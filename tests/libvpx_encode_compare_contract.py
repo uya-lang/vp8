@@ -244,6 +244,22 @@ def assert_group_dry_run_filters_qcif() -> None:
     assert all("qcif" in sample["groups"] for sample in report["samples"])
 
 
+def assert_frames_dry_run_override() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--group", "qcif", "--frames", "30", "--dry-run"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stdout)
+    report = json.loads(completed.stdout)
+    assert report["sample_count"] == 3
+    assert all(sample["frames"] == 30 for sample in report["samples"])
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -699,6 +715,7 @@ def main() -> int:
     assert_threshold_cli_return_codes()
     assert_vp8uya_bin_missing_cli_path()
     assert_group_dry_run_filters_qcif()
+    assert_frames_dry_run_override()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

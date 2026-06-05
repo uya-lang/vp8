@@ -109,6 +109,16 @@ def validate_vp8uya_binary(path: Path) -> dict[str, Any]:
     }
 
 
+def positive_int_arg(value: str) -> int:
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -379,7 +389,12 @@ def filter_samples_by_group(samples: list[dict[str, Any]], group: str | None) ->
     return [sample for sample in samples if group in sample["groups"]]
 
 
-def dry_run_samples(*, manifest_path: Path = DEFAULT_MANIFEST_PATH, group: str | None = None) -> dict[str, Any]:
+def dry_run_samples(
+    *,
+    manifest_path: Path = DEFAULT_MANIFEST_PATH,
+    group: str | None = None,
+    frames_override: int | None = None,
+) -> dict[str, Any]:
     try:
         manifest = load_sample_manifest(manifest_path)
         selected = filter_samples_by_group(manifest_samples(manifest), group)
@@ -392,12 +407,21 @@ def dry_run_samples(*, manifest_path: Path = DEFAULT_MANIFEST_PATH, group: str |
             "error": str(exc),
         }
 
+    planned_samples: list[dict[str, Any]] = []
+    for sample in selected:
+        planned = dict(sample)
+        if frames_override is not None:
+            planned["manifest_frames"] = planned.get("frames")
+            planned["frames"] = frames_override
+        planned_samples.append(planned)
+
     return {
         "ok": True,
         "manifest_path": str(manifest_path),
         "group": group,
-        "samples": selected,
-        "sample_count": len(selected),
+        "frames_override": frames_override,
+        "samples": planned_samples,
+        "sample_count": len(planned_samples),
     }
 
 
@@ -896,6 +920,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="only select samples whose manifest groups include this value",
     )
     parser.add_argument(
+        "--frames",
+        type=positive_int_arg,
+        help="override each selected sample frame count",
+    )
+    parser.add_argument(
         "--manifest",
         type=Path,
         default=DEFAULT_MANIFEST_PATH,
@@ -950,7 +979,11 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
     if args.dry_run:
-        report = dry_run_samples(manifest_path=args.manifest, group=args.group)
+        report = dry_run_samples(
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+        )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
     if args.prepare_sample_dirs:
