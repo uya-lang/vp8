@@ -105,7 +105,7 @@ Date: 2026-06-05
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --fps 30/1 --out out.ivf` 写入 IVF timebase。
 - [x] 拒绝缺少值的 `--fps`。
   - 验收命令：`build/vp8uya encode input.i420 --width 16 --height 16 --fps --out out.ivf` 返回参数错误。
-- [ ] 拒绝非法 `--fps`。
+- [x] 拒绝非法 `--fps`。
   - 验收命令：`--fps 0/1`、`--fps 30/0`、`--fps abc` 均返回参数错误。
 - [ ] 实现多帧 I420 输入大小计算。
   - 验收：17x17 I420 使用 `17 * 17 + 2 * 9 * 9` 作为单帧大小。

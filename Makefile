@@ -194,6 +194,12 @@ test: build check-toolchain $(SAMPLE_IVF)
 	grep -q 'error: --frames must be positive' $(ENCODE_CLI_DIR)/bad-nonnumeric-frames.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps --out $(ENCODE_CLI_DIR)/bad-missing-fps.ivf > $(ENCODE_CLI_DIR)/bad-missing-fps.log 2>&1; test $$? -eq 2
 	grep -q 'error: --fps requires NUM/DEN' $(ENCODE_CLI_DIR)/bad-missing-fps.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps 0/1 --out $(ENCODE_CLI_DIR)/bad-fps-zero-num.ivf > $(ENCODE_CLI_DIR)/bad-fps-zero-num.log 2>&1; test $$? -eq 2
+	grep -q 'error: --fps must be NUM/DEN with positive integers' $(ENCODE_CLI_DIR)/bad-fps-zero-num.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps 30/0 --out $(ENCODE_CLI_DIR)/bad-fps-zero-den.ivf > $(ENCODE_CLI_DIR)/bad-fps-zero-den.log 2>&1; test $$? -eq 2
+	grep -q 'error: --fps must be NUM/DEN with positive integers' $(ENCODE_CLI_DIR)/bad-fps-zero-den.log
+	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --fps abc --out $(ENCODE_CLI_DIR)/bad-fps-abc.ivf > $(ENCODE_CLI_DIR)/bad-fps-abc.log 2>&1; test $$? -eq 2
+	grep -q 'error: --fps must be NUM/DEN with positive integers' $(ENCODE_CLI_DIR)/bad-fps-abc.log
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --quantizer 128 --out $(ENCODE_CLI_DIR)/bad-q.ivf >/dev/null; test $$? -eq 2
 	$(BIN) encode $(ENCODE_CLI_DIR)/input.yuv --width 16 --height 16 --target-bitrate 0 --out $(ENCODE_CLI_DIR)/bad-vbr.ivf >/dev/null; test $$? -eq 2
 	cmp $(ENCODE_CLI_DIR)/out.ivf $(ENCODE_CLI_DIR)/out-repeat.ivf
