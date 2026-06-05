@@ -121,7 +121,7 @@ Date: 2026-06-05
   - 验收：CLI 不复制 reference pool、inter frame 状态机或 rate control 状态。
 - [x] 保持单帧 encode 行为兼容。
   - 验收命令：`make test` 中现有单帧 encode 用例通过。
-- [ ] 更新 CLI 文档。
+- [x] 更新 CLI 文档。
   - 产物：`docs/cli.md` 说明 `--frames` 和 `--fps`。
 - [ ] 更新 error code 文档。
   - 产物：`docs/error_codes.md` 说明新增参数错误和输入长度错误。

@@ -2,7 +2,7 @@
 
 `vp8uya` is the command-line surface for the pure UYA VP8 codec. The current
 CLI focuses on deterministic workflows: inspect IVF, decode supported VP8
-samples to I420 YUV, encode one I420 frame to IVF, and force scalar/SIMD
+samples to I420 YUV, encode I420 frames to IVF, and force scalar/SIMD
 dispatch paths for regression checks.
 
 Build the binary first:
@@ -153,12 +153,15 @@ build/vp8uya decode-frame input.ivf --index 0 --yuv frame0.yuv
 build/vp8uya encode <input.yuv> --width W --height H [--frames N] [--fps NUM/DEN] [--quantizer Q] [--target-bitrate BPS] [--speed fastest|fast|balanced|best] --out <out.ivf>
 ```
 
-`encode` currently accepts `--frames 1` and expects exactly one contiguous I420
-frame:
+`encode` accepts one or more contiguous I420 frames. `--frames` defaults to
+`1`. The input file must contain exactly `N` frames, where each frame uses:
 
 - Y plane: `W * H` bytes.
 - U plane: `ceil(W / 2) * ceil(H / 2)` bytes.
 - V plane: `ceil(W / 2) * ceil(H / 2)` bytes.
+
+The output IVF header records `frame_count=N`. Per-frame IVF timestamps start
+at `0` and increment by `1` in the configured timebase.
 
 Options:
 
@@ -166,14 +169,14 @@ Options:
 | --- | --- |
 | `--width W` | Required positive visible width in pixels. |
 | `--height H` | Required positive visible height in pixels. |
-| `--frames N` | Optional frame count. The current CLI accepts only `1`; values above `1` return a controlled error. |
+| `--frames N` | Optional positive frame count. Default is `1`; the input length must match exactly `N` I420 frames. |
 | `--fps NUM/DEN` | Optional positive frame rate. Default is `30/1`; the IVF timebase is written as `DEN/NUM`. |
 | `--quantizer Q` | Optional VP8 qindex in `0..127`. If omitted, the default encoder config decides. |
 | `--target-bitrate BPS` | Optional target bitrate in bits per second. When present, the CLI reports bitrate error metrics. |
 | `--speed fastest|fast|balanced|best` | Optional speed preset. Default is `balanced`. |
 | `--out <out.ivf>` | Required IVF output path. |
 
-Successful encode prints quality and speed metrics:
+For `--frames 1`, successful encode prints quality and speed metrics:
 
 ```text
 encode.psnr.y=<value-or-inf>
@@ -188,7 +191,9 @@ encode.speed.preset=<preset>
 encode.speed.mode_search_work_units=<count>
 ```
 
-When `--target-bitrate` is provided, it also prints:
+For multi-frame encode, the current CLI writes all requested frames and prints
+the speed metrics. When `--target-bitrate` is provided for `--frames 1`, it
+also prints:
 
 ```text
 encode.bitrate.target_bits=<bits>
@@ -208,6 +213,6 @@ build/vp8uya encode input.yuv --width 16 --height 16 --quantizer 32 --speed best
 ## Capability Boundary
 
 The CLI does not currently provide a full WebM demuxer, WebM muxer, RTP command
-surface, arbitrary raw VP8 command, multi-frame encoder command, or external
-libvpx integration. Those boundaries are intentional for this release stage;
-covered command behavior is enforced by `make test`.
+surface, arbitrary raw VP8 command, or external libvpx integration. Those
+boundaries are intentional for this release stage; covered command behavior is
+enforced by `make test`.
