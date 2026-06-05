@@ -155,7 +155,7 @@ Date: 2026-06-05
   - 验收命令：`python3 bench/libvpx_encode_compare.py --group qcif --dry-run` 只列出 QCIF 样本。
 - [x] 支持 `--frames` 覆盖。
   - 验收：`--frames 30` 时报告中 sample frame count 为 30。
-- [ ] 支持 `--warmups`。
+- [x] 支持 `--warmups`。
   - 验收：JSON 记录 warmup 次数。
 - [ ] 支持 `--repeats`。
   - 验收：JSON 记录 repeat 次数和最终采用的统计值。

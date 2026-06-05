@@ -260,6 +260,21 @@ def assert_frames_dry_run_override() -> None:
     assert all(sample["frames"] == 30 for sample in report["samples"])
 
 
+def assert_warmups_dry_run_recorded() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--group", "qcif", "--warmups", "2", "--dry-run"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stdout)
+    report = json.loads(completed.stdout)
+    assert report["warmups"] == 2
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -716,6 +731,7 @@ def main() -> int:
     assert_vp8uya_bin_missing_cli_path()
     assert_group_dry_run_filters_qcif()
     assert_frames_dry_run_override()
+    assert_warmups_dry_run_recorded()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

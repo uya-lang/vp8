@@ -119,6 +119,16 @@ def positive_int_arg(value: str) -> int:
     return parsed
 
 
+def nonnegative_int_arg(value: str) -> int:
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a non-negative integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
+
+
 def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -394,6 +404,7 @@ def dry_run_samples(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     group: str | None = None,
     frames_override: int | None = None,
+    warmups: int = 0,
 ) -> dict[str, Any]:
     try:
         manifest = load_sample_manifest(manifest_path)
@@ -403,6 +414,7 @@ def dry_run_samples(
             "ok": False,
             "manifest_path": str(manifest_path),
             "group": group,
+            "warmups": warmups,
             "samples": [],
             "error": str(exc),
         }
@@ -420,6 +432,7 @@ def dry_run_samples(
         "manifest_path": str(manifest_path),
         "group": group,
         "frames_override": frames_override,
+        "warmups": warmups,
         "samples": planned_samples,
         "sample_count": len(planned_samples),
     }
@@ -925,6 +938,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="override each selected sample frame count",
     )
     parser.add_argument(
+        "--warmups",
+        type=nonnegative_int_arg,
+        default=0,
+        help="number of warmup encode runs to record in the benchmark plan",
+    )
+    parser.add_argument(
         "--manifest",
         type=Path,
         default=DEFAULT_MANIFEST_PATH,
@@ -983,6 +1002,7 @@ def main(argv: list[str]) -> int:
             manifest_path=args.manifest,
             group=args.group,
             frames_override=args.frames,
+            warmups=args.warmups,
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
