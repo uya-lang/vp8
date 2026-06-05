@@ -1410,6 +1410,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="run vpxdec on selected vp8uya IVF outputs",
     )
     parser.add_argument(
+        "--decode-libvpx",
+        action="store_true",
+        help="run vpxdec on selected libvpx IVF outputs",
+    )
+    parser.add_argument(
         "--group",
         help="only select samples whose manifest groups include this value",
     )
@@ -1531,6 +1536,16 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.decode_libvpx:
+        report = decode_vpxdec_samples(
+            encoder_label="libvpx",
+            manifest_path=args.manifest,
+            group=args.group,
+            frames_override=args.frames,
+            runs_dir=args.runs_dir,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
     if args.prepare_sample_dirs:
         report = prepare_sample_dirs(y4m_dir=args.y4m_cache_dir, i420_dir=args.i420_cache_dir)
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -1540,7 +1555,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, or --evaluate-result-json", file=sys.stderr)
     return 2
 
 

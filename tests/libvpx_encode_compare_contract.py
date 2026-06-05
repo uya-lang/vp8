@@ -480,6 +480,64 @@ def assert_vpxdec_decodes_vp8uya_output() -> None:
         assert "-o" in command
 
 
+def assert_vpxdec_decodes_libvpx_output() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest_path = root / "manifest.json"
+        runs_dir = root / "runs"
+        fake_vpxdec = root / "vpxdec"
+        runs_dir.mkdir()
+        (runs_dir / "unit_qcif.libvpx.ivf").write_bytes(b"DKIF")
+        manifest_path.write_text(
+            json.dumps({
+                "samples": [{
+                    "name": "unit_qcif",
+                    "width": 16,
+                    "height": 16,
+                    "frames": 2,
+                    "fps": "30/1",
+                    "sha256": "0" * 64,
+                    "groups": ["qcif"],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        write_fake_vpxdec_decoder(fake_vpxdec)
+
+        env = dict(os.environ)
+        env["VPXDEC"] = str(fake_vpxdec)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--manifest",
+                str(manifest_path),
+                "--runs-dir",
+                str(runs_dir),
+                "--group",
+                "qcif",
+                "--decode-libvpx",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        report = json.loads(completed.stdout)
+        result = report["results"][0]
+        output_path = runs_dir / "unit_qcif.libvpx.decoded.i420"
+        assert report["ok"] is True
+        assert result["output_path"] == str(output_path)
+        assert output_path.read_bytes() == b"I420"
+        command = result["vpxdec_command"]
+        assert command[0] == str(fake_vpxdec)
+        assert str(runs_dir / "unit_qcif.libvpx.ivf") in command
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -993,6 +1051,7 @@ def main() -> int:
     assert_vp8uya_encode_generates_ivf()
     assert_libvpx_encode_generates_ivf()
     assert_vpxdec_decodes_vp8uya_output()
+    assert_vpxdec_decodes_libvpx_output()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

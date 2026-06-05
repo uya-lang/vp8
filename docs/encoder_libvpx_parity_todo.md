@@ -165,7 +165,7 @@ Date: 2026-06-05
   - 验收产物：生成 `<sample>.libvpx.ivf`。
 - [x] 调用 `vpxdec` 解码 UYA 输出。
   - 验收产物：生成 `<sample>.vp8uya.decoded.i420`。
-- [ ] 调用 `vpxdec` 解码 libvpx 输出。
+- [x] 调用 `vpxdec` 解码 libvpx 输出。
   - 验收产物：生成 `<sample>.libvpx.decoded.i420`。
 - [ ] 记录完整复现命令。
   - 验收：Markdown 报告中每个失败样本包含 `vp8uya`、`vpxenc`、`vpxdec` 命令。
