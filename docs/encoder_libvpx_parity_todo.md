@@ -132,7 +132,7 @@ Date: 2026-06-05
   - 验收：生成文件大小为 `384 * 3` 字节。
 - [x] 验证多帧 IVF frame count。
   - 验收命令：`build/vp8uya info out.ivf` 输出 `ivf.frame_count=3`。
-- [ ] 验证本项目 decoder 可解多帧输出。
+- [x] 验证本项目 decoder 可解多帧输出。
   - 验收命令：`build/vp8uya decode out.ivf --yuv out.i420` 输出大小为 `384 * 3` 字节。
 - [ ] 验证 `vpxdec` 可解多帧输出。
   - 验收命令：`vpxdec --rawvideo -o out.vpxdec.i420 out.ivf` 输出大小为 `384 * 3` 字节。

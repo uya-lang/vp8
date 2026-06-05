@@ -230,9 +230,11 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-vbr.ivf --yuv $(ENCODE_CLI_DIR)/decoded-vbr.yuv >/dev/null
+	$(BIN) decode $(ENCODE_CLI_DIR)/out-3frames.ivf --yuv $(ENCODE_CLI_DIR)/decoded-3frames.yuv >/dev/null
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded.yuv)" -eq 384
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-q16.yuv)" -eq 384
 	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-vbr.yuv)" -eq 384
+	test "$$(wc -c < $(ENCODE_CLI_DIR)/decoded-3frames.yuv)" -eq 1152
 	printf 'BAD' > $(BUILD_DIR)/short.ivf
 	$(BIN) info $(BUILD_DIR)/short.ivf >/dev/null || test $$? -eq 2
 	$(BIN) decode sample.ivf --yuv out.yuv >/dev/null || test $$? -eq 2
