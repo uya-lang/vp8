@@ -307,6 +307,7 @@ def assert_probe_tools_path_lookup() -> None:
         assert report["vpxdec"]["path"] == str(tmp_path / "vpxdec")
         assert report["vpxdec"]["version_returncode"] == 0
         assert report["vpxdec"]["probe_returncode"] == 0
+        assert report["vpxdec_probe_returncode"] == 0
 
 
 def assert_probe_tools_help_version_fallback() -> None:
