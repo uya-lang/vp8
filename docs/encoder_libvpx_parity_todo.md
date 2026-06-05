@@ -149,7 +149,7 @@ Date: 2026-06-05
 
 - [x] 新增 `bench/libvpx_encode_compare.py`。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --help`。
-- [ ] 支持传入 `build/vp8uya` 路径。
+- [x] 支持传入 `build/vp8uya` 路径。
   - 验收：二进制不存在时返回非 0，并打印传入路径。
 - [ ] 支持 `--group` 样本过滤。
   - 验收命令：`python3 bench/libvpx_encode_compare.py --group qcif --dry-run` 只列出 QCIF 样本。

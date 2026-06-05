@@ -209,6 +209,23 @@ def assert_threshold_cli_return_codes() -> None:
         assert any("fps_ratio" in reason for reason in fps_report["failure_reasons"])
 
 
+def assert_vp8uya_bin_missing_cli_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = Path(tmp) / "missing-vp8uya"
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--vp8uya-bin", str(missing)],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert completed.returncode != 0
+        assert str(missing) in completed.stdout
+        assert "unrecognized arguments" not in completed.stdout
+        assert "vp8uya binary" in completed.stdout
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -662,6 +679,7 @@ def main() -> int:
     assert_psnr_threshold(module)
     assert_fps_threshold(module)
     assert_threshold_cli_return_codes()
+    assert_vp8uya_bin_missing_cli_path()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)

@@ -27,6 +27,7 @@ DEFAULT_VPX_TOOLS_ROOT = DEFAULT_DEPS_DIR / "vpx-tools-root"
 DEFAULT_VPX_TOOLS_DIR = DEFAULT_VPX_TOOLS_ROOT / "usr" / "bin"
 DEFAULT_Y4M_CACHE_DIR = REPO_ROOT / "build" / "real-y4m"
 DEFAULT_I420_CACHE_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "fixtures"
+DEFAULT_VP8UYA_BIN = REPO_ROOT / "build" / "vp8uya"
 LIBVPX_PRESET = "vpxenc --best"
 
 REQUIRED_RESULT_FIELDS = (
@@ -91,6 +92,20 @@ def tool_lookup_result(path: str | None, source: str | None, error: str | None, 
 
 def is_executable_file(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
+
+
+def validate_vp8uya_binary(path: Path) -> dict[str, Any]:
+    if is_executable_file(path):
+        return {
+            "ok": True,
+            "path": str(path),
+            "error": None,
+        }
+    return {
+        "ok": False,
+        "path": str(path),
+        "error": f"vp8uya binary not found or not executable: {path}",
+    }
 
 
 def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -809,6 +824,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="read one benchmark result JSON object, apply hard thresholds, and return non-zero on failure",
     )
     parser.add_argument(
+        "--vp8uya-bin",
+        type=Path,
+        default=None,
+        help=f"path to the vp8uya binary, defaulting to {DEFAULT_VP8UYA_BIN}",
+    )
+    parser.add_argument(
         "--y4m-cache-dir",
         type=Path,
         default=DEFAULT_Y4M_CACHE_DIR,
@@ -825,6 +846,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    if args.vp8uya_bin is not None:
+        report = validate_vp8uya_binary(args.vp8uya_bin)
+        if not report["ok"]:
+            print(report["error"], file=sys.stderr)
+            return 2
     if args.print_metric_contract:
         print(json.dumps(metric_contract(), indent=2, sort_keys=True))
         return 0
