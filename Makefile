@@ -225,6 +225,7 @@ test: build check-toolchain $(SAMPLE_IVF)
 	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17.ivf | grep -q 'ivf.width=17'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-17x17.ivf | grep -q 'ivf.height=17'
 	$(BIN) info $(ENCODE_CLI_DIR)/out-3frames.ivf | grep -q 'ivf.frame_count=3'
+	python3 tests/ivf_timestamps.py $(ENCODE_CLI_DIR)/out-3frames.ivf 0 1 2
 	$(BIN) decode $(ENCODE_CLI_DIR)/out.ivf --yuv $(ENCODE_CLI_DIR)/decoded.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-q16.ivf --yuv $(ENCODE_CLI_DIR)/decoded-q16.yuv >/dev/null
 	$(BIN) decode $(ENCODE_CLI_DIR)/out-vbr.ivf --yuv $(ENCODE_CLI_DIR)/decoded-vbr.yuv >/dev/null

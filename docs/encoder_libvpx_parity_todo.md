@@ -115,7 +115,7 @@ Date: 2026-06-05
   - 验收：输入大于 `frame_size * frames` 时返回明确错误。
 - [x] 输出多帧 IVF header。
   - 验收命令：`build/vp8uya info out.ivf` 显示 `ivf.frame_count=N`。
-- [ ] 输出逐帧 IVF timestamp。
+- [x] 输出逐帧 IVF timestamp。
   - 验收：解析 IVF frame headers 时 timestamp 为 `0..N-1`。
 - [ ] 复用公共 `Vp8Encoder` API。
   - 验收：CLI 不复制 reference pool、inter frame 状态机或 rate control 状态。
