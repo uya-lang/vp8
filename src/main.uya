@@ -15,7 +15,9 @@ use libc.getenv;
 use libc.malloc;
 
 use vp8.common.cpu.SimdCapabilities;
+use vp8.common.cpu.SimdLevel;
 use vp8.common.cpu.simd_detect_capabilities;
+use vp8.common.cpu.simd_level_available;
 use vp8.common.decode_context.DecoderContext;
 use vp8.common.decode_context.allocate_decoder_context_with_thread_scratch;
 use vp8.common.decode_context.free_decoder_context;
@@ -43,9 +45,12 @@ use vp8.decoder.scalar.decoder_decode_frame;
 use vp8.decoder.scalar.make_decoder;
 use vp8.decoder.scalar.make_decoder_with_kernel_table;
 use vp8.encoder.context.EncoderConfig;
+use vp8.encoder.context.EncoderIvfWriter;
 use vp8.encoder.context.EncoderRateControlMode;
 use vp8.encoder.context.EncoderSpeedPreset;
 use vp8.encoder.context.YuvFrameView;
+use vp8.encoder.context.encoder_ivf_writer_begin;
+use vp8.encoder.context.encoder_ivf_writer_write_frame;
 use vp8.encoder.context.i420_frame_size;
 use vp8.encoder.context.i420_frames_size;
 use vp8.encoder.context.make_default_encoder_config;
@@ -67,6 +72,20 @@ use vp8.encoder.rate_control.encoder_rate_control_decide_frame;
 use vp8.encoder.rate_control.encoder_rate_control_finish_frame;
 use vp8.encoder.rate_control.make_encoder_rate_control_frame_report;
 use vp8.encoder.rate_control.make_encoder_rate_control;
+use vp8.api.Vp8EncodeFlags;
+use vp8.api.Vp8EncodedPacket;
+use vp8.api.Vp8Encoder;
+use vp8.api.Vp8EncoderOptions;
+use vp8.api.Vp8EncoderStats;
+use vp8.api.Vp8YuvFrameView;
+use vp8.api.make_vp8_encode_flags;
+use vp8.api.make_vp8_encoder_options;
+use vp8.api.vp8_encoder_default_packet_capacity;
+use vp8.api.vp8_encoder_deinit;
+use vp8.api.vp8_encoder_encode_frame;
+use vp8.api.vp8_encoder_init;
+use vp8.api.vp8_encoder_make_i420_frame_view;
+use vp8.api.vp8_encoder_stats;
 use vp8.kernels.dispatch.KernelFunctionTable;
 use vp8.kernels.dispatch.make_forced_simd_kernel_table;
 use vp8.kernels.dispatch.make_scalar_kernel_table;
@@ -422,6 +441,55 @@ fn make_cli_kernel_table(force_scalar: bool, force_simd: bool) KernelFunctionTab
     return make_scalar_kernel_table();
 }
 
+fn cli_encoder_simd_level(force_scalar: bool, force_simd: bool) SimdLevel {
+    if force_scalar {
+        return SimdLevel.scalar;
+    }
+    if force_simd {
+        const capabilities: SimdCapabilities = simd_detect_capabilities();
+        if simd_level_available(SimdLevel.vector128, &capabilities) {
+            return SimdLevel.vector128;
+        }
+    }
+    return SimdLevel.scalar;
+}
+
+fn cli_vp8_encoder_options_from_config(config: &EncoderConfig, force_scalar: bool, force_simd: bool) Vp8EncoderOptions {
+    var options: Vp8EncoderOptions = make_vp8_encoder_options(config.width, config.height);
+    options.fps_numerator = config.fps_numerator;
+    options.fps_denominator = config.fps_denominator;
+    options.rate_control_mode = config.rate_control_mode;
+    options.quantizer = config.quantizer;
+    options.target_bitrate_bps = config.target_bitrate_bps;
+    options.keyframe_interval = config.keyframe_interval;
+    options.speed_preset = config.speed_preset;
+    options.thread_count = config.thread_count;
+    options.simd_level = cli_encoder_simd_level(force_scalar, force_simd);
+    return options;
+}
+
+fn cli_encode_output_capacity(packet_capacity: usize, frame_count: usize) !usize {
+    if frame_count == 0 {
+        return error.ErrInvalidFileSize;
+    }
+    if packet_capacity > (CLI_U32_MAX_AS_USIZE / frame_count) {
+        return error.ErrInvalidFileSize;
+    }
+    return packet_capacity * frame_count;
+}
+
+fn cli_packet_first_ivf_frame(packet: &Vp8EncodedPacket) !IvfFrame {
+    if !packet.has_output {
+        return error.ErrEncodeQualityUnavailable;
+    }
+    const header: IvfHeader = try parse_ivf_header(packet.data, packet.len);
+    var iterator: IvfFrameIterator = try make_ivf_frame_iterator(packet.data, packet.len, &header);
+    if !ivf_frame_iterator_has_next(&iterator) {
+        return error.ErrEncodeQualityUnavailable;
+    }
+    return try ivf_frame_iterator_next(&iterator);
+}
+
 fn file_looks_like_webm_subset(file: &FileBuffer) bool {
     if file.len < 4 {
         return false;
@@ -748,6 +816,86 @@ fn analyze_encoded_keyframe(reference: &YuvFrameView, encoded: &byte, encoded_le
     };
 }
 
+fn run_encode_multiframe(file: &FileBuffer, width: usize, height: usize, frame_count: usize, input_frame_len: usize, config: &EncoderConfig, output_path: &byte, force_scalar: bool, force_simd: bool) i32 {
+    if frame_count > CLI_U32_MAX_AS_USIZE {
+        _ = printf("error: invalid encode output geometry\n");
+        return 2;
+    }
+
+    var options: Vp8EncoderOptions = cli_vp8_encoder_options_from_config(config, force_scalar, force_simd);
+    var encoder: Vp8Encoder = vp8_encoder_init(&options) catch {
+        _ = printf("error: invalid rate control config\n");
+        return 2;
+    };
+    defer vp8_encoder_deinit(&encoder);
+
+    const packet_capacity: usize = vp8_encoder_default_packet_capacity(width, height) catch {
+        _ = printf("error: invalid encode output geometry\n");
+        return 2;
+    };
+    const out_capacity: usize = cli_encode_output_capacity(packet_capacity, frame_count) catch {
+        _ = printf("error: invalid encode output geometry\n");
+        return 2;
+    };
+    const packet_data: &byte = malloc(packet_capacity) as &byte;
+    if packet_data == null {
+        _ = printf("error: failed to allocate encode output\n");
+        return 2;
+    }
+    defer free(packet_data as &void);
+    const out_data: &byte = malloc(out_capacity) as &byte;
+    if out_data == null {
+        _ = printf("error: failed to allocate encode output\n");
+        return 2;
+    }
+    defer free(out_data as &void);
+
+    var writer: EncoderIvfWriter = encoder_ivf_writer_begin(out_data, out_capacity, config, frame_count as u32) catch {
+        _ = printf("error: invalid encode output geometry\n");
+        return 2;
+    };
+    const flags: Vp8EncodeFlags = make_vp8_encode_flags();
+
+    var frame_index: usize = 0;
+    while frame_index < frame_count {
+        const frame_offset: usize = frame_index * input_frame_len;
+        const frame: Vp8YuvFrameView = vp8_encoder_make_i420_frame_view(&file.data[frame_offset] as &byte, input_frame_len, width, height) catch {
+            _ = printf("error: input YUV is too short for I420 width/height\n");
+            return 2;
+        };
+        const packet: Vp8EncodedPacket = vp8_encoder_encode_frame(&encoder, &frame, packet_data, packet_capacity, &flags) catch {
+            _ = printf("error: failed to encode VP8 frame\n");
+            return 2;
+        };
+        const packet_frame: IvfFrame = cli_packet_first_ivf_frame(&packet) catch {
+            _ = printf("error: failed to encode VP8 frame\n");
+            return 2;
+        };
+        encoder_ivf_writer_write_frame(&writer, out_data, out_capacity, packet_frame.payload.data, packet_frame.payload.len) catch {
+            _ = printf("error: failed to encode VP8 frame\n");
+            return 2;
+        };
+        frame_index = frame_index + 1;
+    }
+
+    const out: &FILE = fopen(output_path as *byte, "wb\0" as &byte);
+    if out == null {
+        _ = printf("error: failed to open encode output file\n");
+        return 2;
+    }
+    const written_len: usize = writer.offset;
+    const written: usize = fwrite(out_data as &const byte, 1, written_len, out);
+    _ = fclose(out);
+    if written != written_len {
+        _ = printf("error: failed to write encode output file\n");
+        return 2;
+    }
+
+    const stats: Vp8EncoderStats = vp8_encoder_stats(&encoder);
+    print_encode_speed_report(config.speed_preset, stats.last_mode_search_work_units);
+    return 0;
+}
+
 fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize, fps_numerator: u32, fps_denominator: u32, quantizer_override: i32, target_bitrate_bps: u32, speed_preset: EncoderSpeedPreset, output_path: &byte, force_scalar: bool, force_simd: bool) i32 {
     if width == 0 || height == 0 {
         _ = printf("error: encode width and height must be positive\n");
@@ -779,10 +927,6 @@ fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize
         _ = printf("error: input YUV must contain exactly the requested I420 frames\n");
         return 2;
     }
-    if frame_count != 1 {
-        _ = printf("error: encode currently supports --frames 1 only\n");
-        return 2;
-    }
 
     var config: EncoderConfig = make_default_encoder_config(width, height);
     config.fps_numerator = fps_numerator;
@@ -795,6 +939,11 @@ fn run_encode(input_path: &byte, width: usize, height: usize, frame_count: usize
         config.target_bitrate_bps = target_bitrate_bps;
     }
     config.speed_preset = speed_preset;
+
+    if frame_count != 1 {
+        return run_encode_multiframe(&file, width, height, frame_count, input_frame_len, &config, output_path, force_scalar, force_simd);
+    }
+
     var rate_control: EncoderRateControl = make_encoder_rate_control(&config) catch {
         _ = printf("error: invalid rate control config\n");
         return 2;

@@ -113,7 +113,7 @@ Date: 2026-06-05
   - 验收：输入小于 `frame_size * frames` 时返回明确错误。
 - [x] 拒绝输入多余。
   - 验收：输入大于 `frame_size * frames` 时返回明确错误。
-- [ ] 输出多帧 IVF header。
+- [x] 输出多帧 IVF header。
   - 验收命令：`build/vp8uya info out.ivf` 显示 `ivf.frame_count=N`。
 - [ ] 输出逐帧 IVF timestamp。
   - 验收：解析 IVF frame headers 时 timestamp 为 `0..N-1`。
