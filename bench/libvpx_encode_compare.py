@@ -36,6 +36,7 @@ DEFAULT_MANIFEST_PATH = REPO_ROOT / "fixtures" / "encoder_libvpx_real_samples.js
 DEFAULT_RUNS_DIR = REPO_ROOT / "build" / "libvpx-encode-compare" / "runs"
 DEFAULT_REPRO_REPORT_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "repro.md"
 DEFAULT_RESULTS_NDJSON_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "results.ndjson"
+DEFAULT_SUMMARY_JSON_PATH = REPO_ROOT / "build" / "libvpx-encode-compare" / "summary.json"
 LIBVPX_PRESET = "vpxenc --best"
 REPEAT_STATISTIC = "median"
 
@@ -1616,6 +1617,105 @@ def write_repro_report(results_path: Path, report_path: Path = DEFAULT_REPRO_REP
     }
 
 
+def mean_required_field(records: list[dict[str, Any]], field: str) -> float:
+    if not records:
+        raise ValueError("summary requires at least one result record")
+    values = [require_number(record, field) for record in records]
+    return sum(values) / float(len(values))
+
+
+def first_string_field(records: list[dict[str, Any]], field: str) -> str:
+    for record in records:
+        value = record.get(field)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def current_git_commit() -> str:
+    completed = run_command(["git", "rev-parse", "HEAD"], REPO_ROOT)
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
+
+
+def build_summary(records: list[dict[str, Any]], *, results_path: Path) -> dict[str, Any]:
+    failed_count = sum(1 for record in records if result_failed(record))
+    sample_count = len(records)
+    passed_count = sample_count - failed_count
+    return {
+        "generated_at_unix": time.time(),
+        "git_commit": current_git_commit(),
+        "host": {
+            "platform": sys.platform,
+            "python": sys.version.split()[0],
+        },
+        "thresholds": dict(THRESHOLDS),
+        "libvpx_preset": LIBVPX_PRESET,
+        "results_ndjson": str(results_path),
+        "sample_count": sample_count,
+        "passed_count": passed_count,
+        "failed_count": failed_count,
+        "passed": failed_count == 0,
+        "vp8uya_bits_per_pixel": mean_required_field(records, "vp8uya_bits_per_pixel"),
+        "libvpx_bits_per_pixel": mean_required_field(records, "libvpx_bits_per_pixel"),
+        "vp8uya_psnr_all_db": mean_required_field(records, "vp8uya_psnr_all_db"),
+        "libvpx_psnr_all_db": mean_required_field(records, "libvpx_psnr_all_db"),
+        "vp8uya_fps": mean_required_field(records, "vp8uya_fps"),
+        "libvpx_fps": mean_required_field(records, "libvpx_fps"),
+        "vpxenc_version": first_string_field(records, "vpxenc_version"),
+        "vpxdec_version": first_string_field(records, "vpxdec_version"),
+    }
+
+
+def write_summary_json(
+    *,
+    results_path: Path = DEFAULT_RESULTS_NDJSON_PATH,
+    summary_path: Path = DEFAULT_SUMMARY_JSON_PATH,
+) -> dict[str, Any]:
+    records, error = load_repro_result_records(results_path)
+    if error is not None:
+        return {
+            "ok": False,
+            "results_ndjson": str(results_path),
+            "summary_json": str(summary_path),
+            "sample_count": 0,
+            "error": error,
+        }
+    try:
+        summary = build_summary(records, results_path=results_path)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "results_ndjson": str(results_path),
+            "summary_json": str(summary_path),
+            "sample_count": len(records),
+            "error": str(exc),
+        }
+
+    try:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        return {
+            "ok": False,
+            "results_ndjson": str(results_path),
+            "summary_json": str(summary_path),
+            "sample_count": len(records),
+            "error": f"failed to write summary JSON {summary_path}: {exc}",
+        }
+
+    return {
+        "ok": True,
+        "results_ndjson": str(results_path),
+        "summary_json": str(summary_path),
+        "sample_count": len(records),
+        "passed_count": summary["passed_count"],
+        "failed_count": summary["failed_count"],
+        "error": None,
+    }
+
+
 def read_ivf_payload_bits(path: Path) -> dict[str, Any]:
     try:
         data = path.read_bytes()
@@ -2352,7 +2452,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--write-results-ndjson",
         action="store_true",
-        help="write per-sample benchmark result records; currently records IVF payload bits",
+        help="write per-sample benchmark result records",
+    )
+    parser.add_argument(
+        "--write-summary-json",
+        action="store_true",
+        help="read results NDJSON and write aggregate summary JSON",
     )
     parser.add_argument(
         "--dry-run",
@@ -2441,6 +2546,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_RESULTS_NDJSON_PATH,
         help=f"NDJSON path for --write-results-ndjson, defaulting to {DEFAULT_RESULTS_NDJSON_PATH}",
+    )
+    parser.add_argument(
+        "--summary-json",
+        type=Path,
+        default=DEFAULT_SUMMARY_JSON_PATH,
+        help=f"JSON summary path for --write-summary-json, defaulting to {DEFAULT_SUMMARY_JSON_PATH}",
     )
     return parser.parse_args(argv[1:])
 
@@ -2546,8 +2657,15 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ok"] else 2
+    if args.write_summary_json:
+        report = write_summary_json(
+            results_path=args.results_ndjson,
+            summary_path=args.summary_json,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 2
 
-    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --write-repro-report, or --write-results-ndjson", file=sys.stderr)
+    print("error: no action requested; use --print-metric-contract, --probe-tools, --fetch-vpx-tools, --extract-vpx-tools, --dry-run, --encode-vp8uya, --encode-libvpx, --decode-vp8uya, --decode-libvpx, --prepare-sample-dirs, --evaluate-result-json, --write-repro-report, --write-results-ndjson, or --write-summary-json", file=sys.stderr)
     return 2
 
 

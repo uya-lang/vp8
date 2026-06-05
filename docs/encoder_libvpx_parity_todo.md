@@ -186,7 +186,7 @@ Date: 2026-06-05
   - 验收产物：`results.ndjson` 包含 `ssim_y`、`ssim_u`、`ssim_v`、`ssim_all`。
 - [x] 输出 NDJSON 明细。
   - 产物：`build/libvpx-encode-compare/results.ndjson`。
-- [ ] 输出 JSON 汇总。
+- [x] 输出 JSON 汇总。
   - 产物：`build/libvpx-encode-compare/summary.json`。
 - [ ] 输出 Markdown 报告。
   - 产物：`docs/encoder_libvpx_compare_report.md`。

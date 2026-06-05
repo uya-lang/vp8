@@ -765,6 +765,60 @@ def assert_results_ndjson_records_payload_bits() -> None:
         assert math.isclose(result["libvpx_ssim_all"], expected_ssim_y, rel_tol=0.0, abs_tol=1e-12)
 
 
+def assert_summary_json_records_core_fields() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        results_path = root / "results.ndjson"
+        summary_path = root / "summary.json"
+        result = make_result(
+            vp8uya_bits_per_pixel=0.75,
+            libvpx_bits_per_pixel=0.50,
+            vp8uya_psnr_all_db=35.0,
+            libvpx_psnr_all_db=36.0,
+            vp8uya_fps=80.0,
+            libvpx_fps=100.0,
+            passed=True,
+            failure_reasons=[],
+        )
+        results_path.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--write-summary-json",
+                "--results-ndjson",
+                str(results_path),
+                "--summary-json",
+                str(summary_path),
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        status = json.loads(completed.stdout)
+        assert status["ok"] is True
+        assert status["summary_json"] == str(summary_path)
+        assert status["sample_count"] == 1
+
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        assert summary["sample_count"] == 1
+        assert summary["passed_count"] == 1
+        assert summary["failed_count"] == 0
+        assert summary["vp8uya_bits_per_pixel"] == 0.75
+        assert summary["libvpx_bits_per_pixel"] == 0.50
+        assert summary["vp8uya_psnr_all_db"] == 35.0
+        assert summary["libvpx_psnr_all_db"] == 36.0
+        assert summary["vp8uya_fps"] == 80.0
+        assert summary["libvpx_fps"] == 100.0
+        assert isinstance(summary["vpxenc_version"], str)
+        assert isinstance(summary["vpxdec_version"], str)
+
+
 def assert_ssim_is_record_only(module: object) -> None:
     contract = module.metric_contract()
     fields = set(contract["required_result_fields"])
@@ -1281,6 +1335,7 @@ def main() -> int:
     assert_vpxdec_decodes_libvpx_output()
     assert_repro_report_records_failed_sample_commands()
     assert_results_ndjson_records_payload_bits()
+    assert_summary_json_records_core_fields()
     assert_ssim_is_record_only(module)
     assert_vpxenc_env_lookup(module)
     assert_vpxdec_env_lookup(module)
