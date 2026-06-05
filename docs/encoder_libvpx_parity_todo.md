@@ -197,7 +197,7 @@ Date: 2026-06-05
   - 验收：`vp8uya_bits_per_pixel <= libvpx_bits_per_pixel * 1.10` 时码率项通过。
 - [x] 实现 `PSNR-all` 门禁。
   - 验收：`vp8uya_psnr_all_db >= libvpx_psnr_all_db - 0.50` 时质量项通过。
-- [ ] 实现 fps 门禁。
+- [x] 实现 fps 门禁。
   - 验收：`vp8uya_fps >= libvpx_fps * 0.80` 时速度项通过。
 - [ ] 输出失败原因。
   - 验收：任一门禁失败时 `failure_reasons` 至少包含一个原因。
